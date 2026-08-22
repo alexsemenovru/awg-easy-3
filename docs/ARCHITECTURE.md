@@ -61,6 +61,20 @@ Protocol presets must be versioned data with validation. They must not be
 described as secure or production-tested unless that claim is supported by an
 upstream specification and interoperability tests.
 
+## AmneziaVPN export compatibility
+
+AmneziaVPN 5.0.0.5 has a known import-path defect: a native `.conf` can be
+accepted while the AWG 3.x fields are omitted from the application's internal
+model, preventing the protected handshake. The primary QR/export format for
+AmneziaVPN is therefore its `vpn://` share link.
+
+The link contains a third-party `amnezia-awg` container object, an AWG
+`last_config` object with the protocol fields stored separately, and the native
+configuration for compatibility. The JSON is encoded with Qt's `qCompress`
+framing (four-byte big-endian source length followed by zlib data), then
+unpadded base64url. Native `.conf` remains an additional export for dedicated
+clients and diagnostics, not the primary AmneziaVPN onboarding path.
+
 ## Network policy
 
 Use a dedicated nftables table named with the `awg_easy_3` prefix. Rules match
@@ -114,4 +128,3 @@ The inherited code is distributed under CC BY-NC-SA 4.0. The fork must retain
 attribution, indicate modifications, remain non-commercial, and distribute
 adapted material under compatible ShareAlike terms. Dependency and bundled
 binary licenses must be recorded separately before release.
-
