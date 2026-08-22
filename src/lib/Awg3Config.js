@@ -52,6 +52,24 @@ const RANGE_FIELDS_UINT16 = [
 const HEADER_FIELDS = ['h1', 'h2', 'h3', 'h4'];
 const PADDING_FIELDS = ['s1', 's2', 's3', 's4'];
 
+const OFFICIAL_DEFAULTS = Object.freeze({
+  jmin: 10,
+  jmax: 50,
+  h1: '1',
+  h2: '2',
+  h3: '3',
+  h4: '4',
+  i1: '<r 2><b 0x858000010001000000000669636c6f756403636f6d0000010001c00c000100010000105a00044d583737>',
+  contentPaddingAddition: '10-100',
+  rekeyAfterTime: '100-120',
+  rekeyTimeout: '3-7',
+  rejectAfterTime: '150-180',
+  keepaliveTimeout: '5-15',
+  maxHandshakeAttempts: '15-20',
+  randomTrailers: true,
+  disableCookies: true,
+});
+
 const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
 
 const parseInteger = (value, field, max) => {
@@ -165,6 +183,44 @@ const validateProfile = (input) => {
 
 const generateHeaderProtectionKey = () => crypto.randomBytes(32).toString('base64');
 
+const generateOfficialProfile = ({
+  randomInt = crypto.randomInt,
+  generateKey = generateHeaderProtectionKey,
+} = {}) => {
+  const packetSizes = [148, 92, 64, 32];
+  const maxima = [150, 150, 64];
+  const paddings = [];
+  const transportPadding = 12;
+
+  for (let index = 0; index < maxima.length; index++) {
+    let value;
+    let attempts = 0;
+    do {
+      value = randomInt(12, maxima[index]);
+      attempts++;
+      if (attempts > 1_000) throw new Error('Unable to generate distinct AWG padding values');
+    } while (
+      value === transportPadding
+      || paddings.includes(value)
+      || paddings.some((padding, previous) => (
+        packetSizes[previous] + padding === packetSizes[index] + value
+      ))
+      || packetSizes[3] + transportPadding === packetSizes[index] + value
+    );
+    paddings.push(value);
+  }
+
+  return validateProfile({
+    jc: randomInt(4, 7),
+    ...OFFICIAL_DEFAULTS,
+    s1: paddings[0],
+    s2: paddings[1],
+    s3: paddings[2],
+    s4: transportPadding,
+    headerProtectionKey: generateKey(),
+  });
+};
+
 const renderInterfaceFields = (input) => {
   const profile = validateProfile(input);
   return INTERFACE_FIELD_ORDER
@@ -183,9 +239,10 @@ const renderPeerSecurity = ({ advancedSecurity = true } = {}) => {
 };
 
 module.exports = {
+  OFFICIAL_DEFAULTS,
   generateHeaderProtectionKey,
+  generateOfficialProfile,
   renderInterfaceFields,
   renderPeerSecurity,
   validateProfile,
 };
-

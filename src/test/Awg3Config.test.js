@@ -5,6 +5,7 @@ const test = require('node:test');
 
 const {
   generateHeaderProtectionKey,
+  generateOfficialProfile,
   renderInterfaceFields,
   renderPeerSecurity,
   validateProfile,
@@ -74,3 +75,17 @@ test('rejects malformed header protection keys', () => {
   assert.throws(() => validateProfile(profile), /exactly 32 bytes/);
 });
 
+test('generates an AWG 3.1 profile from current official Amnezia defaults', () => {
+  const values = [20, 30, 40, 5];
+  const profile = generateOfficialProfile({
+    randomInt: () => values.shift(),
+    generateKey: () => Buffer.alloc(32, 7).toString('base64'),
+  });
+
+  assert.equal(profile.jc, 5);
+  assert.deepEqual([profile.s1, profile.s2, profile.s3, profile.s4], [20, 30, 40, 12]);
+  assert.deepEqual([profile.h1, profile.h2, profile.h3, profile.h4], ['1', '2', '3', '4']);
+  assert.equal(profile.contentPaddingAddition, '10-100');
+  assert.equal(profile.randomTrailers, true);
+  assert.equal(profile.disableCookies, true);
+});
