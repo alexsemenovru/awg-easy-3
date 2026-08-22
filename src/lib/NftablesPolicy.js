@@ -53,6 +53,7 @@ const renderNftablesPolicy = ({
   wanInterface = 'eth0',
   ipv4Subnet = '10.8.0.0/24',
   ipv6Subnet,
+  nat66 = false,
   home4,
   guest4,
   home6 = [],
@@ -69,6 +70,8 @@ const renderNftablesPolicy = ({
   const normalizedHome6 = validateAddressList(home6, 6, 'home6');
   const normalizedGuest6 = validateAddressList(guest6, 6, 'guest6');
   const normalizedBlockIPv6 = validateAddressList(blockIPv6, 6, 'blockIPv6');
+  if (typeof nat66 !== 'boolean') throw new TypeError('nat66 must be a boolean');
+  if (nat66 && !subnet6) throw new TypeError('nat66 requires ipv6Subnet');
 
   if (normalizedHome4.length === 0) throw new TypeError('At least one home IPv4 peer is required');
   const overlaps = normalizedHome4.filter((address) => normalizedGuest4.includes(address));
@@ -109,6 +112,10 @@ const renderNftablesPolicy = ({
     iifname ${quote(awg)} oifname ${quote(wan)} ip6 saddr ${subnet6} accept comment "AWG IPv6 to WAN"
     iifname ${quote(wan)} oifname ${quote(awg)} ip6 daddr ${subnet6} ct state established,related accept comment "return IPv6 traffic"` : '';
 
+  const ipv6NatRule = nat66
+    ? `\n    oifname ${quote(wan)} ip6 saddr ${subnet6} masquerade comment "AWG-Easy 3 IPv6 NAT"`
+    : '';
+
   return `# Managed by AWG-Easy 3. Do not append unrelated rules to this table.
 table inet ${TABLE_NAME} {
   set home4 {
@@ -137,7 +144,7 @@ ${ipv6Sets}
 
   chain postrouting {
     type nat hook postrouting priority srcnat; policy accept;
-    oifname ${quote(wan)} ip saddr ${subnet4} masquerade comment "AWG-Easy 3 IPv4 NAT"
+    oifname ${quote(wan)} ip saddr ${subnet4} masquerade comment "AWG-Easy 3 IPv4 NAT"${ipv6NatRule}
   }
 }
 `;

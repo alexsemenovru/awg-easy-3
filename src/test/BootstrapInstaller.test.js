@@ -42,8 +42,15 @@ const dependencies = (existing = null) => {
         assert.equal(password, 'CorrectHorseBatteryStaple');
         return '$2a$12$test-password-hash';
       },
-      randomBytes: () => Buffer.alloc(48, 19),
+      randomBytes: (length) => Buffer.alloc(length, 19),
       profileGenerator: profile,
+      networkDetector: {
+        detect: async () => ({
+          wanInterface: 'detected0',
+          endpointCandidate: '198.51.100.50',
+          ipv6: { available: false },
+        }),
+      },
     },
   };
 };
@@ -79,7 +86,23 @@ test('adds IPv6 only when automatic detection supplies a routed prefix', async (
     },
   });
   assert.equal(result.state.server.address6, '2001:db8:42::1');
+  assert.equal(result.state.server.ipv6Mode, 'routed');
   assert.equal(result.state.clients[0].address6, '2001:db8:42::2');
+});
+
+test('automatically creates a NAT66 ULA plan when VPS IPv6 works', async () => {
+  const fixture = dependencies();
+  fixture.options.networkDetector.detect = async () => ({
+    wanInterface: 'ens3',
+    endpointCandidate: '203.0.113.50',
+    ipv6: { available: true },
+  });
+  const result = await new BootstrapInstaller(fixture.options).install({});
+  assert.equal(result.state.server.wanInterface, 'ens3');
+  assert.equal(result.state.server.endpointHost, '203.0.113.50');
+  assert.equal(result.state.server.ipv6Mode, 'nat66');
+  assert.equal(result.state.server.ipv6Subnet, 'fd13:1313:1313::/64');
+  assert.equal(result.state.clients[0].address6, 'fd13:1313:1313::2');
 });
 
 test('refuses to overwrite an existing installation before generating secrets', async () => {

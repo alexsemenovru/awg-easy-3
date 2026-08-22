@@ -79,6 +79,15 @@ const validateState = (input) => {
   }
   server.listenPort = listenPort;
   server.panelPort = panelPort;
+  if (input.server.ipv6Mode !== undefined) {
+    if (!['nat66', 'routed'].includes(input.server.ipv6Mode)) {
+      throw new TypeError('server.ipv6Mode must be nat66 or routed');
+    }
+    if (!server.address6 || !server.ipv6Subnet) {
+      throw new TypeError('server.ipv6Mode requires IPv6 addresses');
+    }
+    server.ipv6Mode = input.server.ipv6Mode;
+  }
 
   const auth = {
     passwordHash: requiredString(input.auth.passwordHash, 'auth.passwordHash'),
@@ -170,4 +179,3 @@ module.exports = {
   StateStore,
   validateState,
 };
-

@@ -46,6 +46,23 @@ test('adds IPv6 home, guest and RU-direct blocking policy when enabled', () => {
   assert.match(rules, /ip6 saddr @home6 ip6 daddr @home6 accept/);
 });
 
+test('adds NAT66 only for the project IPv6 prefix when requested', () => {
+  const policy = renderNftablesPolicy({
+    interfaceName: 'awg0',
+    wanInterface: 'eth0',
+    ipv4Subnet: '10.8.0.0/24',
+    ipv6Subnet: 'fd42:8:3::/64',
+    nat66: true,
+    home4: ['10.8.0.2'],
+    guest4: [],
+    home6: ['fd42:8:3::2'],
+  });
+  assert.match(policy, /ip6 saddr fd42:8:3::\/64 masquerade/);
+  assert.throws(() => renderNftablesPolicy({
+    home4: ['10.8.0.2'], guest4: [], nat66: true,
+  }), /requires ipv6Subnet/);
+});
+
 test('rejects peer membership overlap', () => {
   assert.throws(
     () => renderNftablesPolicy({ ...basePolicy(), guest4: ['10.8.0.2'] }),

@@ -4,6 +4,8 @@ const crypto = require('node:crypto');
 
 const { generateOfficialProfile } = require('./Awg3Config');
 const { AwgKeyManager } = require('./AwgKeyManager');
+const { createNat66Plan } = require('./Ipv6Plan');
+const { NetworkDetector } = require('./NetworkDetector');
 const { STATE_VERSION, validateState } = require('./StateStore');
 
 const PASSWORD_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
@@ -33,6 +35,7 @@ class BootstrapInstaller {
     passwordGenerator = generatePassword,
     randomBytes = crypto.randomBytes,
     profileGenerator = generateOfficialProfile,
+    networkDetector = new NetworkDetector(),
   } = {}) {
     if (!store || typeof store.load !== 'function' || typeof store.save !== 'function') {
       throw new TypeError('store must provide load and save methods');
@@ -49,12 +52,16 @@ class BootstrapInstaller {
       || typeof keyManager.generatePeerKeys !== 'function') {
       throw new TypeError('keyManager must generate server and peer keys');
     }
+    if (!networkDetector || typeof networkDetector.detect !== 'function') {
+      throw new TypeError('networkDetector must provide a detect method');
+    }
     this.store = store;
     this.keyManager = keyManager;
     this.passwordHasher = passwordHasher;
     this.passwordGenerator = passwordGenerator;
     this.randomBytes = randomBytes;
     this.profileGenerator = profileGenerator;
+    this.networkDetector = networkDetector;
   }
 
   async install({
@@ -73,6 +80,13 @@ class BootstrapInstaller {
       throw new Error('AWG-Easy 3 is already initialized; refusing to overwrite state');
     }
 
+    const network = await this.networkDetector.detect();
+    const resolvedEndpointHost = endpointHost ?? network.endpointCandidate;
+    const resolvedWanInterface = wanInterface ?? network.wanInterface;
+    const ipv6Plan = ipv6 === undefined && network.ipv6.available
+      ? createNat66Plan({ randomBytes: this.randomBytes })
+      : ipv6;
+
     const serverKeys = await this.keyManager.generateKeyPair();
     const clientKeys = await this.keyManager.generatePeerKeys();
     const bootstrapPassword = this.passwordGenerator();
@@ -81,13 +95,13 @@ class BootstrapInstaller {
 
     const server = {
       interfaceName,
-      wanInterface,
+      wanInterface: resolvedWanInterface,
       ...serverKeys,
       address4: serverAddress4,
       ipv4Subnet,
       listenPort,
       panelPort,
-      endpointHost,
+      endpointHost: resolvedEndpointHost,
       profile: this.profileGenerator(),
     };
     const client = {
@@ -100,13 +114,14 @@ class BootstrapInstaller {
       ...clientKeys,
     };
 
-    if (ipv6 !== undefined) {
-      if (!ipv6 || typeof ipv6 !== 'object' || Array.isArray(ipv6)) {
+    if (ipv6Plan !== undefined && ipv6Plan !== null) {
+      if (typeof ipv6Plan !== 'object' || Array.isArray(ipv6Plan)) {
         throw new TypeError('ipv6 must be an object');
       }
-      server.address6 = ipv6.serverAddress;
-      server.ipv6Subnet = ipv6.subnet;
-      client.address6 = ipv6.firstClientAddress;
+      server.address6 = ipv6Plan.serverAddress;
+      server.ipv6Subnet = ipv6Plan.subnet;
+      server.ipv6Mode = ipv6Plan.mode ?? 'routed';
+      client.address6 = ipv6Plan.firstClientAddress;
     }
 
     const state = validateState({

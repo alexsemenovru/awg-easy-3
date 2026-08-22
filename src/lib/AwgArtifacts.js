@@ -47,6 +47,7 @@ const buildAwgArtifacts = ({ server, clients, ruIPv4Cidrs = [] }) => {
     wanInterface: server.wanInterface ?? 'eth0',
     ipv4Subnet: server.ipv4Subnet,
     ...(serverHasIPv6 ? { ipv6Subnet: server.ipv6Subnet } : {}),
+    nat66: serverHasIPv6 && server.ipv6Mode === 'nat66',
     panelPort: server.panelPort ?? 51821,
     home4: activeHomes.map((client) => client.address4),
     guest4: enabledClients.filter((client) => client.networkGroup === 'guest').map((client) => client.address4),
@@ -116,4 +117,3 @@ const buildAwgArtifacts = ({ server, clients, ruIPv4Cidrs = [] }) => {
 module.exports = {
   buildAwgArtifacts,
 };
-

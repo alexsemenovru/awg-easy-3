@@ -72,6 +72,7 @@ test('adds dual-stack addresses but blocks RU-direct IPv6', () => {
   const input = fixture();
   input.server.ipv6Subnet = '2001:db8:42::/64';
   input.server.address6 = '2001:db8:42::1';
+  input.server.ipv6Mode = 'nat66';
   input.clients[0].address6 = '2001:db8:42::2';
   input.clients[1].address6 = '2001:db8:42::3';
 
@@ -79,6 +80,7 @@ test('adds dual-stack addresses but blocks RU-direct IPv6', () => {
   assert.equal(artifacts.serverHasIPv6, true);
   assert.match(artifacts.clientArtifacts.admin.nativeConfig, /Address = 10\.8\.0\.2\/32, 2001:db8:42::2\/128/);
   assert.match(artifacts.nftables, /block_ipv6/);
+  assert.match(artifacts.nftables, /ip6 saddr 2001:db8:42::\/64 masquerade/);
   assert.match(artifacts.nftables, /elements = \{ 2001:db8:42::3 \}/);
 });
 
@@ -87,4 +89,3 @@ test('refuses a state with no enabled home client', () => {
   input.clients[0].enabled = false;
   assert.throws(() => buildAwgArtifacts(input), /enabled home/);
 });
-
