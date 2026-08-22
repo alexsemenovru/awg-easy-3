@@ -1,5 +1,7 @@
 {
-  "version": "1.0.1",
+  "name": "awg-easy-3",
+  "version": "0.1.0-dev",
+  "description": "A simple self-hosted web panel for AmneziaWG 3.x.",
   "scripts": {
     "sudobuild": "DOCKER_BUILDKIT=1 sudo docker build --tag wg-easy .",
     "build": "DOCKER_BUILDKIT=1 docker build --tag wg-easy .",

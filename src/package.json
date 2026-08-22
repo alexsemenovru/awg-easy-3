@@ -2,9 +2,9 @@
   "release": {
     "version": "14"
   },
-  "name": "wg-easy",
-  "version": "1.0.1",
-  "description": "The easiest way to run WireGuard VPN + Web-based Admin UI.",
+  "name": "awg-easy-3",
+  "version": "0.1.0-dev",
+  "description": "A simple self-hosted web panel for AmneziaWG 3.x.",
   "main": "server.js",
   "scripts": {
     "serve": "DEBUG=Server,WireGuard npx nodemon server.js",

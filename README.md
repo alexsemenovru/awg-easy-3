@@ -1,4 +1,17 @@
-# AWG-Easy 2.0
+# AWG-Easy 3 (work in progress)
+
+> This repository is being rebuilt as an independent, non-commercial panel for
+> AmneziaWG 3.x. It is not ready for deployment yet. The content below describes
+> the inherited AWG-Easy 2.0 baseline and will be replaced as implementation
+> progresses.
+>
+> Current scope: [Russian product specification](docs/PRODUCT_SPEC.ru.md) and
+> [architecture notes](docs/ARCHITECTURE.md).
+
+AWG-Easy 3 is not affiliated with or endorsed by AmneziaVPN or the upstream
+AWG-Easy maintainers. See [NOTICE](NOTICE) for attribution.
+
+## Inherited baseline
 
 [![Build & Publish Docker Image](https://github.com/JohnnyVBut/awg-easy/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/JohnnyVBut/awg-easy/actions/workflows/docker-publish.yml)
 [![Docker Pulls](https://img.shields.io/badge/docker-ghcr.io-blue)](https://github.com/JohnnyVBut/awg-easy/pkgs/container/awg-easy)

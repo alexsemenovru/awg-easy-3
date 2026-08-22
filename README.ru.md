@@ -1,4 +1,17 @@
-# AWG-Easy 2.0
+# AWG-Easy 3 (в разработке)
+
+> Репозиторий перерабатывается в независимую некоммерческую панель для
+> AmneziaWG 3.x. Проект пока не готов к установке на сервер. Текст ниже
+> описывает унаследованную основу AWG-Easy 2.0 и будет заменяться по мере
+> разработки.
+>
+> Зафиксированный объём проекта: [спецификация](docs/PRODUCT_SPEC.ru.md) и
+> [архитектурные заметки](docs/ARCHITECTURE.md).
+
+AWG-Easy 3 не является официальным продуктом AmneziaVPN и не связан с
+разработчиками исходных проектов. Атрибуция приведена в [NOTICE](NOTICE).
+
+## Унаследованная основа
 
 [![Build & Publish Docker Image](https://github.com/JohnnyVBut/awg-easy/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/JohnnyVBut/awg-easy/actions/workflows/docker-publish.yml)
 [![Docker Pulls](https://img.shields.io/badge/docker-ghcr.io-blue)](https://github.com/JohnnyVBut/awg-easy/pkgs/container/awg-easy)
