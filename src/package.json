@@ -9,6 +9,7 @@
   "scripts": {
     "serve": "DEBUG=Server,WireGuard npx nodemon server.js",
     "serve-with-password": "PASSWORD=wg npm run serve",
+    "test": "node --test test/*.test.js",
     "lint": "eslint .",
     "buildcss": "npx tailwindcss -i ./www/src/css/app.css -o ./www/css/app.css"
   },
