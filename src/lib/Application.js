@@ -22,12 +22,19 @@ class Application {
     publicDirectory = path.join(__dirname, '..', 'www'),
     runner = runProcess,
     fileSystem = fs,
+    discoveryFactory = () => new DiscoveryRelay(),
+    httpFactory = (options) => new HttpServer(options),
   } = {}) {
     this.dataDirectory = path.resolve(dataDirectory);
     this.runtimeDirectory = path.resolve(runtimeDirectory);
     this.publicDirectory = path.resolve(publicDirectory);
     this.runner = runner;
     this.fs = fileSystem;
+    if (typeof discoveryFactory !== 'function' || typeof httpFactory !== 'function') {
+      throw new TypeError('discoveryFactory and httpFactory must be functions');
+    }
+    this.discoveryFactory = discoveryFactory;
+    this.httpFactory = httpFactory;
     this.store = new StateStore(path.join(this.dataDirectory, 'state.json'));
     this.applier = new RuntimeApplier({ runtimeDirectory: this.runtimeDirectory, runner });
     this.http = null;
@@ -73,20 +80,30 @@ class Application {
       interfaceName: state.server.interfaceName,
       interfaceActive: await this.interfaceActive(state.server.interfaceName),
     });
-
-    const passwordManager = new PasswordManager({ store: this.store });
-    const sessionManager = new SessionManager({ store: this.store });
-    this.discovery = new DiscoveryRelay();
-    await this.discovery.start(state);
-    const clientManager = new ClientManager({
-      store: this.store,
-      applier: this.applier,
-      onStateChanged: (nextState) => this.discovery.refresh(nextState),
-    });
-    const api = new ApiService({ store: this.store, passwordManager, sessionManager, clientManager });
-    this.http = new HttpServer({ api, publicDirectory: this.publicDirectory });
     this.state = state;
-    return this.http.listen({ host: state.server.address4, port: state.server.panelPort });
+    try {
+      const passwordManager = new PasswordManager({ store: this.store });
+      const sessionManager = new SessionManager({ store: this.store });
+      this.discovery = this.discoveryFactory();
+      await this.discovery.start(state);
+      const clientManager = new ClientManager({
+        store: this.store,
+        applier: this.applier,
+        onStateChanged: (nextState) => this.discovery.refresh(nextState),
+      });
+      const api = new ApiService({ store: this.store, passwordManager, sessionManager, clientManager });
+      this.http = this.httpFactory({ api, publicDirectory: this.publicDirectory });
+      return await this.http.listen({ host: state.server.address4, port: state.server.panelPort });
+    } catch (error) {
+      try {
+        await this.stop();
+      } catch (rollbackError) {
+        error.rollbackErrors = Object.freeze(
+          rollbackError instanceof AggregateError ? [...rollbackError.errors] : [rollbackError],
+        );
+      }
+      throw error;
+    }
   }
 
   async stop() {
