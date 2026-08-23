@@ -57,7 +57,11 @@ class ApiService {
   }
 
   async session(token) {
-    return Object.freeze({ authenticated: await this.sessionManager.verify(token) });
+    const state = await this.store.load();
+    return Object.freeze({
+      authenticated: await this.sessionManager.verify(token),
+      language: state?.server?.uiLanguage ?? 'en',
+    });
   }
 
   async listClients(token) {

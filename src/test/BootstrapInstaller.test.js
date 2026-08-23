@@ -61,12 +61,18 @@ test('creates the clean installation and first home profile', async () => {
   const result = await installer.install({
     endpointHost: 'vpn.example.com',
     wanInterface: 'ens3',
+    listenPort: 443,
+    panelPort: 8080,
+    uiLanguage: 'ru',
   });
 
   assert.equal(result.bootstrapPassword, 'CorrectHorseBatteryStaple');
   assert.equal(result.state.auth.passwordHash, '$2a$12$test-password-hash');
   assert.equal(result.state.auth.sessionSecret, Buffer.alloc(48, 19).toString('base64url'));
   assert.equal(result.state.server.address4, '10.8.0.1');
+  assert.equal(result.state.server.listenPort, 443);
+  assert.equal(result.state.server.panelPort, 8080);
+  assert.equal(result.state.server.uiLanguage, 'ru');
   assert.equal(result.state.clients[0].address4, '10.8.0.2');
   assert.equal(result.state.clients[0].networkGroup, 'home');
   assert.equal(fixture.getSaved(), result.state);

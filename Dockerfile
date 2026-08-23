@@ -30,6 +30,6 @@ COPY src/ ./
 COPY --from=node-deps /app/node_modules ./node_modules
 ENV NODE_ENV=production AWG_EASY_DATA_DIR=/data AWG_EASY_RUNTIME_DIR=/run/awg-easy-3 WG_QUICK_USERSPACE_IMPLEMENTATION=amneziawg-go
 VOLUME ["/data"]
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 CMD awg show awg0 >/dev/null && wget -q -T 3 -O /dev/null http://10.8.0.1:51821/api/v1/session || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 CMD awg show awg0 >/dev/null && wget -q -T 3 -O /dev/null "http://10.8.0.1:${AWG_PANEL_PORT}/api/v1/session" || exit 1
 ENTRYPOINT ["/usr/bin/dumb-init", "--", "node", "/app/server.js"]
 CMD ["serve"]

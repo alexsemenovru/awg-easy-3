@@ -23,4 +23,7 @@ services:
       - no-new-privileges:true
     environment:
       AWG_HOST: ${AWG_HOST:-}
+      AWG_PORT: ${AWG_PORT:-51820}
+      AWG_PANEL_PORT: ${AWG_PANEL_PORT:-51821}
+      AWG_LANG: ${AWG_LANG:-en}
     stop_grace_period: 15s

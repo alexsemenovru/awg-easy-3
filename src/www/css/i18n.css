@@ -1,0 +1,11 @@
+html[dir="rtl"] .client-address,
+html[dir="rtl"] code {
+  direction: ltr;
+  unicode-bidi: isolate;
+  text-align: right;
+}
+
+html[dir="rtl"] input[type="password"] {
+  direction: ltr;
+  text-align: right;
+}

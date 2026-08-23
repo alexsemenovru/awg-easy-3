@@ -25,8 +25,13 @@ test('ships a self-contained UI with every required control', () => {
 test('uses only the versioned API and contains no legacy endpoint calls', () => {
   const api = fs.readFileSync(path.join(www, 'js', 'api.js'), 'utf8');
   const app = fs.readFileSync(path.join(www, 'js', 'app.js'), 'utf8');
+  const i18n = fs.readFileSync(path.join(www, 'js', 'i18n.js'), 'utf8');
   assert.match(api, /\/api\/v1\/clients/);
   assert.doesNotMatch(`${api}\n${app}`, /\/api\/wireguard|backup|restore/);
   assert.match(app, /networkGroup/);
   assert.doesNotMatch(app, /routeMode|ru_direct/);
+  assert.match(i18n, /en:/);
+  assert.match(i18n, /ru:/);
+  assert.match(i18n, /fa:/);
+  assert.match(i18n, /language === 'fa' \? 'rtl'/);
 });

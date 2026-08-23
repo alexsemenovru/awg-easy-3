@@ -17,6 +17,8 @@ test('pins amd64 base images and official AWG source revisions', () => {
   assert.doesNotMatch(dockerfile, /:latest/);
   assert.match(compose, /network_mode: host/);
   assert.match(compose, /read_only: true/);
+  assert.match(compose, /AWG_LANG: \$\{AWG_LANG:-en\}/);
+  assert.match(dockerfile, /\$\{AWG_PANEL_PORT\}/);
   assert.doesNotMatch(compose, /SYS_MODULE|ports:/);
 });
 
@@ -29,10 +31,10 @@ test('installs only the minimal Node runtime dependency set', () => {
 test('installer initializes before startup and never publishes the panel port', () => {
   const installer = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
   assert.match(installer, /x86_64\|amd64/);
-  assert.match(installer, /docker compose run .* awg-easy init/);
+  assert.match(installer, /docker compose run[\s\S]*awg-easy init/);
   assert.match(installer, /docker compose up -d awg-easy/);
   assert.ok(installer.indexOf(' awg-easy init') < installer.indexOf('docker compose up -d'));
-  assert.match(installer, /http:\/\/10\.8\.0\.1:51821/);
+  assert.match(installer, /http:\/\/10\.8\.0\.1:%s/);
   assert.doesNotMatch(installer, /51821:51821/);
 });
 
@@ -42,9 +44,19 @@ test('installer rejects network conflicts before changing host settings', () => 
   for (const preflight of [
     'ip link show dev awg0',
     'ip -4 route show exact 10.8.0.0/24',
-    "ss -H -lun 'sport = :51820'",
+    'ss -H -lun "sport = :$AWG_PORT_VALUE"',
+    'ss -H -ltn "sport = :$AWG_PANEL_PORT_VALUE"',
   ]) {
     assert.match(installer, new RegExp(preflight.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     assert.ok(installer.indexOf(preflight) < forwarding);
   }
+});
+
+test('installer accepts validated AWG port, panel port and language options', () => {
+  const installer = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
+  assert.match(installer, /--port/);
+  assert.match(installer, /--panel-port/);
+  assert.match(installer, /--lang/);
+  assert.match(installer, /en\|ru\|fa/);
+  assert.match(installer, /valid_port/);
 });

@@ -74,6 +74,7 @@ class BootstrapInstaller {
     serverAddress4 = '10.8.0.1',
     firstClientAddress4 = '10.8.0.2',
     firstClientName = 'Home admin',
+    uiLanguage = 'en',
     ipv6,
   }) {
     if (await this.store.load() !== null) {
@@ -101,6 +102,7 @@ class BootstrapInstaller {
       ipv4Subnet,
       listenPort,
       panelPort,
+      uiLanguage,
       endpointHost: resolvedEndpointHost,
       profile: this.profileGenerator(),
     };

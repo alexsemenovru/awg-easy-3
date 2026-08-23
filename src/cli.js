@@ -31,6 +31,9 @@ const main = async () => {
       endpointHost: process.env.AWG_HOST || undefined,
       wanInterface: process.env.AWG_WAN_INTERFACE || undefined,
       firstClientName: process.env.AWG_FIRST_CLIENT_NAME || 'Home admin',
+      listenPort: process.env.AWG_PORT === undefined ? 51820 : Number(process.env.AWG_PORT),
+      panelPort: process.env.AWG_PANEL_PORT === undefined ? 51821 : Number(process.env.AWG_PANEL_PORT),
+      uiLanguage: process.env.AWG_LANG || 'en',
     }));
   }
   if (command === 'reset-password') {

@@ -2,6 +2,8 @@
 
 (() => {
   const api = window.awgApi;
+  const i18n = window.awgI18n;
+  const t = i18n.t;
   const $ = (selector) => document.querySelector(selector);
   const loginView = $('#login-view');
   const appView = $('#app-view');
@@ -35,10 +37,11 @@
   };
   const renderClient = (client) => {
     const node = $('#client-template').content.firstElementChild.cloneNode(true);
+    i18n.translate(node);
     node.querySelector('.client-name').textContent = client.name;
     node.querySelector('.client-address').textContent = [client.address4, client.address6].filter(Boolean).join(' · ');
     const status = node.querySelector('.status');
-    status.textContent = client.enabled ? (client.networkGroup === 'home' ? 'Home' : 'Guest') : 'Отключён';
+    status.textContent = client.enabled ? (client.networkGroup === 'home' ? 'Home' : 'Guest') : t('disabled');
     status.className = `status ${client.enabled ? client.networkGroup : 'disabled'}`;
     const group = node.querySelector('.group-toggle');
     group.checked = client.networkGroup === 'home';
@@ -48,9 +51,9 @@
     enabled.addEventListener('change', () => update(client, { enabled: enabled.checked }, enabled));
     node.querySelector('.show-profile').addEventListener('click', () => openProfile(client));
     node.querySelector('.delete-client').addEventListener('click', async () => {
-      if (!confirm(`Удалить клиент «${client.name}»? Его профиль перестанет подключаться.`)) return;
+      if (!confirm(t('deleteConfirm', { name: client.name }))) return;
       await guarded(() => api.deleteClient(client.id));
-      showNotice('Клиент удалён');
+      showNotice(t('deleted'));
       await loadClients();
     });
     return node;
@@ -89,16 +92,17 @@
   $('#open-profile').addEventListener('click', async () => { window.location.href = await guarded(() => api.exportText(selectedClient.id, 'vpn-link')); });
   $('#copy-profile').addEventListener('click', async () => {
     await navigator.clipboard.writeText(await guarded(() => api.exportText(selectedClient.id, 'vpn-link')));
-    showNotice('Ссылка скопирована');
+    showNotice(t('copied'));
   });
   $('#password-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     await guarded(() => api.changePassword($('#current-password').value, $('#new-password').value));
     event.target.reset();
     showLogin();
-    alert('Пароль изменён. Все старые сессии завершены — войдите снова.');
+    alert(t('passwordChanged'));
   });
-  api.session().then(async ({ authenticated }) => {
+  api.session().then(async ({ authenticated, language }) => {
+    i18n.setLanguage(language);
     if (!authenticated) return showLogin();
     showApp();
     return loadClients();

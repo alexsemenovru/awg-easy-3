@@ -24,6 +24,7 @@ const fixture = () => ({
     ipv4Subnet: '10.8.0.0/24',
     listenPort: 51820,
     panelPort: 51821,
+    uiLanguage: 'en',
     endpointHost: 'vpn.example.com',
     profile: generateOfficialProfile({
       randomInt: (() => {
@@ -85,6 +86,17 @@ test('rejects duplicate peers and a state without an active home client', () => 
   const lockedOut = fixture();
   lockedOut.clients[0].enabled = false;
   assert.throws(() => validateState(lockedOut), /enabled home/);
+});
+
+test('accepts supported UI languages and rejects unknown ones', () => {
+  for (const language of ['en', 'ru', 'fa']) {
+    const state = fixture();
+    state.server.uiLanguage = language;
+    assert.equal(validateState(state).server.uiLanguage, language);
+  }
+  const invalid = fixture();
+  invalid.server.uiLanguage = 'de';
+  assert.throws(() => validateState(invalid), /uiLanguage/);
 });
 
 test('reports corrupted JSON without replacing it', async (t) => {

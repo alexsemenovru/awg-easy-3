@@ -24,10 +24,12 @@ Requirements: an amd64 Linux VPS, Docker Engine, Docker Compose v2, `/dev/net/tu
 ```bash
 git clone https://github.com/alexsemenovru/awg-easy-3.git
 cd awg-easy-3
-sudo ./install.sh --host PUBLIC_IP_OR_DOMAIN
+sudo ./install.sh --host PUBLIC_IP_OR_DOMAIN --lang en
 ```
 
 The installer prints the first Home profile, terminal QR code, panel password, and `vpn://` link once. Connect that profile and open `http://10.8.0.1:51821`.
+
+Optional `--port`, `--panel-port`, and `--lang en|ru|fa` arguments select the AWG UDP port, VPN-only panel TCP port, and interface language. English is the default; Persian uses an RTL layout.
 
 See [README.ru.md](README.ru.md) for detailed commands, [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for design notes, and [NOTICE](NOTICE) for attribution.
 

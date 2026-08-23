@@ -79,6 +79,10 @@ const validateState = (input) => {
   }
   server.listenPort = listenPort;
   server.panelPort = panelPort;
+  if (!['en', 'ru', 'fa'].includes(input.server.uiLanguage ?? 'en')) {
+    throw new TypeError('server.uiLanguage must be en, ru or fa');
+  }
+  server.uiLanguage = input.server.uiLanguage ?? 'en';
   if (input.server.ipv6Mode !== undefined) {
     if (!['nat66', 'routed'].includes(input.server.ipv6Mode)) {
       throw new TypeError('server.ipv6Mode must be nat66 or routed');

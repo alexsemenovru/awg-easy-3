@@ -42,11 +42,21 @@ class Application {
     this.state = null;
   }
 
-  async initialize({ endpointHost, wanInterface, firstClientName = 'Home admin' } = {}) {
+  async initialize({
+    endpointHost,
+    wanInterface,
+    firstClientName = 'Home admin',
+    listenPort = 51820,
+    panelPort = 51821,
+    uiLanguage = 'en',
+  } = {}) {
     const result = await new BootstrapInstaller({ store: this.store }).install({
       endpointHost,
       wanInterface,
       firstClientName,
+      listenPort,
+      panelPort,
+      uiLanguage,
     });
     const artifacts = buildAwgArtifacts({
       server: result.state.server,

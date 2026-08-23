@@ -20,7 +20,7 @@ const fixture = () => {
   let passwordChanged;
   const clientCalls = [];
   const service = new ApiService({
-    store: { load: async () => ({ clients: [SECRET_CLIENT] }) },
+    store: { load: async () => ({ server: { uiLanguage: 'fa' }, clients: [SECRET_CLIENT] }) },
     passwordManager: {
       verify: async (password) => password === 'correct-password',
       changePassword: async (current, next) => { passwordChanged = { current, next }; },
@@ -55,6 +55,11 @@ test('logs in with a generic failure and an HTTP-only cookie', async () => {
     cookie: 'session=signed-token; HttpOnly',
   });
   await assert.rejects(service.login('wrong'), (error) => error.statusCode === 401 && /Invalid credentials/.test(error.message));
+});
+
+test('exposes the configured UI language without exposing secrets', async () => {
+  const { service } = fixture();
+  assert.deepEqual(await service.session('bad-token'), { authenticated: false, language: 'fa' });
 });
 
 test('never exposes client key material in list or mutations', async () => {
