@@ -89,7 +89,7 @@ test('rejects duplicate peers and a state without an active home client', () => 
 });
 
 test('accepts supported UI languages and rejects unknown ones', () => {
-  for (const language of ['en', 'ru', 'fa']) {
+  for (const language of ['en', 'ru', 'fa', 'es', 'zh-cn']) {
     const state = fixture();
     state.server.uiLanguage = language;
     assert.equal(validateState(state).server.uiLanguage, language);

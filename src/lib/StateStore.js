@@ -79,8 +79,8 @@ const validateState = (input) => {
   }
   server.listenPort = listenPort;
   server.panelPort = panelPort;
-  if (!['en', 'ru', 'fa'].includes(input.server.uiLanguage ?? 'en')) {
-    throw new TypeError('server.uiLanguage must be en, ru or fa');
+  if (!['en', 'ru', 'fa', 'es', 'zh-cn'].includes(input.server.uiLanguage ?? 'en')) {
+    throw new TypeError('server.uiLanguage must be en, ru, fa, es or zh-cn');
   }
   server.uiLanguage = input.server.uiLanguage ?? 'en';
   if (input.server.ipv6Mode !== undefined) {

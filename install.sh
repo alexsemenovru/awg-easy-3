@@ -25,15 +25,15 @@ while [ "$#" -gt 0 ]; do
     --host) [ "$#" -ge 2 ] || die "--host requires an IPv4 address or DNS name"; AWG_HOST_VALUE=$2; shift 2 ;;
     --port) [ "$#" -ge 2 ] || die "--port requires a UDP port"; AWG_PORT_VALUE=$2; shift 2 ;;
     --panel-port) [ "$#" -ge 2 ] || die "--panel-port requires a TCP port"; AWG_PANEL_PORT_VALUE=$2; shift 2 ;;
-    --lang) [ "$#" -ge 2 ] || die "--lang requires en, ru or fa"; AWG_LANG_VALUE=$2; shift 2 ;;
-    --help) printf 'Usage: sudo ./install.sh [--host HOST] [--port UDP_PORT] [--panel-port TCP_PORT] [--lang en|ru|fa]\n'; exit 0 ;;
+    --lang) [ "$#" -ge 2 ] || die "--lang requires en, ru, fa, es or zh-cn"; AWG_LANG_VALUE=$2; shift 2 ;;
+    --help) printf 'Usage: sudo ./install.sh [--host HOST] [--port UDP_PORT] [--panel-port TCP_PORT] [--lang en|ru|fa|es|zh-cn]\n'; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
 done
 
 valid_port "$AWG_PORT_VALUE" || die "--port must be an integer between 1 and 65535"
 valid_port "$AWG_PANEL_PORT_VALUE" || die "--panel-port must be an integer between 1 and 65535"
-case "$AWG_LANG_VALUE" in en|ru|fa) ;; *) die "--lang must be en, ru or fa" ;; esac
+case "$AWG_LANG_VALUE" in en|ru|fa|es|zh-cn) ;; *) die "--lang must be en, ru, fa, es or zh-cn" ;; esac
 
 if [ -z "$AWG_HOST_VALUE" ]; then
   AWG_HOST_VALUE=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{ for (i=1;i<=NF;i++) if ($i=="src") { print $(i+1); exit } }')

@@ -57,6 +57,6 @@ test('installer accepts validated AWG port, panel port and language options', ()
   assert.match(installer, /--port/);
   assert.match(installer, /--panel-port/);
   assert.match(installer, /--lang/);
-  assert.match(installer, /en\|ru\|fa/);
+  assert.match(installer, /en\|ru\|fa\|es\|zh-cn/);
   assert.match(installer, /valid_port/);
 });
