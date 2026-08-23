@@ -1,99 +1,26 @@
-version: '3'
-
 services:
   awg-easy:
-    image: awg-easy:2.0
-    container_name: awg-easy
+    build:
+      context: .
+      args:
+        AWG_GO_COMMIT: 1b86b2ae0e493e7ea93f8c1a0f0cb6735b1551f1
+        AWG_TOOLS_COMMIT: ee0f0a9aa34ff0a0da4b3433b9512781cfe02843
+    image: awg-easy-3:0.1.0-dev
+    container_name: awg-easy-3
     restart: unless-stopped
-
-    environment:
-      # Required: Server public IP or domain
-      - WG_HOST=your-server-ip-or-domain
-
-      # Web UI password (bcrypt hash)
-      # Generate with: docker run --rm ghcr.io/wg-easy/wg-easy wgpw 'your-password'
-      - PASSWORD_HASH=$$2y$$05$$abcdefghijklmnopqrstuv
-
-      # Web UI port
-      - PORT=51821
-
-      # WireGuard port
-      - WG_PORT=51820
-
-      # DNS servers for clients
-      - WG_DEFAULT_DNS=1.1.1.1,8.8.8.8
-
-      # ================================================================
-      # AmneziaWG 2.0 Obfuscation Parameters
-      # ================================================================
-
-      # Junk packet settings (based on real AWG client config)
-      - JC=6                    # Junk packet count (3-10)
-      - JMIN=10                 # Min junk packet size (bytes)
-      - JMAX=50                 # Max junk packet size (bytes)
-
-      # Handshake obfuscation (based on real AWG client config)
-      - S1=64                   # Init packet junk size
-      - S2=67                   # Response packet junk size
-      - S3=17                   # Cookie reply junk size (AWG 2.0)
-      - S4=4                    # Transport data junk size (AWG 2.0)
-
-      # Magic headers (AWG 2.0: ranges MIN-MAX)
-      # Generate random: leave empty or use format: 1234567890-2123456789
-      # Example from real config:
-      - H1=221138202-537563446
-      - H2=1824677785-1918284606
-      - H3=2058490965-2098228430
-      - H4=2114920036-2134209753
-
-      # Protocol imitation packets (optional, advanced)
-      # Format: <b 0xHEXSTRING>
-      # DNS packet (tickets.widget.kinopoisk.ru) - uncomment to enable:
-      - I1=<b 0x084481800001000300000000077469636b65747306776964676574096b696e6f706f69736b0272750000010001c00c0005000100000039001806776964676574077469636b6574730679616e646578c025c0390005000100000039002b1765787465726e616c2d7469636b6574732d776964676574066166697368610679616e646578036e657400c05d000100010000001c000457fafe25>
-      - I2=
-      - I3=
-      - I4=
-      - I5=                     # AWG 2.0: 5th imitation packet
-
-      # Delay between I packets (milliseconds)
-      - ITIME=0
-
-      # ================================================================
-      # Optional settings
-      # ================================================================
-
-      # Client subnet (x will be replaced with client number)
-      # - WG_DEFAULT_ADDRESS=10.8.0.x
-
-      # MTU setting
-      # - WG_MTU=1420
-
-      # Persistent keepalive
-      # - WG_PERSISTENT_KEEPALIVE=25
-
-      # Language (en, ru, etc)
-      # - LANG=en
-
-      # Enable traffic stats
-      # - UI_TRAFFIC_STATS=true
-
-      # Enable expires time for clients
-      # - WG_ENABLE_EXPIRES_TIME=true
-
-    volumes:
-      - ./data:/etc/amnezia/amneziawg
-
-    ports:
-      - "51820:51820/udp"    # WireGuard port
-      - "51821:51821/tcp"    # Web UI port
-
+    network_mode: host
     cap_add:
       - NET_ADMIN
-      - SYS_MODULE
-
-    sysctls:
-      - net.ipv4.ip_forward=1
-      - net.ipv4.conf.all.src_valid_mark=1
-
     devices:
       - /dev/net/tun:/dev/net/tun
+    volumes:
+      - ./data:/data
+    read_only: true
+    tmpfs:
+      - /run:mode=0700,size=16m
+      - /tmp:mode=1777,size=32m
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      AWG_HOST: ${AWG_HOST:-}
+    stop_grace_period: 15s

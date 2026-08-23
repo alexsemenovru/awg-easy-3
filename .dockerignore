@@ -1,1 +1,6 @@
 /src/node_modules
+/.git
+/.github
+/data
+node_modules
+*.log
