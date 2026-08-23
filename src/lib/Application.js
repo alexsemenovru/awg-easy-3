@@ -8,7 +8,6 @@ const { buildAwgArtifacts } = require('./AwgArtifacts');
 const { BootstrapInstaller } = require('./BootstrapInstaller');
 const { ClientManager } = require('./ClientManager');
 const { DiscoveryRelay } = require('./DiscoveryRelay');
-const { GeoIpStore } = require('./GeoIpStore');
 const { HttpServer } = require('./HttpServer');
 const { PasswordManager } = require('./PasswordManager');
 const { runProcess } = require('./ProcessRunner');
@@ -20,39 +19,23 @@ class Application {
   constructor({
     dataDirectory = '/data',
     runtimeDirectory = '/run/awg-easy-3',
-    bundledGeoIpPath = path.join(__dirname, '..', 'data', 'ru-ipv4.txt'),
     publicDirectory = path.join(__dirname, '..', 'www'),
     runner = runProcess,
     fileSystem = fs,
   } = {}) {
     this.dataDirectory = path.resolve(dataDirectory);
     this.runtimeDirectory = path.resolve(runtimeDirectory);
-    this.bundledGeoIpPath = path.resolve(bundledGeoIpPath);
     this.publicDirectory = path.resolve(publicDirectory);
     this.runner = runner;
     this.fs = fileSystem;
     this.store = new StateStore(path.join(this.dataDirectory, 'state.json'));
-    this.geoIp = new GeoIpStore(path.join(this.dataDirectory, 'ru-ipv4.txt'));
     this.applier = new RuntimeApplier({ runtimeDirectory: this.runtimeDirectory, runner });
     this.http = null;
     this.discovery = null;
     this.state = null;
   }
 
-  async ensureGeoIp() {
-    try {
-      return await this.geoIp.load();
-    } catch (error) {
-      if (error.code !== 'ENOENT') throw error;
-      await this.fs.mkdir(this.dataDirectory, { recursive: true, mode: 0o700 });
-      await this.fs.copyFile(this.bundledGeoIpPath, this.geoIp.filePath);
-      await this.fs.chmod(this.geoIp.filePath, 0o600);
-      return this.geoIp.load();
-    }
-  }
-
   async initialize({ endpointHost, wanInterface, firstClientName = 'Home admin' } = {}) {
-    const ruIPv4Cidrs = await this.ensureGeoIp();
     const result = await new BootstrapInstaller({ store: this.store }).install({
       endpointHost,
       wanInterface,
@@ -61,7 +44,6 @@ class Application {
     const artifacts = buildAwgArtifacts({
       server: result.state.server,
       clients: result.state.clients,
-      ruIPv4Cidrs,
     });
     return Object.freeze({
       bootstrapPassword: result.bootstrapPassword,
@@ -84,8 +66,7 @@ class Application {
   async start() {
     const state = await this.store.load();
     if (!state) throw new Error('AWG-Easy 3 is not initialized; run the init command first');
-    const ruIPv4Cidrs = await this.ensureGeoIp();
-    const artifacts = buildAwgArtifacts({ server: state.server, clients: state.clients, ruIPv4Cidrs });
+    const artifacts = buildAwgArtifacts({ server: state.server, clients: state.clients });
     await this.applier.apply({
       serverConfig: artifacts.serverConfig,
       nftables: artifacts.nftables,
@@ -100,7 +81,6 @@ class Application {
     const clientManager = new ClientManager({
       store: this.store,
       applier: this.applier,
-      ruIPv4Cidrs,
       onStateChanged: (nextState) => this.discovery.refresh(nextState),
     });
     const api = new ApiService({ store: this.store, passwordManager, sessionManager, clientManager });
@@ -126,9 +106,6 @@ class Application {
     return new PasswordManager({ store: this.store }).resetPassword(password);
   }
 
-  updateGeoIp() {
-    return this.geoIp.update();
-  }
 }
 
 module.exports = { Application };

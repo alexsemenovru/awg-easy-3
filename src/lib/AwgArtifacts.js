@@ -11,7 +11,7 @@ const peerAddresses = (client, serverHasIPv6) => [
   ...(serverHasIPv6 && client.address6 ? [`${client.address6}/128`] : []),
 ];
 
-const buildAwgArtifacts = ({ server, clients, ruIPv4Cidrs = [] }) => {
+const buildAwgArtifacts = ({ server, clients }) => {
   if (!server || typeof server !== 'object' || Array.isArray(server)) {
     throw new TypeError('server must be an object');
   }
@@ -55,21 +55,11 @@ const buildAwgArtifacts = ({ server, clients, ruIPv4Cidrs = [] }) => {
     guest6: serverHasIPv6
       ? enabledClients.filter((client) => client.networkGroup === 'guest').map((client) => client.address6).filter(Boolean)
       : [],
-    blockIPv6: serverHasIPv6
-      ? enabledClients.filter((client) => client.routeMode === 'ru_direct').map((client) => client.address6).filter(Boolean)
-      : [],
   });
 
   const clientArtifacts = Object.fromEntries(clients.map((client) => {
-    const routes = buildClientRoutes({
-      mode: client.routeMode,
-      ruIPv4Cidrs,
-      serverHasIPv6,
-    });
-    const dnsPolicy = buildDnsPolicy({
-      routeMode: client.routeMode,
-      serverHasIPv6,
-    });
+    const routes = buildClientRoutes({ serverHasIPv6 });
+    const dnsPolicy = buildDnsPolicy({ serverHasIPv6 });
     const addresses = peerAddresses(client, serverHasIPv6);
     const nativeConfig = renderClientConfig({
       privateKey: client.privateKey,

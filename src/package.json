@@ -7,7 +7,6 @@
     "serve": "node server.js serve",
     "init": "node server.js init",
     "reset-password": "node server.js reset-password",
-    "update-geoip": "node server.js update-geoip",
     "test": "node --test test/*.test.js",
     "check": "node --check server.js && node --check cli.js"
   },

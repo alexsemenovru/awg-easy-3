@@ -13,7 +13,6 @@ const publicClient = (client) => Object.freeze({
   name: client.name,
   enabled: client.enabled,
   networkGroup: client.networkGroup,
-  routeMode: client.routeMode,
   address4: client.address4,
   ...(client.address6 ? { address6: client.address6 } : {}),
 });
@@ -71,7 +70,7 @@ class ApiService {
   async createClient(token, input) {
     await this.authorize(token);
     const result = await this.clientManager.createClient(input);
-    return Object.freeze({ client: publicClient(result.client), vpnLink: result.export.vpnLink });
+    return Object.freeze({ client: publicClient(result.client) });
   }
 
   async updateClient(token, clientId, changes) {

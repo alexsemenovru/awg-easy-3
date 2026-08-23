@@ -109,7 +109,6 @@ class BootstrapInstaller {
       name: firstClientName,
       enabled: true,
       networkGroup: 'home',
-      routeMode: 'vpn_all',
       address4: firstClientAddress4,
       ...clientKeys,
     };

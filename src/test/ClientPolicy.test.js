@@ -6,21 +6,12 @@ const test = require('node:test');
 const { assertActiveHomeRemains, normalizeClientPolicy } = require('../lib/ClientPolicy');
 
 test('makes the bootstrap peer home and later peers guest by default', () => {
-  assert.deepEqual(normalizeClientPolicy({}, { bootstrap: true }), {
-    networkGroup: 'home',
-    routeMode: 'vpn_all',
-  });
-  assert.deepEqual(normalizeClientPolicy(), {
-    networkGroup: 'guest',
-    routeMode: 'vpn_all',
-  });
+  assert.deepEqual(normalizeClientPolicy({}, { bootstrap: true }), { networkGroup: 'home' });
+  assert.deepEqual(normalizeClientPolicy(), { networkGroup: 'guest' });
 });
 
-test('accepts explicit home and RU-direct policy', () => {
-  assert.deepEqual(normalizeClientPolicy({ networkGroup: 'home', routeMode: 'ru_direct' }), {
-    networkGroup: 'home',
-    routeMode: 'ru_direct',
-  });
+test('accepts an explicit home policy', () => {
+  assert.deepEqual(normalizeClientPolicy({ networkGroup: 'home' }), { networkGroup: 'home' });
 });
 
 test('prevents demoting, disabling or deleting the last active home peer', () => {
@@ -37,11 +28,9 @@ test('allows changes when another active home peer remains', () => {
     { id: 'guest', networkGroup: 'guest', enabled: true },
   ];
   assert.doesNotThrow(() => assertActiveHomeRemains(clients, 'admin', { enabled: false }));
-  assert.doesNotThrow(() => assertActiveHomeRemains(clients, 'guest', { routeMode: 'ru_direct' }));
+  assert.doesNotThrow(() => assertActiveHomeRemains(clients, 'guest', { enabled: false }));
 });
 
 test('rejects unknown policy values', () => {
   assert.throws(() => normalizeClientPolicy({ networkGroup: 'friends' }), /networkGroup/);
-  assert.throws(() => normalizeClientPolicy({ routeMode: 'direct_all' }), /routeMode/);
 });
-

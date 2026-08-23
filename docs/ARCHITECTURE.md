@@ -99,10 +99,12 @@ Policy summary:
 The last active home peer cannot be demoted through the API. A local recovery
 command can reset the password and recreate an administrative peer.
 
-## Route modes
+## Client routing
 
-`vpn_all` emits full IPv4 routes and full IPv6 routes when server IPv6 is
-available.
+Profiles emit full IPv4 routes and full IPv6 routes when server IPv6 is
+available. GeoIP-based selective routing is deferred: local ISP bypass cannot
+be enforced by the VPS after traffic reaches it, and embedding the exact route
+complement in every client profile is too large and client-dependent.
 
 Automatic IPv6 uses a randomly generated RFC 4193 ULA `/64` inside the AWG
 network and NAT66 on the detected WAN interface. This requires only a working
@@ -111,11 +113,6 @@ provider delegates its connected `/64` to VPN clients. NAT66 matches only the
 project-owned ULA prefix and lives in the dedicated nftables table. An explicit
 routed prefix remains supported for installations where the provider actually
 delegates one.
-
-`ru_direct` emits the complement of the versioned RU IPv4 prefix set. IPv6 is
-routed into the tunnel and rejected so Android cannot bypass the VPN over IPv6;
-applications should fall back to IPv4. Changing this mode requires a new client
-configuration import.
 
 ## Discovery proof of concept
 

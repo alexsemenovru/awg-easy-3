@@ -38,11 +38,6 @@ const main = async () => {
     process.stdout.write(`New panel password (shown once): ${password}\n`);
     return;
   }
-  if (command === 'update-geoip') {
-    const cidrs = await application.updateGeoIp();
-    process.stdout.write(`RU GeoIP updated: ${cidrs.length} IPv4 prefixes\n`);
-    return;
-  }
   if (command !== 'serve') throw new Error(`Unknown command: ${command}`);
 
   const address = await application.start();

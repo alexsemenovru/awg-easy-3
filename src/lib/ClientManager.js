@@ -8,7 +8,7 @@ const { AwgKeyManager } = require('./AwgKeyManager');
 const { assertActiveHomeRemains, normalizeClientPolicy } = require('./ClientPolicy');
 const { validateState } = require('./StateStore');
 
-const ALLOWED_CHANGES = new Set(['name', 'enabled', 'networkGroup', 'routeMode']);
+const ALLOWED_CHANGES = new Set(['name', 'enabled', 'networkGroup']);
 
 class ClientManager {
   constructor({
@@ -17,7 +17,6 @@ class ClientManager {
     keyManager = new AwgKeyManager(),
     artifactBuilder = buildAwgArtifacts,
     idGenerator = crypto.randomUUID,
-    ruIPv4Cidrs = [],
     onStateChanged = () => {},
   } = {}) {
     if (!store || typeof store.load !== 'function' || typeof store.save !== 'function') {
@@ -30,14 +29,12 @@ class ClientManager {
     if (typeof artifactBuilder !== 'function' || typeof idGenerator !== 'function') {
       throw new TypeError('artifactBuilder and idGenerator must be functions');
     }
-    if (!Array.isArray(ruIPv4Cidrs)) throw new TypeError('ruIPv4Cidrs must be an array');
     if (typeof onStateChanged !== 'function') throw new TypeError('onStateChanged must be a function');
     this.store = store;
     this.applier = applier;
     this.keyManager = keyManager;
     this.artifactBuilder = artifactBuilder;
     this.idGenerator = idGenerator;
-    this.ruIPv4Cidrs = [...ruIPv4Cidrs];
     this.onStateChanged = onStateChanged;
     this.queue = Promise.resolve();
   }
@@ -58,7 +55,6 @@ class ClientManager {
     return this.artifactBuilder({
       server: state.server,
       clients: state.clients,
-      ruIPv4Cidrs: this.ruIPv4Cidrs,
     });
   }
 
@@ -93,10 +89,10 @@ class ClientManager {
     return Object.freeze({ artifacts: nextArtifacts, state: savedState });
   }
 
-  createClient({ name, networkGroup, routeMode } = {}) {
+  createClient({ name, networkGroup } = {}) {
     return this.serialize(async () => {
       const state = await this.requireState();
-      const policy = normalizeClientPolicy({ networkGroup, routeMode });
+      const policy = normalizeClientPolicy({ networkGroup });
       const addresses = allocateClientAddresses({ server: state.server, clients: state.clients });
       const keys = await this.keyManager.generatePeerKeys();
       const client = {

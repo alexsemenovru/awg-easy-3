@@ -69,7 +69,6 @@ test('creates the clean installation and first home profile', async () => {
   assert.equal(result.state.server.address4, '10.8.0.1');
   assert.equal(result.state.clients[0].address4, '10.8.0.2');
   assert.equal(result.state.clients[0].networkGroup, 'home');
-  assert.equal(result.state.clients[0].routeMode, 'vpn_all');
   assert.equal(fixture.getSaved(), result.state);
   assert.equal(JSON.stringify(result.state).includes(result.bootstrapPassword), false);
 });

@@ -38,7 +38,6 @@ const fixture = () => ({
     name: 'Admin phone',
     enabled: true,
     networkGroup: 'home',
-    routeMode: 'vpn_all',
     address4: '10.8.0.2',
     privateKey: 'admin-private-key',
     publicKey: 'admin-public-key',
@@ -97,4 +96,3 @@ test('reports corrupted JSON without replacing it', async (t) => {
   await assert.rejects(() => store.load(), /not valid JSON/);
   assert.equal(await fs.readFile(filePath, 'utf8'), '{broken');
 });
-

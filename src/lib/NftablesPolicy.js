@@ -58,7 +58,6 @@ const renderNftablesPolicy = ({
   guest4,
   home6 = [],
   guest6 = [],
-  blockIPv6 = [],
   panelPort = 51821,
 }) => {
   const awg = validateInterface(interfaceName);
@@ -69,7 +68,6 @@ const renderNftablesPolicy = ({
   const normalizedGuest4 = validateAddressList(guest4, 4, 'guest4');
   const normalizedHome6 = validateAddressList(home6, 6, 'home6');
   const normalizedGuest6 = validateAddressList(guest6, 6, 'guest6');
-  const normalizedBlockIPv6 = validateAddressList(blockIPv6, 6, 'blockIPv6');
   if (typeof nat66 !== 'boolean') throw new TypeError('nat66 must be a boolean');
   if (nat66 && !subnet6) throw new TypeError('nat66 requires ipv6Subnet');
 
@@ -95,10 +93,6 @@ const renderNftablesPolicy = ({
     elements = ${elements(normalizedGuest6)}
   }
 
-  set block_ipv6 {
-    type ipv6_addr
-    elements = ${elements(normalizedBlockIPv6)}
-  }
 ` : '';
 
   const ipv6InputRules = subnet6 ? `
@@ -106,7 +100,6 @@ const renderNftablesPolicy = ({
     iifname ${quote(awg)} ip6 saddr @home6 tcp dport ${port} accept comment "home peers may access the panel"` : '';
 
   const ipv6ForwardRules = subnet6 ? `
-    iifname ${quote(awg)} ip6 saddr @block_ipv6 drop comment "RU-direct peers cannot bypass IPv4 policy over IPv6"
     iifname ${quote(awg)} oifname ${quote(awg)} ip6 saddr @home6 ip6 daddr @home6 accept comment "home IPv6 peer traffic"
     iifname ${quote(awg)} oifname ${quote(awg)} drop comment "isolate guest IPv6 peers"
     iifname ${quote(awg)} oifname ${quote(wan)} ip6 saddr ${subnet6} accept comment "AWG IPv6 to WAN"

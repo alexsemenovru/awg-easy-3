@@ -35,7 +35,6 @@ const initialState = () => validateState({
     name: 'Home admin',
     enabled: true,
     networkGroup: 'home',
-    routeMode: 'vpn_all',
     address4: '10.8.0.2',
     privateKey: 'admin-private',
     publicKey: 'admin-public',
@@ -58,7 +57,6 @@ const fixture = () => {
       }),
     },
     idGenerator: () => 'new-client',
-    ruIPv4Cidrs: ['5.136.0.0/13'],
   });
   return { applications, getState: () => state, manager };
 };
@@ -67,7 +65,6 @@ test('creates a guest by default and returns its AmneziaVPN export', async () =>
   const { applications, getState, manager } = fixture();
   const result = await manager.createClient({ name: 'Guest phone' });
   assert.equal(result.client.networkGroup, 'guest');
-  assert.equal(result.client.routeMode, 'vpn_all');
   assert.equal(result.client.address4, '10.8.0.3');
   assert.match(result.export.vpnLink, /^vpn:\/\//);
   assert.equal(getState().clients.length, 2);
@@ -75,15 +72,12 @@ test('creates a guest by default and returns its AmneziaVPN export', async () =>
   assert.equal(applications[0].interfaceActive, true);
 });
 
-test('switches both policies and blocks unsafe fields', async () => {
+test('switches network policy and blocks unsafe fields', async () => {
   const { manager } = fixture();
   await manager.createClient({ name: 'Phone' });
-  const result = await manager.updateClient('new-client', {
-    networkGroup: 'home', routeMode: 'ru_direct',
-  });
+  const result = await manager.updateClient('new-client', { networkGroup: 'home' });
   assert.equal(result.client.networkGroup, 'home');
-  assert.equal(result.client.routeMode, 'ru_direct');
-  assert.doesNotMatch(result.export.nativeConfig, /AllowedIPs = 0\.0\.0\.0\/0/);
+  assert.match(result.export.nativeConfig, /AllowedIPs = 0\.0\.0\.0\/0/);
   await assert.rejects(manager.updateClient('new-client', { publicKey: 'replacement' }), /cannot be changed/);
 });
 

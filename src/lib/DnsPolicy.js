@@ -20,34 +20,22 @@ const validateAddresses = (addresses, family, field) => {
 };
 
 const buildDnsPolicy = ({
-  routeMode,
   serverHasIPv6 = false,
   ipv4 = DEFAULT_DNS.ipv4,
   ipv6 = DEFAULT_DNS.ipv6,
-}) => {
+} = {}) => {
   const ipv4Servers = validateAddresses(ipv4, 4, 'ipv4 DNS');
   const ipv6Servers = validateAddresses(ipv6, 6, 'ipv6 DNS');
 
-  if (routeMode === 'ru_direct') {
-    return Object.freeze({
-      servers: Object.freeze(ipv4Servers),
-      amneziaDns: Object.freeze(ipv4Servers),
-    });
-  }
-
-  if (routeMode === 'vpn_all') {
-    return Object.freeze({
-      servers: Object.freeze([
-        ...ipv4Servers,
-        ...(serverHasIPv6 ? ipv6Servers : []),
-      ]),
-      // AmneziaVPN's top-level dns1/dns2 model expects an IPv4 pair. The
-      // complete dual-stack list is also rendered into the native config.
-      amneziaDns: Object.freeze(ipv4Servers),
-    });
-  }
-
-  throw new TypeError(`Unknown client route mode: ${routeMode}`);
+  return Object.freeze({
+    servers: Object.freeze([
+      ...ipv4Servers,
+      ...(serverHasIPv6 ? ipv6Servers : []),
+    ]),
+    // AmneziaVPN's top-level dns1/dns2 model expects an IPv4 pair. The
+    // complete dual-stack list is also rendered into the native config.
+    amneziaDns: Object.freeze(ipv4Servers),
+  });
 };
 
 const renderDnsLine = (policy) => {
@@ -62,4 +50,3 @@ module.exports = {
   buildDnsPolicy,
   renderDnsLine,
 };
-

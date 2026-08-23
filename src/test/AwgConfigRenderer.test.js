@@ -40,7 +40,7 @@ test('renders a dual-stack AmneziaVPN client with requested DNS defaults', () =>
   const config = renderClientConfig({
     privateKey: 'client-private-key',
     addresses: ['10.8.0.2/32', '2001:db8:42::2/128'],
-    dnsPolicy: buildDnsPolicy({ routeMode: 'vpn_all', serverHasIPv6: true }),
+    dnsPolicy: buildDnsPolicy({ serverHasIPv6: true }),
     profile: profile(),
     serverPublicKey: 'server-public-key',
     presharedKey: 'preshared-key',
@@ -59,7 +59,7 @@ test('rejects newline injection in keys and endpoint hosts', () => {
   const base = {
     privateKey: 'client-private-key',
     addresses: ['10.8.0.2/32'],
-    dnsPolicy: buildDnsPolicy({ routeMode: 'vpn_all' }),
+    dnsPolicy: buildDnsPolicy(),
     profile: profile(),
     serverPublicKey: 'server-public-key',
     allowedIps: ['0.0.0.0/0'],
@@ -69,4 +69,3 @@ test('rejects newline injection in keys and endpoint hosts', () => {
   assert.throws(() => renderClientConfig({ ...base, privateKey: 'key\nPostUp = evil' }), /single-line/);
   assert.throws(() => renderClientConfig({ ...base, endpointHost: 'vpn.example.com\nPostUp=evil' }), /single-line/);
 });
-

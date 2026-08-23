@@ -32,7 +32,6 @@ const stateFixture = () => ({
     name: 'Home admin',
     enabled: true,
     networkGroup: 'home',
-    routeMode: 'vpn_all',
     address4: '10.8.0.2',
     privateKey: 'client-private',
     publicKey: 'client-public',

@@ -10,7 +10,6 @@ const SECRET_CLIENT = {
   name: 'Phone',
   enabled: true,
   networkGroup: 'guest',
-  routeMode: 'vpn_all',
   address4: '10.8.0.3',
   privateKey: 'private-secret',
   publicKey: 'public-secret',
@@ -65,7 +64,7 @@ test('never exposes client key material in list or mutations', async () => {
   assert.equal(JSON.stringify(clients).includes('secret'), false);
 
   const created = await service.createClient('signed-token', { name: 'Phone' });
-  assert.equal(created.vpnLink, 'vpn://share');
+  assert.deepEqual(Object.keys(created), ['client']);
   assert.equal(JSON.stringify(created.client).includes('secret'), false);
   const updated = await service.updateClient('signed-token', 'phone', { networkGroup: 'home' });
   assert.equal(JSON.stringify(updated).includes('secret'), false);

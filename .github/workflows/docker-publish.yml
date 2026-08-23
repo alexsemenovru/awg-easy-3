@@ -2,10 +2,8 @@ name: Build and Push Docker Image
 
 on:
   push:
-    branches:
-      - master
     tags:
-      - 'v*'
+      - 'v*-rc.*'
   workflow_dispatch:
 
 env:
@@ -39,10 +37,7 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=ref,event=branch
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5

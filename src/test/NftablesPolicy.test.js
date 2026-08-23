@@ -33,16 +33,14 @@ test('allows home peer traffic and isolates guest peer traffic', () => {
   assert.match(rules, /ip saddr @home4 tcp dport 51821 accept/);
 });
 
-test('adds IPv6 home, guest and RU-direct blocking policy when enabled', () => {
+test('adds IPv6 home and guest policy when enabled', () => {
   const rules = renderNftablesPolicy({
     ...basePolicy(),
     ipv6Subnet: 'fd42:8:3::/64',
     home6: ['fd42:8:3::2'],
     guest6: ['fd42:8:3::3'],
-    blockIPv6: ['fd42:8:3::3'],
   });
-  assert.match(rules, /set block_ipv6/);
-  assert.match(rules, /ip6 saddr @block_ipv6 drop/);
+  assert.doesNotMatch(rules, /block_ipv6|RU-direct/);
   assert.match(rules, /ip6 saddr @home6 ip6 daddr @home6 accept/);
 });
 

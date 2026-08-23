@@ -69,10 +69,10 @@ test('serves versioned session and client routes with security headers', async (
 test('supports policy mutation and explicit export routes', async (t) => {
   const { port } = await fixture(t);
   const updated = await request(port, 'PATCH', '/api/v1/clients/phone', {
-    body: { networkGroup: 'home', routeMode: 'ru_direct' },
+    body: { networkGroup: 'home' },
     cookie: 'awg_easy_3_session=valid',
   });
-  assert.deepEqual(JSON.parse(updated.body), { id: 'phone', networkGroup: 'home', routeMode: 'ru_direct' });
+  assert.deepEqual(JSON.parse(updated.body), { id: 'phone', networkGroup: 'home' });
   const exported = await request(port, 'GET', '/api/v1/clients/phone/export?format=vpn-link', {
     cookie: 'awg_easy_3_session=valid',
   });

@@ -32,7 +32,6 @@ const fixture = () => ({
       name: 'Admin phone',
       enabled: true,
       networkGroup: 'home',
-      routeMode: 'vpn_all',
       address4: '10.8.0.2',
       privateKey: 'admin-private-key',
       publicKey: 'admin-public-key',
@@ -43,14 +42,12 @@ const fixture = () => ({
       name: 'Guest phone',
       enabled: true,
       networkGroup: 'guest',
-      routeMode: 'ru_direct',
       address4: '10.8.0.3',
       privateKey: 'guest-private-key',
       publicKey: 'guest-public-key',
       presharedKey: 'guest-psk',
     },
   ],
-  ruIPv4Cidrs: ['5.136.0.0/13'],
 });
 
 test('builds server, firewall, native client and vpn-link artifacts together', () => {
@@ -60,7 +57,7 @@ test('builds server, firewall, native client and vpn-link artifacts together', (
   assert.match(artifacts.nftables, /elements = \{ 10\.8\.0\.2 \}/);
   assert.match(artifacts.nftables, /elements = \{ 10\.8\.0\.3 \}/);
   assert.match(artifacts.clientArtifacts.admin.nativeConfig, /AllowedIPs = 0\.0\.0\.0\/0/);
-  assert.doesNotMatch(artifacts.clientArtifacts.guest.nativeConfig, /AllowedIPs = 0\.0\.0\.0\/0/);
+  assert.match(artifacts.clientArtifacts.guest.nativeConfig, /AllowedIPs = 0\.0\.0\.0\/0/);
 
   const decoded = decodeVpnLink(artifacts.clientArtifacts.guest.vpnLink);
   const lastConfig = JSON.parse(decoded.containers[0].awg.last_config);
@@ -68,7 +65,7 @@ test('builds server, firewall, native client and vpn-link artifacts together', (
   assert.equal(lastConfig.HeaderProtectionKey, fixture().server.profile.headerProtectionKey);
 });
 
-test('adds dual-stack addresses but blocks RU-direct IPv6', () => {
+test('adds dual-stack addresses and NAT66 policy', () => {
   const input = fixture();
   input.server.ipv6Subnet = '2001:db8:42::/64';
   input.server.address6 = '2001:db8:42::1';
@@ -79,9 +76,9 @@ test('adds dual-stack addresses but blocks RU-direct IPv6', () => {
   const artifacts = buildAwgArtifacts(input);
   assert.equal(artifacts.serverHasIPv6, true);
   assert.match(artifacts.clientArtifacts.admin.nativeConfig, /Address = 10\.8\.0\.2\/32, 2001:db8:42::2\/128/);
-  assert.match(artifacts.nftables, /block_ipv6/);
+  assert.doesNotMatch(artifacts.nftables, /block_ipv6/);
   assert.match(artifacts.nftables, /ip6 saddr 2001:db8:42::\/64 masquerade/);
-  assert.match(artifacts.nftables, /elements = \{ 2001:db8:42::3 \}/);
+  assert.match(artifacts.clientArtifacts.guest.nativeConfig, /AllowedIPs = 0\.0\.0\.0\/0, ::\/0/);
 });
 
 test('refuses a state with no enabled home client', () => {

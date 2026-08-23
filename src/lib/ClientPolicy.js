@@ -1,7 +1,6 @@
 'use strict';
 
 const NETWORK_GROUPS = Object.freeze(['home', 'guest']);
-const ROUTE_MODES = Object.freeze(['vpn_all', 'ru_direct']);
 
 const enumValue = (value, allowed, field) => {
   if (!allowed.includes(value)) {
@@ -20,7 +19,6 @@ const normalizeClientPolicy = (input = {}, { bootstrap = false } = {}) => {
       NETWORK_GROUPS,
       'networkGroup',
     ),
-    routeMode: enumValue(input.routeMode ?? 'vpn_all', ROUTE_MODES, 'routeMode'),
   });
 };
 
@@ -51,8 +49,6 @@ const assertActiveHomeRemains = (clients, clientId, changes) => {
 
 module.exports = {
   NETWORK_GROUPS,
-  ROUTE_MODES,
   assertActiveHomeRemains,
   normalizeClientPolicy,
 };
-

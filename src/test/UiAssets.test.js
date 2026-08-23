@@ -10,7 +10,7 @@ const www = path.join(__dirname, '..', 'www');
 test('ships a self-contained UI with every required control', () => {
   const html = fs.readFileSync(path.join(www, 'index.html'), 'utf8');
   for (const id of [
-    'login-form', 'clients', 'show-create', 'client-group', 'client-route',
+    'login-form', 'clients', 'show-create', 'client-group',
     'profile-qr', 'open-profile', 'download-config', 'password-form',
   ]) {
     assert.match(html, new RegExp(`id="${id}"`));
@@ -19,7 +19,7 @@ test('ships a self-contained UI with every required control', () => {
   assert.doesNotMatch(html, /backup|restore|expire|wireguard/i);
   assert.match(html, /Home/);
   assert.match(html, /Guest/);
-  assert.match(html, /РФ напрямую/);
+  assert.doesNotMatch(html, /РФ напрямую|GeoIP/);
 });
 
 test('uses only the versioned API and contains no legacy endpoint calls', () => {
@@ -28,5 +28,5 @@ test('uses only the versioned API and contains no legacy endpoint calls', () => 
   assert.match(api, /\/api\/v1\/clients/);
   assert.doesNotMatch(`${api}\n${app}`, /\/api\/wireguard|backup|restore/);
   assert.match(app, /networkGroup/);
-  assert.match(app, /routeMode/);
+  assert.doesNotMatch(app, /routeMode|ru_direct/);
 });
