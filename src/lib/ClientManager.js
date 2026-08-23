@@ -18,6 +18,7 @@ class ClientManager {
     artifactBuilder = buildAwgArtifacts,
     idGenerator = crypto.randomUUID,
     ruIPv4Cidrs = [],
+    onStateChanged = () => {},
   } = {}) {
     if (!store || typeof store.load !== 'function' || typeof store.save !== 'function') {
       throw new TypeError('store must provide load and save methods');
@@ -30,12 +31,14 @@ class ClientManager {
       throw new TypeError('artifactBuilder and idGenerator must be functions');
     }
     if (!Array.isArray(ruIPv4Cidrs)) throw new TypeError('ruIPv4Cidrs must be an array');
+    if (typeof onStateChanged !== 'function') throw new TypeError('onStateChanged must be a function');
     this.store = store;
     this.applier = applier;
     this.keyManager = keyManager;
     this.artifactBuilder = artifactBuilder;
     this.idGenerator = idGenerator;
     this.ruIPv4Cidrs = [...ruIPv4Cidrs];
+    this.onStateChanged = onStateChanged;
     this.queue = Promise.resolve();
   }
 
@@ -70,9 +73,9 @@ class ClientManager {
       interfaceActive: true,
     };
     await this.applier.apply(applyOptions);
+    let savedState;
     try {
-      const savedState = await this.store.save(nextState);
-      return Object.freeze({ artifacts: nextArtifacts, state: savedState });
+      savedState = await this.store.save(nextState);
     } catch (error) {
       try {
         await this.applier.apply({
@@ -86,6 +89,8 @@ class ClientManager {
       }
       throw error;
     }
+    await this.onStateChanged(savedState);
+    return Object.freeze({ artifacts: nextArtifacts, state: savedState });
   }
 
   createClient({ name, networkGroup, routeMode } = {}) {

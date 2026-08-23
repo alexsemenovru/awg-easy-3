@@ -7,6 +7,7 @@ const { ApiService } = require('./ApiService');
 const { buildAwgArtifacts } = require('./AwgArtifacts');
 const { BootstrapInstaller } = require('./BootstrapInstaller');
 const { ClientManager } = require('./ClientManager');
+const { DiscoveryRelay } = require('./DiscoveryRelay');
 const { GeoIpStore } = require('./GeoIpStore');
 const { HttpServer } = require('./HttpServer');
 const { PasswordManager } = require('./PasswordManager');
@@ -34,6 +35,7 @@ class Application {
     this.geoIp = new GeoIpStore(path.join(this.dataDirectory, 'ru-ipv4.txt'));
     this.applier = new RuntimeApplier({ runtimeDirectory: this.runtimeDirectory, runner });
     this.http = null;
+    this.discovery = null;
     this.state = null;
   }
 
@@ -93,10 +95,13 @@ class Application {
 
     const passwordManager = new PasswordManager({ store: this.store });
     const sessionManager = new SessionManager({ store: this.store });
+    this.discovery = new DiscoveryRelay();
+    await this.discovery.start(state);
     const clientManager = new ClientManager({
       store: this.store,
       applier: this.applier,
       ruIPv4Cidrs,
+      onStateChanged: (nextState) => this.discovery.refresh(nextState),
     });
     const api = new ApiService({ store: this.store, passwordManager, sessionManager, clientManager });
     this.http = new HttpServer({ api, publicDirectory: this.publicDirectory });
@@ -107,10 +112,12 @@ class Application {
   async stop() {
     const errors = [];
     if (this.http) await this.http.close().catch((error) => errors.push(error));
+    if (this.discovery) await this.discovery.stop().catch((error) => errors.push(error));
     if (this.state) {
       await this.applier.down({ interfaceName: this.state.server.interfaceName }).catch((error) => errors.push(error));
     }
     this.http = null;
+    this.discovery = null;
     this.state = null;
     if (errors.length > 0) throw new AggregateError(errors, 'Application shutdown failed');
   }
