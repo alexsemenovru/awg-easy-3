@@ -8,6 +8,8 @@ info() { printf '\n==> %s\n' "$*"; }
 case "$(uname -m)" in x86_64|amd64) ;; *) die "only linux/amd64 is supported in this release" ;; esac
 command -v docker >/dev/null 2>&1 || die "Docker Engine is not installed"
 docker compose version >/dev/null 2>&1 || die "Docker Compose v2 plugin is not installed"
+command -v ip >/dev/null 2>&1 || die "iproute2 is not installed"
+command -v ss >/dev/null 2>&1 || die "the iproute2 ss utility is not installed"
 [ -c /dev/net/tun ] || die "/dev/net/tun is unavailable on this VPS"
 
 AWG_HOST_VALUE=${AWG_HOST:-}
@@ -27,6 +29,17 @@ fi
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$SCRIPT_DIR"
 [ ! -e data/state.json ] || die "AWG-Easy 3 is already initialized in $SCRIPT_DIR/data"
+
+info "Checking interface, subnet and port availability"
+if ip link show dev awg0 >/dev/null 2>&1; then
+  die "network interface awg0 already exists"
+fi
+if ip -4 route show exact 10.8.0.0/24 | grep -q .; then
+  die "VPN subnet 10.8.0.0/24 conflicts with an existing route"
+fi
+if ss -H -lun 'sport = :51820' | grep -q .; then
+  die "UDP port 51820 is already in use"
+fi
 
 info "Enabling IPv4/IPv6 forwarding"
 umask 077

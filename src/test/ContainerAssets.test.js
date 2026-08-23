@@ -35,3 +35,16 @@ test('installer initializes before startup and never publishes the panel port', 
   assert.match(installer, /http:\/\/10\.8\.0\.1:51821/);
   assert.doesNotMatch(installer, /51821:51821/);
 });
+
+test('installer rejects network conflicts before changing host settings', () => {
+  const installer = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
+  const forwarding = installer.indexOf('Enabling IPv4/IPv6 forwarding');
+  for (const preflight of [
+    'ip link show dev awg0',
+    'ip -4 route show exact 10.8.0.0/24',
+    "ss -H -lun 'sport = :51820'",
+  ]) {
+    assert.match(installer, new RegExp(preflight.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.ok(installer.indexOf(preflight) < forwarding);
+  }
+});
