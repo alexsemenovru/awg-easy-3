@@ -117,3 +117,18 @@ test('restores runtime and persisted files when final persistence fails', async 
   assert.equal(calls.some((call) => call.file === 'nft' && call.args[0] === 'delete'), true);
   assert.equal(calls.some((call) => call.file === 'awg-quick' && call.args[0] === 'down'), true);
 });
+
+test('stops only its saved AWG interface and dedicated nftables table', async (t) => {
+  const directory = await temporaryDirectory(t);
+  const calls = [];
+  const runner = async (file, args) => {
+    calls.push([file, ...args]);
+    return { stdout: '', stderr: '' };
+  };
+  await new RuntimeApplier({ runtimeDirectory: directory, runner }).down({ interfaceName: 'awg0' });
+  assert.deepEqual(calls, [
+    ['awg-quick', 'down', path.join(directory, 'awg0.conf')],
+    ['nft', 'list', 'table', 'inet', 'awg_easy_3'],
+    ['nft', 'delete', 'table', 'inet', 'awg_easy_3'],
+  ]);
+});

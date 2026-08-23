@@ -176,6 +176,25 @@ class RuntimeApplier {
       await this.fs.rm(stagingDirectory, { recursive: true, force: true });
     }
   }
+
+  async down({ interfaceName = 'awg0' } = {}) {
+    const awgInterface = validateInterface(interfaceName);
+    const activeConfigPath = path.join(this.runtimeDirectory, `${awgInterface}.conf`);
+    const errors = [];
+    try {
+      await this.runner(this.awgQuickBinary, ['down', activeConfigPath]);
+    } catch (error) {
+      if (!(error && (error.code === 1 || error.exitCode === 1))) errors.push(error);
+    }
+    try {
+      if (await this.tableExists()) {
+        await this.runner(this.nftBinary, ['delete', 'table', 'inet', TABLE_NAME]);
+      }
+    } catch (error) {
+      errors.push(error);
+    }
+    if (errors.length > 0) throw new AggregateError(errors, 'Failed to stop AWG-Easy 3 runtime cleanly');
+  }
 }
 
 module.exports = { RuntimeApplier };

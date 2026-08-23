@@ -18,8 +18,12 @@ const publicClient = (client) => Object.freeze({
   ...(client.address6 ? { address6: client.address6 } : {}),
 });
 
+const defaultQrGenerator = (value) => require('qrcode').toString(value, {
+  type: 'svg', width: 320, margin: 2, errorCorrectionLevel: 'M',
+});
+
 class ApiService {
-  constructor({ store, passwordManager, sessionManager, clientManager } = {}) {
+  constructor({ store, passwordManager, sessionManager, clientManager, qrGenerator = defaultQrGenerator } = {}) {
     if (!store || typeof store.load !== 'function') throw new TypeError('store must provide load');
     if (!passwordManager || typeof passwordManager.verify !== 'function'
       || typeof passwordManager.changePassword !== 'function') {
@@ -32,10 +36,12 @@ class ApiService {
     if (!clientManager || typeof clientManager.createClient !== 'function') {
       throw new TypeError('clientManager is invalid');
     }
+    if (typeof qrGenerator !== 'function') throw new TypeError('qrGenerator must be a function');
     this.store = store;
     this.passwordManager = passwordManager;
     this.sessionManager = sessionManager;
     this.clientManager = clientManager;
+    this.qrGenerator = qrGenerator;
   }
 
   async login(password, { secureCookie = false } = {}) {
@@ -89,6 +95,9 @@ class ApiService {
     if (format === 'native-config') {
       return Object.freeze({ contentType: 'text/plain; charset=utf-8', value: artifact.nativeConfig });
     }
+    if (format === 'qr-svg') {
+      return Object.freeze({ contentType: 'image/svg+xml; charset=utf-8', value: await this.qrGenerator(artifact.vpnLink) });
+    }
     throw new ApiError(400, 'Unknown export format');
   }
 
@@ -114,4 +123,4 @@ class ApiService {
   }
 }
 
-module.exports = { ApiError, ApiService, publicClient };
+module.exports = { ApiError, ApiService, defaultQrGenerator, publicClient };

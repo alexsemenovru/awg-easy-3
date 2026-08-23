@@ -44,6 +44,7 @@ const fixture = () => {
       deleteClient: async (id) => { clientCalls.push(['delete', id]); },
       getClientExport: async () => ({ vpnLink: 'vpn://share', nativeConfig: '[Interface]\nPrivateKey=x' }),
     },
+    qrGenerator: async (value) => `<svg data-value="${value}"/>`,
   });
   return { clientCalls, getPasswordChanged: () => passwordChanged, service };
 };
@@ -83,6 +84,9 @@ test('returns exports only through the explicit authenticated endpoint', async (
     contentType: 'text/plain; charset=utf-8', value: 'vpn://share',
   });
   assert.match((await service.exportClient('signed-token', 'phone', 'native-config')).value, /PrivateKey/);
+  assert.deepEqual(await service.exportClient('signed-token', 'phone', 'qr-svg'), {
+    contentType: 'image/svg+xml; charset=utf-8', value: '<svg data-value="vpn://share"/>',
+  });
   await assert.rejects(service.exportClient('signed-token', 'phone', 'zip'), (error) => error.statusCode === 400);
 });
 
