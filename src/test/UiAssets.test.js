@@ -16,6 +16,8 @@ test('ships a self-contained UI with every required control', () => {
     assert.match(html, new RegExp(`id="${id}"`));
   }
   assert.doesNotMatch(html, /(?:src|href)="https?:\/\//i);
+  assert.match(html, /\/js\/app\.js\?v=[0-9-]+/);
+  assert.match(html, /\/js\/i18n\.js\?v=[0-9-]+/);
   assert.doesNotMatch(html, /backup|restore|expire|wireguard/i);
   assert.match(html, /Home/);
   assert.match(html, /Guest/);
