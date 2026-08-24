@@ -36,10 +36,13 @@ Al volver a ejecutarlo de forma interactiva, el instalador detecta la instalaci�
 ## Administración local
 
 ```bash
-docker compose run --rm --no-deps awg-easy reset-password
-docker compose run --rm --no-deps awg-easy export-client "Home admin"
-docker compose logs -f awg-easy
-docker compose exec awg-easy awg show awg0
+sudo awg-easy-3 help
+sudo awg-easy-3 status
+sudo awg-easy-3 update
+sudo awg-easy-3 reset-password
+sudo awg-easy-3 export-client "Home admin"
 ```
+
+También están disponibles `start`, `stop`, `restart`, `settings`, `logs`, `diagnose`, `uninstall` y `reinstall` desde cualquier directorio.
 
 El material adaptado heredado se distribuye bajo **CC BY-NC-SA 4.0**. Consulte [LICENSE](LICENSE), [NOTICE](NOTICE) y [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Este proyecto no está afiliado ni respaldado por AmneziaVPN.

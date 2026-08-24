@@ -72,20 +72,16 @@ http://10.8.0.1:51821
 ## Локальные административные команды
 
 ```bash
-# Новый случайный пароль; все старые сессии будут отозваны
-docker compose run --rm --no-deps awg-easy reset-password
-
-# Задать новый пароль вручную (не менее 12 символов)
-docker compose run --rm --no-deps awg-easy reset-password 'новый-надежный-пароль'
-
-# Диагностика
-docker compose logs -f awg-easy
-docker compose exec awg-easy awg show awg0
-docker compose exec awg-easy nft list table inet awg_easy_3
-
-# Повторно вывести vpn:// существующего клиента без изменения конфигурации
-docker compose run --rm --no-deps awg-easy export-client "Home admin"
+sudo awg-easy-3 help
+sudo awg-easy-3 status
+sudo awg-easy-3 diagnose
+sudo awg-easy-3 update
+sudo awg-easy-3 reset-password
+sudo awg-easy-3 reset-password 'новый-надежный-пароль'
+sudo awg-easy-3 export-client "Home admin"
 ```
+
+Также доступны `start`, `stop`, `restart`, `settings`, `logs`, `uninstall` и `reinstall`. Все команды работают из любого каталога.
 
 ## Важные ограничения prerelease
 

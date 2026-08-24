@@ -45,6 +45,8 @@ When run again in an interactive terminal, the installer detects its existing in
 
 After installation, run `sudo awg-easy-3` from any directory to open the same management menu. `sudo awg-easy-3 --uninstall` and `sudo awg-easy-3 --reinstall` are also available without locating the project directory.
 
+Common commands include `sudo awg-easy-3 start|stop|restart|status|settings|logs|diagnose|update`, plus `reset-password`, `export-client NAME`, `uninstall`, and `reinstall`. Run `sudo awg-easy-3 help` for the complete built-in reference.
+
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for design notes and [NOTICE](NOTICE) for attribution.
 
 Inherited adapted material is licensed under CC BY-NC-SA 4.0. This project is not affiliated with or endorsed by AmneziaVPN.

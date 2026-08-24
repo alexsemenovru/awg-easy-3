@@ -36,10 +36,13 @@ sudo ./install.sh --host 公网IP或域名 --lang zh-cn
 ## 本地管理
 
 ```bash
-docker compose run --rm --no-deps awg-easy reset-password
-docker compose run --rm --no-deps awg-easy export-client "Home admin"
-docker compose logs -f awg-easy
-docker compose exec awg-easy awg show awg0
+sudo awg-easy-3 help
+sudo awg-easy-3 status
+sudo awg-easy-3 update
+sudo awg-easy-3 reset-password
+sudo awg-easy-3 export-client "Home admin"
 ```
+
+还可从任意目录使用 `start`、`stop`、`restart`、`settings`、`logs`、`diagnose`、`uninstall` 和 `reinstall`。
 
 继承并改编的材料按 **CC BY-NC-SA 4.0** 发布。请参阅 [LICENSE](LICENSE)、[NOTICE](NOTICE) 和 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。本项目与 AmneziaVPN 没有关联，也未获其官方认可。

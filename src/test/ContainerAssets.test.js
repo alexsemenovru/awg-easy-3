@@ -92,6 +92,7 @@ test('installer suggests ports interactively but keeps explicit options strict',
 
 test('installer offers owned uninstall and clean reinstall without touching foreign infrastructure', () => {
   const installer = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
+  const manager = fs.readFileSync(path.join(root, 'awg-easy-3'), 'utf8');
   assert.match(installer, /--uninstall/);
   assert.match(installer, /--reinstall/);
   assert.match(installer, /Keep the current installation and exit/);
@@ -105,8 +106,14 @@ test('installer offers owned uninstall and clean reinstall without touching fore
   assert.match(installer, /Host forwarding values were left unchanged/);
   assert.match(installer, /\/usr\/local\/sbin\/awg-easy-3/);
   assert.match(installer, /\/etc\/awg-easy-3-install-dir/);
-  assert.match(installer, /exec "\$project_dir\/install\.sh" "\$@"/);
+  assert.match(installer, /install -m 0755 "\$SCRIPT_DIR\/awg-easy-3"/);
   assert.match(installer, /Run sudo awg-easy-3 from any directory/);
+  for (const command of ['start', 'stop', 'restart', 'status', 'settings', 'logs', 'diagnose', 'update', 'reset-password', 'export-client', 'uninstall', 'reinstall']) {
+    assert.match(manager, new RegExp(`\\b${command.replace('-', '\\-')}\\b`));
+  }
+  assert.match(manager, /docker compose --project-directory "\$project_dir"/);
+  assert.match(manager, /git -C "\$project_dir" pull --ff-only/);
+  assert.doesNotMatch(manager, /docker system prune|docker volume prune|docker image prune/);
   assert.ok(installer.indexOf(' down --remove-orphans') < installer.indexOf('rm -rf -- "$EXISTING_INSTALL_DIR/data"'));
   assert.doesNotMatch(installer, /docker system prune|docker volume prune|docker image prune/);
 });

@@ -1,0 +1,79 @@
+#!/bin/sh
+set -eu
+
+die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
+[ "$(id -u)" -eq 0 ] || die "run this command as root: sudo awg-easy-3"
+
+location_file=/etc/awg-easy-3-install-dir
+[ -r "$location_file" ] || die "installation location is unavailable"
+IFS= read -r project_dir < "$location_file"
+case "$project_dir" in /*) ;; *) die "invalid installation location" ;; esac
+[ -f "$project_dir/docker-compose.yml" ] || die "docker-compose.yml not found in $project_dir"
+[ -x "$project_dir/install.sh" ] || die "installer not found in $project_dir"
+
+compose() {
+  docker compose --project-directory "$project_dir" -f "$project_dir/docker-compose.yml" "$@"
+}
+
+show_help() {
+  cat <<'EOF'
+AWG-Easy 3 management commands:
+
+  awg-easy-3                 Open the interactive management menu
+  awg-easy-3 start           Start the panel and VPN
+  awg-easy-3 stop            Stop the panel and VPN cleanly
+  awg-easy-3 restart         Restart the panel and VPN
+  awg-easy-3 status          Show container and network status
+  awg-easy-3 settings        Show non-secret runtime settings
+  awg-easy-3 logs            Follow panel logs
+  awg-easy-3 diagnose        Show status and recent logs
+  awg-easy-3 update          Pull project and pinned image updates
+  awg-easy-3 reset-password  Generate a new panel password
+  awg-easy-3 export-client NAME
+                              Export an existing client by name or ID
+  awg-easy-3 uninstall       Remove AWG-Easy 3 and all its settings
+  awg-easy-3 reinstall       Reinstall from scratch
+  awg-easy-3 help            Show this help
+EOF
+}
+
+command=${1:-menu}
+case "$command" in
+  menu) exec "$project_dir/install.sh" ;;
+  start) compose up -d awg-easy ;;
+  stop) compose stop awg-easy ;;
+  restart) compose restart awg-easy ;;
+  status)
+    compose ps awg-easy
+    if ip link show dev awg0 >/dev/null 2>&1; then printf 'AWG interface: active\n'; else printf 'AWG interface: inactive\n'; fi
+    if nft list table inet awg_easy_3 >/dev/null 2>&1; then printf 'nftables policy: active\n'; else printf 'nftables policy: inactive\n'; fi
+    ;;
+  settings)
+    docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' awg-easy-3 2>/dev/null \
+      | grep -E '^AWG_(HOST|PORT|PANEL_PORT|LANG)=' || die "AWG-Easy 3 container is unavailable"
+    ;;
+  logs) compose logs --tail=100 -f awg-easy ;;
+  diagnose)
+    compose ps awg-easy
+    printf '\nRecent logs:\n'
+    compose logs --tail=50 awg-easy
+    ;;
+  update)
+    git -C "$project_dir" pull --ff-only
+    install -m 0755 "$project_dir/awg-easy-3" /usr/local/sbin/awg-easy-3
+    compose pull awg-easy
+    compose up -d awg-easy
+    ;;
+  reset-password)
+    shift
+    compose run --rm --no-deps awg-easy reset-password "$@"
+    ;;
+  export-client)
+    [ "$#" -ge 2 ] || die "client name or ID is required"
+    compose run --rm --no-deps awg-easy export-client "$2"
+    ;;
+  uninstall|--uninstall) exec "$project_dir/install.sh" --uninstall ;;
+  reinstall|--reinstall) exec "$project_dir/install.sh" --reinstall ;;
+  help|-h|--help) show_help ;;
+  *) die "unknown command: $command (run 'sudo awg-easy-3 help')" ;;
+esac

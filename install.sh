@@ -317,17 +317,7 @@ remove_existing_installation() {
 install_management_command() {
   printf '%s\n' "$SCRIPT_DIR" > /etc/awg-easy-3-install-dir
   chmod 0644 /etc/awg-easy-3-install-dir
-  cat > /usr/local/sbin/awg-easy-3 <<'EOF'
-#!/bin/sh
-set -eu
-location_file=/etc/awg-easy-3-install-dir
-[ -r "$location_file" ] || { printf 'Error: AWG-Easy 3 installation location is unavailable.\n' >&2; exit 1; }
-IFS= read -r project_dir < "$location_file"
-case "$project_dir" in /*) ;; *) printf 'Error: invalid AWG-Easy 3 installation location.\n' >&2; exit 1 ;; esac
-[ -x "$project_dir/install.sh" ] || { printf 'Error: installer not found at %s/install.sh.\n' "$project_dir" >&2; exit 1; }
-exec "$project_dir/install.sh" "$@"
-EOF
-  chmod 0755 /usr/local/sbin/awg-easy-3
+  install -m 0755 "$SCRIPT_DIR/awg-easy-3" /usr/local/sbin/awg-easy-3
 }
 
 if [ -n "$EXISTING_INSTALL_DIR" ] && { [ "$INSTALL_ACTION" = uninstall ] || [ "$INSTALL_ACTION" = reinstall ]; }; then

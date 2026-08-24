@@ -36,10 +36,13 @@ sudo ./install.sh --host PUBLIC_IP_OR_DOMAIN --lang fa
 ## مدیریت محلی
 
 ```bash
-docker compose run --rm --no-deps awg-easy reset-password
-docker compose run --rm --no-deps awg-easy export-client "Home admin"
-docker compose logs -f awg-easy
-docker compose exec awg-easy awg show awg0
+sudo awg-easy-3 help
+sudo awg-easy-3 status
+sudo awg-easy-3 update
+sudo awg-easy-3 reset-password
+sudo awg-easy-3 export-client "Home admin"
 ```
+
+فرمان‌های `start`، `stop`، `restart`، `settings`، `logs`، `diagnose`، `uninstall` و `reinstall` نیز از هر پوشه‌ای در دسترس هستند.
 
 مطالب اقتباس‌شدهٔ به‌ارث‌رسیده تحت مجوز **CC BY-NC-SA 4.0** منتشر می‌شوند. [LICENSE](LICENSE)، [NOTICE](NOTICE) و [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) را ببینید. این پروژه وابسته به AmneziaVPN نیست و تأیید رسمی آن را ندارد.
