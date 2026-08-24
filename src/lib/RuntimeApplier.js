@@ -134,6 +134,7 @@ class RuntimeApplier {
     await this.fs.mkdir(this.runtimeDirectory, { recursive: true, mode: 0o700 });
     const stagingDirectory = await this.fs.mkdtemp(path.join(this.runtimeDirectory, '.apply-'));
     const stagedConfigPath = path.join(stagingDirectory, `${awgInterface}.conf`);
+    const stagedStrippedPath = path.join(stagingDirectory, `${awgInterface}.stripped.conf`);
     const stagedNftPath = path.join(stagingDirectory, 'rules.batch.nft');
     const stagedDockerNftPath = path.join(stagingDirectory, 'docker.batch.nft');
     const stagedPolicyPath = path.join(stagingDirectory, 'rules.nft');
@@ -144,6 +145,7 @@ class RuntimeApplier {
     const previousPolicy = await this.readOptional(activeNftPath);
     let newStripped;
     let previousStripped;
+    let previousStrippedPath;
     let awgChanged = false;
     let nftChanged = false;
     let configPersisted = false;
@@ -164,19 +166,20 @@ class RuntimeApplier {
       }
 
       ({ stdout: newStripped } = await this.runner(this.awgQuickBinary, ['strip', stagedConfigPath]));
+      await this.fs.writeFile(stagedStrippedPath, `${newStripped}\n`, { mode: 0o600, flag: 'wx' });
       if (interfaceActive) {
         if (!previousConfig) throw new Error('Active AWG interface has no saved configuration to roll back to');
         const previousPath = path.join(stagingDirectory, 'previous.conf');
         await this.fs.writeFile(previousPath, previousConfig, { mode: 0o600, flag: 'wx' });
         ({ stdout: previousStripped } = await this.runner(this.awgQuickBinary, ['strip', previousPath]));
+        previousStrippedPath = path.join(stagingDirectory, 'previous.stripped.conf');
+        await this.fs.writeFile(previousStrippedPath, `${previousStripped}\n`, { mode: 0o600, flag: 'wx' });
       }
       await this.runner(this.nftBinary, ['-c', '-f', stagedNftPath]);
       if (dockerBatch) await this.runner(this.nftBinary, ['-c', '-f', stagedDockerNftPath]);
 
       if (interfaceActive) {
-        await this.runner(this.awgBinary, ['syncconf', awgInterface, '/dev/stdin'], {
-          input: `${newStripped}\n`,
-        });
+        await this.runner(this.awgBinary, ['syncconf', awgInterface, stagedStrippedPath]);
       } else {
         await this.runner(this.awgQuickBinary, ['up', stagedConfigPath]);
       }
@@ -245,9 +248,7 @@ class RuntimeApplier {
       if (awgChanged) {
         try {
           if (interfaceActive) {
-            await this.runner(this.awgBinary, ['syncconf', awgInterface, '/dev/stdin'], {
-              input: `${previousStripped}\n`,
-            });
+            await this.runner(this.awgBinary, ['syncconf', awgInterface, previousStrippedPath]);
           } else {
             await this.runner(this.awgQuickBinary, ['down', stagedConfigPath]);
           }

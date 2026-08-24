@@ -49,7 +49,7 @@ test('rolls an active interface back when nftables application fails', async (t)
     if (args[0] === 'strip') {
       return { stdout: args[1].endsWith('previous.conf') ? 'old-stripped' : 'new-stripped', stderr: '' };
     }
-    if (file === 'awg' && args[0] === 'syncconf') syncInputs.push(options.input);
+    if (file === 'awg' && args[0] === 'syncconf') syncInputs.push(await fs.readFile(args[2], 'utf8'));
     if (file === 'nft' && args[0] === '-f') throw new Error('nft apply failed');
     return { stdout: '', stderr: '' };
   };
