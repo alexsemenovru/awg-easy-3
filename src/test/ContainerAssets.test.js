@@ -90,6 +90,21 @@ test('installer suggests ports interactively but keeps explicit options strict',
   assert.match(installer, /choose another value \(for example \$suggestion\)/);
 });
 
+test('installer offers owned uninstall and clean reinstall without touching foreign infrastructure', () => {
+  const installer = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
+  assert.match(installer, /--uninstall/);
+  assert.match(installer, /--reinstall/);
+  assert.match(installer, /Keep the current installation and exit/);
+  assert.match(installer, /Uninstall and permanently delete all clients and settings/);
+  assert.match(installer, /Reinstall from scratch and permanently delete all clients and settings/);
+  assert.match(installer, /docker compose down --remove-orphans/);
+  assert.match(installer, /rm -rf -- "\$SCRIPT_DIR\/data"/);
+  assert.match(installer, /rm -f -- \/etc\/sysctl\.d\/99-awg-easy-3\.conf/);
+  assert.match(installer, /Host forwarding values were left unchanged/);
+  assert.ok(installer.indexOf('docker compose down --remove-orphans') < installer.indexOf('rm -rf -- "$SCRIPT_DIR/data"'));
+  assert.doesNotMatch(installer, /docker system prune|docker volume prune|docker image prune/);
+});
+
 test('installer accepts validated AWG port, panel port and language options', () => {
   const installer = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
   assert.match(installer, /--port/);

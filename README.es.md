@@ -31,6 +31,8 @@ sudo ./install.sh --host IP_PUBLICA_O_DOMINIO --lang es
 
 También puede usar `--port`, `--panel-port` y `--lang en|ru|fa|es|zh-cn`. Si un puerto predeterminado está ocupado, el modo interactivo propone el siguiente libre; un puerto indicado explícitamente produce un error y nunca se cambia en silencio. Se admiten APT, DNF, YUM, Zypper, Pacman y APK. En NixOS, el instalador muestra un módulo declarativo y una orden `nixos-rebuild` limitada a un solo trabajo, sin editar automáticamente `configuration.nix`. El puerto del panel permanece privado aunque se cambie. El instalador muestra una vez la contraseña y el primer enlace Home. Importe el enlace en AmneziaVPN y abra `http://10.8.0.1:51821`.
 
+Al volver a ejecutarlo de forma interactiva, el instalador detecta la instalación existente y permite conservarla, desinstalarla o reinstalarla desde cero. Las dos últimas opciones requieren confirmación y eliminan permanentemente todos los clientes, claves, contraseñas y ajustes de AWG-Easy 3. Para automatización existen `--uninstall` y `--reinstall`. Solo se eliminan el servicio Compose del proyecto, sus datos y su archivo sysctl; Docker, contenedores, imágenes, redes y reglas ajenas, así como los valores actuales de forwarding, no se modifican.
+
 ## Administración local
 
 ```bash

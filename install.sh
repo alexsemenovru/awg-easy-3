@@ -18,6 +18,7 @@ AWG_PANEL_PORT_VALUE=${AWG_PANEL_PORT:-51821}
 AWG_LANG_VALUE=${AWG_LANG:-en}
 AWG_PORT_EXPLICIT=0
 AWG_PANEL_PORT_EXPLICIT=0
+INSTALL_ACTION=install
 [ "${AWG_PORT+x}" = x ] && AWG_PORT_EXPLICIT=1
 [ "${AWG_PANEL_PORT+x}" = x ] && AWG_PANEL_PORT_EXPLICIT=1
 
@@ -27,10 +28,15 @@ while [ "$#" -gt 0 ]; do
     --port) [ "$#" -ge 2 ] || die "--port requires a UDP port"; AWG_PORT_VALUE=$2; AWG_PORT_EXPLICIT=1; shift 2 ;;
     --panel-port) [ "$#" -ge 2 ] || die "--panel-port requires a TCP port"; AWG_PANEL_PORT_VALUE=$2; AWG_PANEL_PORT_EXPLICIT=1; shift 2 ;;
     --lang) [ "$#" -ge 2 ] || die "--lang requires en, ru, fa, es or zh-cn"; AWG_LANG_VALUE=$2; shift 2 ;;
+    --uninstall) [ "$INSTALL_ACTION" = install ] || die "--uninstall and --reinstall cannot be used together"; INSTALL_ACTION=uninstall; shift ;;
+    --reinstall) [ "$INSTALL_ACTION" = install ] || die "--uninstall and --reinstall cannot be used together"; INSTALL_ACTION=reinstall; shift ;;
     --help)
       printf 'Usage: sudo ./install.sh [--host HOST] [--port UDP_PORT] [--panel-port TCP_PORT] [--lang en|ru|fa|es|zh-cn]\n'
+      printf '       sudo ./install.sh --uninstall\n'
+      printf '       sudo ./install.sh --reinstall [installation options]\n'
       printf '\nMissing runtime packages are installed with the system package manager.\n'
       printf 'When a default port is occupied, an interactive terminal suggests a free alternative.\n'
+      printf 'Uninstall and reinstall permanently delete every AWG-Easy 3 client and setting.\n'
       exit 0
       ;;
     *) die "unknown argument: $1" ;;
@@ -53,6 +59,48 @@ if grep -qiE '(microsoft|wsl)' /proc/sys/kernel/osrelease /proc/version 2>/dev/n
   die "WSL is unsupported; install AWG-Easy 3 on a real Linux VPS with native TUN, forwarding and nftables"
 fi
 case "$(uname -m)" in x86_64|amd64) ;; *) die "only linux/amd64 is supported in this release" ;; esac
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+cd "$SCRIPT_DIR"
+
+choose_existing_install_action() {
+  if [ ! -e data/state.json ]; then
+    if [ "$INSTALL_ACTION" = uninstall ]; then
+      printf 'AWG-Easy 3 is not installed in %s. Nothing to remove.\n' "$SCRIPT_DIR"
+      exit 0
+    fi
+    return 0
+  fi
+  if [ "$INSTALL_ACTION" = reinstall ] || [ "$INSTALL_ACTION" = uninstall ]; then
+    return 0
+  fi
+  if ! is_interactive; then
+    die "AWG-Easy 3 is already installed; rerun interactively, with --uninstall, or with --reinstall"
+  fi
+  printf '\nAWG-Easy 3 is already installed in %s.\n' "$SCRIPT_DIR"
+  printf '  1) Keep the current installation and exit\n'
+  printf '  2) Uninstall and permanently delete all clients and settings\n'
+  printf '  3) Reinstall from scratch and permanently delete all clients and settings\n'
+  printf 'Choose an action [1]: '
+  read -r answer
+  case "$answer" in
+    ''|1) printf 'The existing installation was left unchanged.\n'; exit 0 ;;
+    2) INSTALL_ACTION=uninstall ;;
+    3) INSTALL_ACTION=reinstall ;;
+    *) die "invalid choice; the existing installation was left unchanged" ;;
+  esac
+}
+
+confirm_data_removal() {
+  if ! is_interactive; then
+    return 0
+  fi
+  printf 'This permanently deletes every AWG-Easy 3 client, key, password and setting. Continue? [y/N]: '
+  read -r answer
+  case "$answer" in y|Y|yes|YES|Yes) return 0 ;; *) return 1 ;; esac
+}
+
+choose_existing_install_action
 
 detect_package_manager() {
   for manager in apt-get dnf yum zypper pacman apk; do
@@ -230,6 +278,31 @@ has_command ip || die "iproute2 installation did not provide the ip command"
 has_command ss || die "iproute2 installation did not provide the ss command"
 has_command nft || die "nftables installation did not provide the nft command"
 
+remove_existing_installation() {
+  confirm_data_removal || die "removal cancelled; the existing installation was left unchanged"
+  info "Stopping only the AWG-Easy 3 Compose service"
+  docker compose down --remove-orphans
+  if ip link show dev awg0 >/dev/null 2>&1; then
+    die "AWG interface awg0 is still active; settings were preserved so it can be inspected safely"
+  fi
+  if nft list table inet awg_easy_3 >/dev/null 2>&1; then
+    die "owned nftables table inet awg_easy_3 is still active; settings were preserved so it can be inspected safely"
+  fi
+  case "$SCRIPT_DIR" in /|'' ) die "refusing to remove data from an unsafe project path" ;; esac
+  rm -rf -- "$SCRIPT_DIR/data"
+  rm -f -- /etc/sysctl.d/99-awg-easy-3.conf
+  info "AWG-Easy 3 clients, settings and service were removed"
+  printf 'Host forwarding values were left unchanged to avoid disrupting other VPS services.\n'
+}
+
+if [ -e data/state.json ] && { [ "$INSTALL_ACTION" = uninstall ] || [ "$INSTALL_ACTION" = reinstall ]; }; then
+  remove_existing_installation
+  if [ "$INSTALL_ACTION" = uninstall ]; then
+    printf 'Uninstallation complete. The project files remain in %s so the installer can be run again.\n' "$SCRIPT_DIR"
+    exit 0
+  fi
+fi
+
 if [ ! -c /dev/net/tun ]; then
   has_command modprobe && modprobe tun >/dev/null 2>&1 || true
 fi
@@ -240,8 +313,6 @@ if [ -z "$AWG_HOST_VALUE" ]; then
 fi
 [ -n "$AWG_HOST_VALUE" ] || die "unable to detect the public endpoint; use --host PUBLIC_IP_OR_DOMAIN"
 
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-cd "$SCRIPT_DIR"
 [ ! -e data/state.json ] || die "AWG-Easy 3 is already initialized in $SCRIPT_DIR/data"
 
 port_in_use() {
