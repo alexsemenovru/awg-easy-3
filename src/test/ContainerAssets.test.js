@@ -67,6 +67,12 @@ test('installer can provision missing runtime dependencies without replacing for
   assert.match(installer, /apt-get dnf yum zypper pacman apk/);
   assert.match(installer, /docker-compose-v2/);
   assert.match(installer, /docker-compose-plugin/);
+  assert.match(installer, /NixOS detected/);
+  assert.match(installer, /virtualisation\.docker\.enable = true/);
+  assert.match(installer, /\.\/awg-easy-3-runtime\.nix/);
+  assert.match(installer, /nixos-rebuild switch/);
+  assert.match(installer, /--option max-jobs 1 --option cores 1/);
+  assert.match(installer, /does not edit configuration\.nix automatically/);
   assert.match(installer, /systemctl enable --now docker/);
   assert.match(installer, /the installer will not remove an existing container/);
   assert.match(installer, /the installer will not overwrite an unowned or stale table/);

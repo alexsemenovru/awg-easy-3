@@ -43,6 +43,12 @@ collisions are resolved interactively; explicit port arguments remain strict.
 Existing containers, interfaces, routes and nftables objects are never removed
 or renamed automatically.
 
+NixOS is handled as a declarative exception. When runtime dependencies are
+missing, the installer prints a standalone NixOS module enabling Docker,
+Compose, iproute2, nftables and TUN, plus the import and `nixos-rebuild`
+commands. The rebuild is limited to one job and one core for low-memory VPS
+instances. The installer does not patch `configuration.nix` automatically.
+
 The Web UI listens inside the container/network namespace but has no public
 host port mapping. nftables permits it from home peer addresses only.
 

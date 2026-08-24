@@ -29,7 +29,7 @@ cd awg-easy-3
 sudo ./install.sh --host 公网IP或域名 --lang zh-cn
 ```
 
-可选参数包括 `--port`、`--panel-port` 和 `--lang en|ru|fa|es|zh-cn`。默认端口被占用时，交互式运行会建议下一个可用端口；明确指定的占用端口会报错，不会被静默替换。支持 APT、DNF、YUM、Zypper、Pacman 和 APK。即使修改面板端口，它仍不会公开到互联网。安装程序只显示一次面板密码和首个 Home 配置链接。将链接导入 AmneziaVPN，然后打开 `http://10.8.0.1:51821`。
+可选参数包括 `--port`、`--panel-port` 和 `--lang en|ru|fa|es|zh-cn`。默认端口被占用时，交互式运行会建议下一个可用端口；明确指定的占用端口会报错，不会被静默替换。支持 APT、DNF、YUM、Zypper、Pacman 和 APK。在 NixOS 上，安装程序会输出声明式模块和限制为单任务的 `nixos-rebuild` 命令，不会自动编辑 `configuration.nix`。即使修改面板端口，它仍不会公开到互联网。安装程序只显示一次面板密码和首个 Home 配置链接。将链接导入 AmneziaVPN，然后打开 `http://10.8.0.1:51821`。
 
 ## 本地管理
 

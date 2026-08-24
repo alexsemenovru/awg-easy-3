@@ -39,7 +39,7 @@ docker compose run --rm --no-deps awg-easy export-client "Home admin"
 
 Optional `--port`, `--panel-port`, and `--lang en|ru|fa|es|zh-cn` arguments select the AWG UDP port, VPN-only panel TCP port, and interface language. If a default port is occupied, an interactive run suggests the next free port and asks for confirmation; an explicitly supplied occupied port remains a strict error. English is the default; Persian uses an RTL layout. Russian, Spanish, and Simplified Chinese are also included.
 
-Supported package managers are APT, DNF, YUM, Zypper, Pacman and APK. The installer never removes a conflicting container, interface, route or nftables table; conflicts it cannot resolve safely are reported before host networking is changed.
+Supported package managers are APT, DNF, YUM, Zypper, Pacman and APK. NixOS is detected separately: the installer prints a ready-to-use declarative module and low-memory-safe, single-job `nixos-rebuild` instructions instead of editing `configuration.nix`. The installer never removes a conflicting container, interface, route or nftables table; conflicts it cannot resolve safely are reported before host networking is changed.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for design notes and [NOTICE](NOTICE) for attribution.
 

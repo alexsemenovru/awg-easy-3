@@ -54,6 +54,46 @@ detect_package_manager() {
   return 1
 }
 
+is_nixos() {
+  [ -r /etc/os-release ] || return 1
+  # os-release is a system-owned file containing simple key/value metadata.
+  # shellcheck disable=SC1091
+  . /etc/os-release
+  [ "${ID:-}" = nixos ]
+}
+
+show_nixos_runtime_instructions() {
+  cat >&2 <<'EOF'
+Error: NixOS detected. Runtime services must be enabled declaratively.
+
+Create /etc/nixos/awg-easy-3-runtime.nix with:
+
+  { pkgs, ... }:
+  {
+    virtualisation.docker.enable = true;
+    environment.systemPackages = with pkgs; [
+      docker-compose
+      iproute2
+      nftables
+    ];
+    boot.kernelModules = [ "tun" ];
+  }
+
+Then add this line inside the imports list in /etc/nixos/configuration.nix:
+
+    ./awg-easy-3-runtime.nix
+
+Apply the configuration and rerun this installer:
+
+  sudo nixos-rebuild switch --option max-jobs 1 --option cores 1
+  cd /opt/awg-easy-3
+  sudo ./install.sh --host PUBLIC_IP_OR_DOMAIN --lang en
+
+The installer intentionally does not edit configuration.nix automatically.
+The single-job rebuild is intentional for low-memory VPS instances.
+EOF
+}
+
 confirm_dependency_install() {
   if ! is_interactive; then
     return 0
@@ -92,6 +132,10 @@ install_runtime_dependencies() {
     return 0
   fi
 
+  if is_nixos; then
+    show_nixos_runtime_instructions
+    exit 1
+  fi
   manager=$(detect_package_manager) || die "no supported package manager found; install Docker Engine, Docker Compose v2, iproute2 and nftables manually"
   missing=""
   [ "$need_docker" -eq 1 ] && missing="${missing} Docker"

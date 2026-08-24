@@ -29,7 +29,7 @@ cd awg-easy-3
 sudo ./install.sh --host IP_PUBLICA_O_DOMINIO --lang es
 ```
 
-También puede usar `--port`, `--panel-port` y `--lang en|ru|fa|es|zh-cn`. Si un puerto predeterminado está ocupado, el modo interactivo propone el siguiente libre; un puerto indicado explícitamente produce un error y nunca se cambia en silencio. Se admiten APT, DNF, YUM, Zypper, Pacman y APK. El puerto del panel permanece privado aunque se cambie. El instalador muestra una vez la contraseña y el primer enlace Home. Importe el enlace en AmneziaVPN y abra `http://10.8.0.1:51821`.
+También puede usar `--port`, `--panel-port` y `--lang en|ru|fa|es|zh-cn`. Si un puerto predeterminado está ocupado, el modo interactivo propone el siguiente libre; un puerto indicado explícitamente produce un error y nunca se cambia en silencio. Se admiten APT, DNF, YUM, Zypper, Pacman y APK. En NixOS, el instalador muestra un módulo declarativo y una orden `nixos-rebuild` limitada a un solo trabajo, sin editar automáticamente `configuration.nix`. El puerto del panel permanece privado aunque se cambie. El instalador muestra una vez la contraseña y el primer enlace Home. Importe el enlace en AmneziaVPN y abra `http://10.8.0.1:51821`.
 
 ## Administración local
 
