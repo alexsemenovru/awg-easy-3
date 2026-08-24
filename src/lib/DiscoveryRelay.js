@@ -5,8 +5,6 @@ const dgram = require('node:dgram');
 const SERVICES = Object.freeze([
   Object.freeze({ name: 'mdns4', family: 'udp4', group: '224.0.0.251', port: 5353 }),
   Object.freeze({ name: 'ssdp4', family: 'udp4', group: '239.255.255.250', port: 1900 }),
-  Object.freeze({ name: 'mdns6', family: 'udp6', group: 'ff02::fb', port: 5353 }),
-  Object.freeze({ name: 'ssdp6', family: 'udp6', group: 'ff02::c', port: 1900 }),
 ]);
 
 const normalizedAddress = (value) => String(value).toLowerCase().replace(/^::ffff:/, '');
@@ -59,6 +57,7 @@ class DiscoveryRelay {
 
   async startService(service, interfaceValue) {
     const socket = this.socketFactory({ type: service.family, reuseAddr: true });
+    this.sockets.push(socket);
     socket.on('message', (message, rinfo) => {
       if (message.length > 65_507) return;
       for (const target of this.targets(service, rinfo)) {
@@ -77,14 +76,12 @@ class DiscoveryRelay {
         }
       });
     });
-    this.sockets.push(socket);
   }
 
   async start(state) {
     this.refresh(state);
-    const services = SERVICES.filter((service) => service.family === 'udp4' || state.server.address6);
     try {
-      for (const service of services) {
+      for (const service of SERVICES) {
         const interfaceValue = service.family === 'udp4' ? state.server.address4 : state.server.interfaceName;
         await this.startService(service, interfaceValue);
       }
@@ -96,7 +93,13 @@ class DiscoveryRelay {
 
   async stop() {
     const sockets = this.sockets.splice(0);
-    await Promise.all(sockets.map((socket) => new Promise((resolve) => socket.close(resolve))));
+    await Promise.all(sockets.map((socket) => new Promise((resolve) => {
+      try {
+        socket.close(resolve);
+      } catch {
+        resolve();
+      }
+    })));
     this.requesters.clear();
   }
 }

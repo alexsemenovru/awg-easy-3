@@ -42,3 +42,25 @@ test('returns SSDP responses to recent requester ports without involving Guests'
     { address: '10.8.0.2', port: 1900 },
   ]);
 });
+
+test('uses IPv4 discovery even when the VPN is dual-stack', () => {
+  assert.ok(SERVICES.length > 0);
+  assert.ok(SERVICES.every((service) => service.family === 'udp4'));
+});
+
+test('closes a bound socket when multicast membership fails', async () => {
+  let closed = false;
+  const socket = {
+    on: () => {},
+    once: () => {},
+    off: () => {},
+    bind: (_port, _host, callback) => callback(),
+    addMembership: () => { throw new Error('membership failed'); },
+    close: (callback) => { closed = true; callback(); },
+  };
+  const relay = new DiscoveryRelay({ socketFactory: () => socket });
+
+  await assert.rejects(relay.start(state()), /membership failed/);
+  assert.equal(closed, true);
+  assert.equal(relay.sockets.length, 0);
+});

@@ -122,8 +122,11 @@ fan-out to every peer. Generic reflectors commonly operate between distinct
 interfaces, while all AWG peers share `awg0`. Before inclusion, a proof of
 concept must demonstrate controlled per-peer fan-out for:
 
-- mDNS (`224.0.0.251:5353`, and IPv6 equivalent when enabled);
-- SSDP (`239.255.255.250:1900`, and IPv6 equivalents when enabled).
+- IPv4 mDNS (`224.0.0.251:5353`);
+- IPv4 SSDP (`239.255.255.250:1900`).
+
+Dual-stack Home clients use their internal IPv4 addresses for discovery; this
+avoids relying on IPv6 multicast membership support on userspace TUN devices.
 
 The relay must not implement UPnP IGD, NAT-PMP or PCP and must never attach to
 the VPS WAN/LAN interface.
