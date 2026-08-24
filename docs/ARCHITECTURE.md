@@ -31,8 +31,9 @@ The intended first release contains:
 2. A pinned official AWG 3.x userspace engine and matching tools.
 3. A state directory mounted from a Docker volume.
 4. A narrowly scoped nftables manager.
-5. A small discovery relay for home peers, covered by automated fan-out tests;
-   application-level discovery still requires a two-device field test.
+5. A small discovery relay for home peers, covered by automated fan-out tests
+   and validated with a packet capture between two real peers. Application-level
+   visibility remains dependent on client multicast support over the VPN interface.
 6. An installer/bootstrap command that creates the first peer and credentials.
 
 The Web UI listens inside the container/network namespace but has no public
@@ -133,6 +134,12 @@ per-peer fan-out for:
 
 Dual-stack Home clients use their internal IPv4 addresses for discovery; this
 avoids relying on IPv6 multicast membership support on userspace TUN devices.
+
+A two-peer field capture validated server-side packet fan-out and SSDP
+`LOCATION` rewriting to the advertising peer's VPN address. Client applications
+must still send and receive multicast on the VPN interface. Some Android
+VPN/application combinations bind discovery only to the physical network; this
+is a client compatibility limitation and does not disable the server relay.
 
 The relay must not implement UPnP IGD, NAT-PMP or PCP and must never attach to
 the VPS WAN/LAN interface.

@@ -13,7 +13,7 @@ Un panel Docker sencillo para **AmneziaWG 3.x**. Es un fork independiente y no c
 - Estado en línea, velocidad actual de recepción/transmisión, handshake y endpoint, sin historial de tráfico.
 - DNS AdGuard predeterminado: `94.140.14.14`, `94.140.15.15`, `2a10:50c0::ad1:ff` y `2a10:50c0::ad2:ff`.
 - IPv6 automático mediante ULA y NAT66 limitado cuando el VPS dispone de IPv6.
-- Descubrimiento mDNS y UPnP/SSDP solo para Home. UPnP IGD, NAT-PMP, PCP y cualquier apertura automática de puertos no se admiten de forma intencionada.
+- Descubrimiento mDNS y UPnP/SSDP solo para Home. UPnP IGD, NAT-PMP, PCP y cualquier apertura automática de puertos no se admiten de forma intencionada. La visibilidad depende de que la aplicación cliente admita multicast en la interfaz VPN.
 - Panel disponible únicamente dentro de la VPN en `http://10.8.0.1:51821`.
 - Tabla nftables dedicada y reglas `awg0` limitadas; no se limpia la configuración ajena.
 - Sin migración desde 2.x, copias de seguridad, roles ni backend WireGuard heredado.

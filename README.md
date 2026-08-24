@@ -4,7 +4,7 @@
 
 An intentionally small Docker web panel for **AmneziaWG 3.x**. This is an independent, non-commercial fork of [JohnnyVBut/awg-easy](https://github.com/JohnnyVBut/awg-easy), rebuilt around clean AWG 3.x installations.
 
-> Status: prerelease candidate. The pinned AWG 3.1 engine, Docker deployment, AmneziaVPN Android import, IPv4/IPv6 connectivity, Home/Guest isolation and profile revocation have been validated on a dedicated VPS. Home discovery still needs a two-device field test.
+> Status: prerelease candidate. The pinned AWG 3.1 engine, Docker deployment, AmneziaVPN Android import, IPv4/IPv6 connectivity, Home/Guest isolation and profile revocation have been validated on a dedicated VPS. Server-side Home discovery fan-out and SSDP address rewriting have also been validated between two real peers; end-to-end visibility depends on whether the client application sends and receives multicast on the VPN interface.
 
 Highlights:
 
@@ -13,7 +13,7 @@ Highlights:
 - Live online/offline state, current receive/transmit speed, handshake and endpoint diagnostics without traffic history.
 - Requested AdGuard IPv4/IPv6 DNS defaults.
 - Automatic IPv6 ULA + scoped NAT66 when VPS IPv6 is usable.
-- Home-only mDNS and UPnP/SSDP discovery. UPnP IGD, NAT-PMP, PCP and every form of automatic port opening are intentionally unsupported.
+- Home-only mDNS and UPnP/SSDP discovery. UPnP IGD, NAT-PMP, PCP and every form of automatic port opening are intentionally unsupported. Visibility depends on client applications supporting multicast on the VPN interface.
 - VPN-only panel at `http://10.8.0.1:51821` with one password.
 - Dedicated nftables table, narrowly tagged `awg0` rules in Docker's
   `DOCKER-USER` chain when required, and no public Web UI port.
