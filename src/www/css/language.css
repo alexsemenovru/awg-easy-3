@@ -1,0 +1,27 @@
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.language-select {
+  width: auto;
+  min-width: 124px;
+  padding: 9px 34px 9px 11px;
+}
+
+@media (max-width: 600px) {
+  .topbar {
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .topbar-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .language-select {
+    min-width: 112px;
+  }
+}

@@ -21,6 +21,11 @@ const defaultQrGenerator = (value) => require('qrcode').toString(value, {
   type: 'svg', width: 512, margin: 4, errorCorrectionLevel: 'L',
 });
 
+const exportFileName = (name) => {
+  const normalized = String(name).normalize('NFKC').trim().replace(/[\\/:*?"<>|\u0000-\u001f]/g, '-');
+  return `${normalized || 'AWG-client'}.conf`;
+};
+
 class ApiService {
   constructor({ store, passwordManager, sessionManager, clientManager, qrGenerator = defaultQrGenerator } = {}) {
     if (!store || typeof store.load !== 'function') throw new TypeError('store must provide load');
@@ -102,7 +107,13 @@ class ApiService {
       return Object.freeze({ contentType: 'text/plain; charset=utf-8', value: artifact.vpnLink });
     }
     if (format === 'native-config') {
-      return Object.freeze({ contentType: 'text/plain; charset=utf-8', value: artifact.nativeConfig });
+      const state = await this.store.load();
+      const client = state?.clients.find((item) => item.id === clientId);
+      return Object.freeze({
+        contentType: 'text/plain; charset=utf-8',
+        downloadName: exportFileName(client?.name),
+        value: artifact.nativeConfig,
+      });
     }
     if (format === 'qr-svg') {
       return Object.freeze({ contentType: 'image/svg+xml; charset=utf-8', value: await this.qrGenerator(artifact.vpnLink) });
@@ -132,4 +143,4 @@ class ApiService {
   }
 }
 
-module.exports = { ApiError, ApiService, defaultQrGenerator, publicClient };
+module.exports = { ApiError, ApiService, defaultQrGenerator, exportFileName, publicClient };

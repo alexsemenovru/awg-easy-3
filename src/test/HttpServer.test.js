@@ -45,7 +45,11 @@ const fixture = async (t) => {
     createClient: async (token, input) => ({ client: { id: 'new', ...input }, vpnLink: 'vpn://share' }),
     updateClient: async (token, id, input) => ({ id, ...input }),
     deleteClient: async () => ({ success: true }),
-    exportClient: async () => ({ contentType: 'text/plain; charset=utf-8', value: 'vpn://share' }),
+    exportClient: async (token, id, format) => ({
+      contentType: 'text/plain; charset=utf-8',
+      ...(format === 'native-config' ? { downloadName: 'Телефон.conf' } : {}),
+      value: format === 'native-config' ? '[Interface]' : 'vpn://share',
+    }),
     changePassword: async () => ({ cookie: 'awg_easy_3_session=; Max-Age=0' }),
   };
   const server = new HttpServer({ api });
@@ -78,6 +82,11 @@ test('supports policy mutation and explicit export routes', async (t) => {
   });
   assert.equal(exported.status, 200);
   assert.equal(exported.body, 'vpn://share');
+  const native = await request(port, 'GET', '/api/v1/clients/phone/export?format=native-config', {
+    cookie: 'awg_easy_3_session=valid',
+  });
+  assert.match(native.headers['content-disposition'], /filename="AWG-client\.conf"/);
+  assert.match(native.headers['content-disposition'], /filename\*=UTF-8''%D0%A2/);
 });
 
 test('rejects cross-site mutations, oversized bodies and legacy endpoints', async (t) => {

@@ -124,7 +124,9 @@ class HttpServer {
       const exported = await this.api.exportClient(token, client.id, url.searchParams.get('format'));
       response.statusCode = 200;
       response.setHeader('Content-Type', exported.contentType);
-      response.setHeader('Content-Disposition', 'attachment');
+      response.setHeader('Content-Disposition', exported.downloadName
+        ? `attachment; filename="AWG-client.conf"; filename*=UTF-8''${encodeURIComponent(exported.downloadName)}`
+        : 'attachment');
       return response.end(exported.value);
     }
 
@@ -164,7 +166,8 @@ class HttpServer {
     response.statusCode = 200;
     response.setHeader('Content-Type', extensionTypes[path.extname(filePath)] ?? 'application/octet-stream');
     response.setHeader('Content-Length', body.length);
-    response.setHeader('Cache-Control', path.extname(filePath) === '.html' ? 'no-cache' : 'public, max-age=3600');
+    response.setHeader('Cache-Control', ['.html', '.js', '.css'].includes(path.extname(filePath))
+      ? 'no-cache' : 'public, max-age=3600');
     return response.end(request.method === 'HEAD' ? undefined : body);
   }
 

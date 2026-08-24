@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 
-const { ApiService, publicClient } = require('../lib/ApiService');
+const { ApiService, exportFileName, publicClient } = require('../lib/ApiService');
 
 const SECRET_CLIENT = {
   id: 'phone',
@@ -87,11 +87,18 @@ test('returns exports only through the explicit authenticated endpoint', async (
   assert.deepEqual(await service.exportClient('signed-token', 'phone', 'vpn-link'), {
     contentType: 'text/plain; charset=utf-8', value: 'vpn://share',
   });
-  assert.match((await service.exportClient('signed-token', 'phone', 'native-config')).value, /PrivateKey/);
+  const native = await service.exportClient('signed-token', 'phone', 'native-config');
+  assert.match(native.value, /PrivateKey/);
+  assert.equal(native.downloadName, 'Phone.conf');
   assert.deepEqual(await service.exportClient('signed-token', 'phone', 'qr-svg'), {
     contentType: 'image/svg+xml; charset=utf-8', value: '<svg data-value="vpn://share"/>',
   });
   await assert.rejects(service.exportClient('signed-token', 'phone', 'zip'), (error) => error.statusCode === 400);
+});
+
+test('creates safe readable conf filenames', () => {
+  assert.equal(exportFileName(' Алексей: телефон '), 'Алексей- телефон.conf');
+  assert.equal(exportFileName('///'), '---.conf');
 });
 
 test('changes the password and clears the now-invalid session', async () => {

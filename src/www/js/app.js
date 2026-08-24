@@ -13,9 +13,17 @@
   const createDialog = $('#create-dialog');
   const profileDialog = $('#profile-dialog');
   const deleteDialog = $('#delete-dialog');
+  const languageSelect = $('#language');
+  const supportedLanguages = ['en', 'ru', 'fa', 'es', 'zh-cn'];
   let clients = [];
   let selectedClient;
   let pendingDelete;
+
+  const savedLanguage = localStorage.getItem('awg-easy-language');
+  if (supportedLanguages.includes(savedLanguage)) {
+    i18n.setLanguage(savedLanguage);
+    languageSelect.value = savedLanguage;
+  }
 
   const showNotice = (message, error = false, timeout = 5000) => {
     notice.textContent = message;
@@ -84,6 +92,10 @@
     } catch {}
   });
   logout.addEventListener('click', async () => { await api.logout(); showLogin(); });
+  languageSelect.addEventListener('change', () => {
+    i18n.setLanguage(languageSelect.value);
+    localStorage.setItem('awg-easy-language', languageSelect.value);
+  });
   $('#show-create').addEventListener('click', () => createDialog.showModal());
   document.querySelectorAll('.close-dialog').forEach((button) => button.addEventListener('click', () => button.closest('dialog').close()));
   $('#cancel-delete').addEventListener('click', () => deleteDialog.close());
@@ -144,7 +156,10 @@
     } catch {}
   });
   api.session().then(async ({ authenticated, language }) => {
-    i18n.setLanguage(language);
+    const selectedLanguage = supportedLanguages.includes(localStorage.getItem('awg-easy-language'))
+      ? localStorage.getItem('awg-easy-language') : language;
+    i18n.setLanguage(selectedLanguage);
+    languageSelect.value = selectedLanguage;
     if (!authenticated) return showLogin();
     showApp();
     return loadClients();
