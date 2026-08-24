@@ -86,3 +86,14 @@ test('closes discovery and runtime when panel bind fails', async () => {
   ]);
   assert.equal(application.state, null);
 });
+
+test('re-exports an existing client by name or ID without changing state', async () => {
+  const { application } = fixture();
+  const byName = await application.exportClient('home ADMIN');
+  const byId = await application.exportClient('home-admin');
+  assert.equal(byName.clientName, 'Home admin');
+  assert.match(byName.vpnLink, /^vpn:\/\//);
+  assert.equal(byId.vpnLink, byName.vpnLink);
+  await assert.rejects(application.exportClient('missing'), /Unknown client/);
+  await assert.rejects(application.exportClient(''), /required/);
+});

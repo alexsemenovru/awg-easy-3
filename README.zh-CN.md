@@ -35,6 +35,7 @@ sudo ./install.sh --host 公网IP或域名 --lang zh-cn
 
 ```bash
 docker compose run --rm --no-deps awg-easy reset-password
+docker compose run --rm --no-deps awg-easy export-client "Home admin"
 docker compose logs -f awg-easy
 docker compose exec awg-easy awg show awg0
 ```

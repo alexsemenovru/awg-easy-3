@@ -31,7 +31,11 @@ cd awg-easy-3
 sudo ./install.sh --host PUBLIC_IP_OR_DOMAIN --lang en
 ```
 
-The installer prints the first Home profile, panel password, and `vpn://` link once. Connect that profile and open `http://10.8.0.1:51821`.
+The installer prints the first Home profile, panel password, and `vpn://` link once. Connect that profile and open `http://10.8.0.1:51821`. A missed client link can be regenerated locally without recreating the client:
+
+```bash
+docker compose run --rm --no-deps awg-easy export-client "Home admin"
+```
 
 Optional `--port`, `--panel-port`, and `--lang en|ru|fa|es|zh-cn` arguments select the AWG UDP port, VPN-only panel TCP port, and interface language. English is the default; Persian uses an RTL layout. Russian, Spanish, and Simplified Chinese are also included.
 

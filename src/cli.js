@@ -37,6 +37,11 @@ const main = async () => {
     process.stdout.write(`New panel password (shown once): ${password}\n`);
     return;
   }
+  if (command === 'export-client') {
+    const exported = await application.exportClient(process.argv[3]);
+    process.stdout.write(`AmneziaVPN profile for ${exported.clientName}:\n${exported.vpnLink}\n`);
+    return;
+  }
   if (command !== 'serve') throw new Error(`Unknown command: ${command}`);
 
   const address = await application.start();

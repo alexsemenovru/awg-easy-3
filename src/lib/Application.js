@@ -135,6 +135,19 @@ class Application {
     return new PasswordManager({ store: this.store }).resetPassword(password);
   }
 
+  async exportClient(selector) {
+    const query = typeof selector === 'string' ? selector.trim() : '';
+    if (!query) throw new Error('Client name or ID is required');
+    const state = await this.store.load();
+    if (!state) throw new Error('AWG-Easy 3 is not initialized');
+    const folded = query.toLocaleLowerCase();
+    const client = state.clients.find((item) => item.id === query
+      || item.name.trim().toLocaleLowerCase() === folded);
+    if (!client) throw new Error(`Unknown client: ${query}`);
+    const artifacts = buildAwgArtifacts({ server: state.server, clients: state.clients });
+    return Object.freeze({ clientName: client.name, vpnLink: artifacts.clientArtifacts[client.id].vpnLink });
+  }
+
 }
 
 module.exports = { Application };

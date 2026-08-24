@@ -35,6 +35,7 @@ También puede usar `--port`, `--panel-port` y `--lang en|ru|fa|es|zh-cn`. El pu
 
 ```bash
 docker compose run --rm --no-deps awg-easy reset-password
+docker compose run --rm --no-deps awg-easy export-client "Home admin"
 docker compose logs -f awg-easy
 docker compose exec awg-easy awg show awg0
 ```

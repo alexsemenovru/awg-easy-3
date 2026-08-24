@@ -75,6 +75,9 @@ docker compose run --rm --no-deps awg-easy reset-password 'новый-надеж
 docker compose logs -f awg-easy
 docker compose exec awg-easy awg show awg0
 docker compose exec awg-easy nft list table inet awg_easy_3
+
+# Повторно вывести vpn:// существующего клиента без изменения конфигурации
+docker compose run --rm --no-deps awg-easy export-client "Home admin"
 ```
 
 ## Важные ограничения prerelease
