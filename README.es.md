@@ -21,7 +21,7 @@ Un panel Docker sencillo para **AmneziaWG 3.x**. Es un fork independiente y no c
 
 ## Requisitos e instalación
 
-Se requiere un VPS Linux `amd64`, `/dev/net/tun`, acceso root, un gestor de paquetes compatible y un puerto UDP entrante disponible. El instalador puede instalar Docker Engine, Docker Compose v2, iproute2 y nftables desde los repositorios del sistema.
+Se requiere un VPS Linux nativo `amd64`, `/dev/net/tun`, acceso root, un gestor de paquetes compatible y un puerto UDP entrante disponible. FreeBSD, OpenBSD, NetBSD, macOS y WSL se rechazan antes de instalar paquetes. El instalador puede instalar Docker Engine, Docker Compose v2, iproute2 y nftables desde los repositorios del sistema.
 
 ```bash
 git clone https://github.com/alexsemenovru/awg-easy-3.git

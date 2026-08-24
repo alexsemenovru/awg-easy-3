@@ -26,6 +26,7 @@
 ## Требования
 
 - Linux VPS, архитектура `amd64`/`x86_64`.
+- Нативный Linux: FreeBSD, OpenBSD, NetBSD, macOS и WSL отклоняются до установки пакетов, поскольку проект использует Linux TUN, forwarding и nftables.
 - Поддерживаемый системный менеджер пакетов; при необходимости установщик сам установит Docker Engine, Docker Compose v2, iproute2 и nftables из репозиториев дистрибутива.
 - Доступный `/dev/net/tun`.
 - Входящий UDP `51820` в firewall VPS/облачном firewall.

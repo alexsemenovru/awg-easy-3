@@ -21,7 +21,7 @@
 
 ## نیازمندی و نصب
 
-یک VPS لینوکس `amd64`، مسیر `/dev/net/tun`، دسترسی root، مدیر بستهٔ پشتیبانی‌شده و یک پورت UDP ورودی آزاد لازم است. نصب‌کننده در صورت نیاز Docker Engine، Docker Compose v2، iproute2 و nftables را از مخزنهای سیستم نصب می‌کند.
+یک VPS لینوکس بومی `amd64`، مسیر `/dev/net/tun`، دسترسی root، مدیر بستهٔ پشتیبانی‌شده و یک پورت UDP ورودی آزاد لازم است. FreeBSD، OpenBSD، NetBSD، macOS و WSL پیش از نصب بسته‌ها رد می‌شوند. نصب‌کننده در صورت نیاز Docker Engine، Docker Compose v2، iproute2 و nftables را از مخزنهای سیستم نصب می‌کند.
 
 ```bash
 git clone https://github.com/alexsemenovru/awg-easy-3.git

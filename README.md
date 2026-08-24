@@ -23,7 +23,7 @@ Highlights:
 
 ## Install
 
-Requirements: an amd64 Linux VPS, `/dev/net/tun`, root access, a supported package manager, and an available inbound UDP port. When needed, the installer provisions Docker Engine, Docker Compose v2, iproute2 and nftables from the distribution repositories.
+Requirements: an amd64 Linux VPS, `/dev/net/tun`, root access, a supported package manager, and an available inbound UDP port. FreeBSD, OpenBSD, NetBSD, macOS and WSL are rejected before package installation because this release requires native Linux TUN, forwarding and nftables. When needed, the installer provisions Docker Engine, Docker Compose v2, iproute2 and nftables from the distribution repositories.
 
 ```bash
 git clone https://github.com/alexsemenovru/awg-easy-3.git

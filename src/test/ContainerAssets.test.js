@@ -98,3 +98,16 @@ test('installer accepts validated AWG port, panel port and language options', ()
   assert.match(installer, /en\|ru\|fa\|es\|zh-cn/);
   assert.match(installer, /valid_port/);
 });
+
+test('installer rejects non-Linux kernels and WSL before provisioning packages', () => {
+  const installer = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
+  const dependencyProvisioning = installer.indexOf('install_runtime_dependencies');
+  for (const platformCheck of [
+    'FreeBSD|OpenBSD|NetBSD|Darwin',
+    "grep -qiE '(microsoft|wsl)'",
+    'requires Docker Engine, Linux TUN networking and nftables',
+  ]) {
+    assert.match(installer, new RegExp(platformCheck.replace(/[.*+?^${}()[\]\\]/g, '\\$&')));
+    assert.ok(installer.indexOf(platformCheck) < dependencyProvisioning);
+  }
+});

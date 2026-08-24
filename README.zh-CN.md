@@ -21,7 +21,7 @@
 
 ## 要求与安装
 
-需要 `amd64` Linux VPS、`/dev/net/tun`、root 权限、受支持的软件包管理器以及一个可用的入站 UDP 端口。安装程序可按需从系统仓库安装 Docker Engine、Docker Compose v2、iproute2 和 nftables。
+需要原生 `amd64` Linux VPS、`/dev/net/tun`、root 权限、受支持的软件包管理器以及一个可用的入站 UDP 端口。FreeBSD、OpenBSD、NetBSD、macOS 和 WSL 会在安装软件包之前被拒绝。安装程序可按需从系统仓库安装 Docker Engine、Docker Compose v2、iproute2 和 nftables。
 
 ```bash
 git clone https://github.com/alexsemenovru/awg-easy-3.git

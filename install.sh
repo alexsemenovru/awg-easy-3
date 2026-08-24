@@ -42,6 +42,16 @@ valid_port "$AWG_PANEL_PORT_VALUE" || die "--panel-port must be an integer betwe
 case "$AWG_LANG_VALUE" in en|ru|fa|es|zh-cn) ;; *) die "--lang must be en, ru, fa, es or zh-cn" ;; esac
 
 [ "$(id -u)" -eq 0 ] || die "run this installer as root: sudo ./install.sh"
+case "$(uname -s)" in
+  Linux) ;;
+  FreeBSD|OpenBSD|NetBSD|Darwin)
+    die "AWG-Easy 3 currently supports Linux/amd64 only; $(uname -s) is unsupported because this release requires Docker Engine, Linux TUN networking and nftables"
+    ;;
+  *) die "AWG-Easy 3 currently supports Linux/amd64 only; unsupported kernel: $(uname -s)" ;;
+esac
+if grep -qiE '(microsoft|wsl)' /proc/sys/kernel/osrelease /proc/version 2>/dev/null; then
+  die "WSL is unsupported; install AWG-Easy 3 on a real Linux VPS with native TUN, forwarding and nftables"
+fi
 case "$(uname -m)" in x86_64|amd64) ;; *) die "only linux/amd64 is supported in this release" ;; esac
 
 detect_package_manager() {

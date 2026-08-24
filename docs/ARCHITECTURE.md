@@ -43,6 +43,10 @@ collisions are resolved interactively; explicit port arguments remain strict.
 Existing containers, interfaces, routes and nftables objects are never removed
 or renamed automatically.
 
+The supported runtime platform is native Linux/amd64. BSD kernels, macOS and
+WSL are rejected before dependency provisioning because the network policy
+depends on native Linux TUN, forwarding, nftables and Docker integration.
+
 NixOS is handled as a declarative exception. When runtime dependencies are
 missing, the installer prints a standalone NixOS module enabling Docker,
 Compose, iproute2, nftables and TUN, plus the import and `nixos-rebuild`
