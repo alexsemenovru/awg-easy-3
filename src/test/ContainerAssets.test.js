@@ -97,11 +97,13 @@ test('installer offers owned uninstall and clean reinstall without touching fore
   assert.match(installer, /Keep the current installation and exit/);
   assert.match(installer, /Uninstall and permanently delete all clients and settings/);
   assert.match(installer, /Reinstall from scratch and permanently delete all clients and settings/);
-  assert.match(installer, /docker compose down --remove-orphans/);
-  assert.match(installer, /rm -rf -- "\$SCRIPT_DIR\/data"/);
+  assert.match(installer, /com\.docker\.compose\.project\.working_dir/);
+  assert.match(installer, /com\.docker\.compose\.service/);
+  assert.match(installer, /docker compose --project-directory "\$EXISTING_INSTALL_DIR"/);
+  assert.match(installer, /rm -rf -- "\$EXISTING_INSTALL_DIR\/data"/);
   assert.match(installer, /rm -f -- \/etc\/sysctl\.d\/99-awg-easy-3\.conf/);
   assert.match(installer, /Host forwarding values were left unchanged/);
-  assert.ok(installer.indexOf('docker compose down --remove-orphans') < installer.indexOf('rm -rf -- "$SCRIPT_DIR/data"'));
+  assert.ok(installer.indexOf(' down --remove-orphans') < installer.indexOf('rm -rf -- "$EXISTING_INSTALL_DIR/data"'));
   assert.doesNotMatch(installer, /docker system prune|docker volume prune|docker image prune/);
 });
 

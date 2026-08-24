@@ -62,9 +62,27 @@ case "$(uname -m)" in x86_64|amd64) ;; *) die "only linux/amd64 is supported in 
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$SCRIPT_DIR"
+EXISTING_INSTALL_DIR=""
+
+detect_existing_installation() {
+  if [ -e "$SCRIPT_DIR/data/state.json" ]; then
+    EXISTING_INSTALL_DIR=$SCRIPT_DIR
+    return 0
+  fi
+  has_command docker || return 0
+  docker container inspect awg-easy-3 >/dev/null 2>&1 || return 0
+  service=$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.service" }}' awg-easy-3 2>/dev/null || true)
+  project_dir=$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' awg-easy-3 2>/dev/null || true)
+  [ "$service" = awg-easy ] || return 0
+  case "$project_dir" in /*) ;; *) return 0 ;; esac
+  [ -f "$project_dir/docker-compose.yml" ] || return 0
+  [ -e "$project_dir/data/state.json" ] || return 0
+  EXISTING_INSTALL_DIR=$project_dir
+}
 
 choose_existing_install_action() {
-  if [ ! -e data/state.json ]; then
+  detect_existing_installation
+  if [ -z "$EXISTING_INSTALL_DIR" ]; then
     if [ "$INSTALL_ACTION" = uninstall ]; then
       printf 'AWG-Easy 3 is not installed in %s. Nothing to remove.\n' "$SCRIPT_DIR"
       exit 0
@@ -77,7 +95,7 @@ choose_existing_install_action() {
   if ! is_interactive; then
     die "AWG-Easy 3 is already installed; rerun interactively, with --uninstall, or with --reinstall"
   fi
-  printf '\nAWG-Easy 3 is already installed in %s.\n' "$SCRIPT_DIR"
+  printf '\nAWG-Easy 3 is already installed in %s.\n' "$EXISTING_INSTALL_DIR"
   printf '  1) Keep the current installation and exit\n'
   printf '  2) Uninstall and permanently delete all clients and settings\n'
   printf '  3) Reinstall from scratch and permanently delete all clients and settings\n'
@@ -281,24 +299,24 @@ has_command nft || die "nftables installation did not provide the nft command"
 remove_existing_installation() {
   confirm_data_removal || die "removal cancelled; the existing installation was left unchanged"
   info "Stopping only the AWG-Easy 3 Compose service"
-  docker compose down --remove-orphans
+  docker compose --project-directory "$EXISTING_INSTALL_DIR" -f "$EXISTING_INSTALL_DIR/docker-compose.yml" down --remove-orphans
   if ip link show dev awg0 >/dev/null 2>&1; then
     die "AWG interface awg0 is still active; settings were preserved so it can be inspected safely"
   fi
   if nft list table inet awg_easy_3 >/dev/null 2>&1; then
     die "owned nftables table inet awg_easy_3 is still active; settings were preserved so it can be inspected safely"
   fi
-  case "$SCRIPT_DIR" in /|'' ) die "refusing to remove data from an unsafe project path" ;; esac
-  rm -rf -- "$SCRIPT_DIR/data"
+  case "$EXISTING_INSTALL_DIR" in /|'' ) die "refusing to remove data from an unsafe project path" ;; esac
+  rm -rf -- "$EXISTING_INSTALL_DIR/data"
   rm -f -- /etc/sysctl.d/99-awg-easy-3.conf
   info "AWG-Easy 3 clients, settings and service were removed"
   printf 'Host forwarding values were left unchanged to avoid disrupting other VPS services.\n'
 }
 
-if [ -e data/state.json ] && { [ "$INSTALL_ACTION" = uninstall ] || [ "$INSTALL_ACTION" = reinstall ]; }; then
+if [ -n "$EXISTING_INSTALL_DIR" ] && { [ "$INSTALL_ACTION" = uninstall ] || [ "$INSTALL_ACTION" = reinstall ]; }; then
   remove_existing_installation
   if [ "$INSTALL_ACTION" = uninstall ]; then
-    printf 'Uninstallation complete. The project files remain in %s so the installer can be run again.\n' "$SCRIPT_DIR"
+    printf 'Uninstallation complete. The project files remain in %s so the installer can be run again.\n' "$EXISTING_INSTALL_DIR"
     exit 0
   fi
 fi
