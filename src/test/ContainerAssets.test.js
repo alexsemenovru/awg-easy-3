@@ -103,6 +103,10 @@ test('installer offers owned uninstall and clean reinstall without touching fore
   assert.match(installer, /rm -rf -- "\$EXISTING_INSTALL_DIR\/data"/);
   assert.match(installer, /rm -f -- \/etc\/sysctl\.d\/99-awg-easy-3\.conf/);
   assert.match(installer, /Host forwarding values were left unchanged/);
+  assert.match(installer, /\/usr\/local\/sbin\/awg-easy-3/);
+  assert.match(installer, /\/etc\/awg-easy-3-install-dir/);
+  assert.match(installer, /exec "\$project_dir\/install\.sh" "\$@"/);
+  assert.match(installer, /Run sudo awg-easy-3 from any directory/);
   assert.ok(installer.indexOf(' down --remove-orphans') < installer.indexOf('rm -rf -- "$EXISTING_INSTALL_DIR/data"'));
   assert.doesNotMatch(installer, /docker system prune|docker volume prune|docker image prune/);
 });

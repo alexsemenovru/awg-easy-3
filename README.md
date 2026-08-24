@@ -43,6 +43,8 @@ Supported package managers are APT, DNF, YUM, Zypper, Pacman and APK. NixOS is d
 
 When run again in an interactive terminal, the installer detects its existing installation even when launched from a different fresh clone and offers to keep it, uninstall it, or reinstall it from scratch. The latter two actions require confirmation and permanently delete every AWG-Easy 3 client, key, password, and setting. Non-interactive automation can use `--uninstall` or `--reinstall`. Removal stops only this Compose service and deletes only its data and sysctl file; Docker itself, foreign containers, images, networks, firewall rules, and the host's current forwarding values are left untouched.
 
+After installation, run `sudo awg-easy-3` from any directory to open the same management menu. `sudo awg-easy-3 --uninstall` and `sudo awg-easy-3 --reinstall` are also available without locating the project directory.
+
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for design notes and [NOTICE](NOTICE) for attribution.
 
 Inherited adapted material is licensed under CC BY-NC-SA 4.0. This project is not affiliated with or endorsed by AmneziaVPN.

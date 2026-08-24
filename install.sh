@@ -309,8 +309,25 @@ remove_existing_installation() {
   case "$EXISTING_INSTALL_DIR" in /|'' ) die "refusing to remove data from an unsafe project path" ;; esac
   rm -rf -- "$EXISTING_INSTALL_DIR/data"
   rm -f -- /etc/sysctl.d/99-awg-easy-3.conf
+  rm -f -- /usr/local/sbin/awg-easy-3 /etc/awg-easy-3-install-dir
   info "AWG-Easy 3 clients, settings and service were removed"
   printf 'Host forwarding values were left unchanged to avoid disrupting other VPS services.\n'
+}
+
+install_management_command() {
+  printf '%s\n' "$SCRIPT_DIR" > /etc/awg-easy-3-install-dir
+  chmod 0644 /etc/awg-easy-3-install-dir
+  cat > /usr/local/sbin/awg-easy-3 <<'EOF'
+#!/bin/sh
+set -eu
+location_file=/etc/awg-easy-3-install-dir
+[ -r "$location_file" ] || { printf 'Error: AWG-Easy 3 installation location is unavailable.\n' >&2; exit 1; }
+IFS= read -r project_dir < "$location_file"
+case "$project_dir" in /*) ;; *) printf 'Error: invalid AWG-Easy 3 installation location.\n' >&2; exit 1 ;; esac
+[ -x "$project_dir/install.sh" ] || { printf 'Error: installer not found at %s/install.sh.\n' "$project_dir" >&2; exit 1; }
+exec "$project_dir/install.sh" "$@"
+EOF
+  chmod 0755 /usr/local/sbin/awg-easy-3
 }
 
 if [ -n "$EXISTING_INSTALL_DIR" ] && { [ "$INSTALL_ACTION" = uninstall ] || [ "$INSTALL_ACTION" = reinstall ]; }; then
@@ -444,9 +461,11 @@ docker compose run --rm --no-deps \
 
 info "Starting AWG-Easy 3"
 docker compose up -d awg-easy
+install_management_command
 
 printf '\nInstallation complete.\n'
 printf 'AWG endpoint: %s:%s/udp\n' "$AWG_HOST_VALUE" "$AWG_PORT_VALUE"
 printf 'Panel language: %s\n' "$AWG_LANG_VALUE"
 printf 'The panel has no public TCP listener. Connect the first Home profile, then open http://10.8.0.1:%s\n' "$AWG_PANEL_PORT_VALUE"
 printf 'If your provider has a cloud firewall, allow inbound UDP %s manually.\n' "$AWG_PORT_VALUE"
+printf 'Run sudo awg-easy-3 from any directory to manage, uninstall or reinstall the panel.\n'
