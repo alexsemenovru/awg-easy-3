@@ -31,7 +31,8 @@ The intended first release contains:
 2. A pinned official AWG 3.x userspace engine and matching tools.
 3. A state directory mounted from a Docker volume.
 4. A narrowly scoped nftables manager.
-5. A small discovery relay for home peers, subject to proof-of-concept tests.
+5. A small discovery relay for home peers, covered by automated fan-out tests;
+   application-level discovery still requires a two-device field test.
 6. An installer/bootstrap command that creates the first peer and credentials.
 
 The Web UI listens inside the container/network namespace but has no public
@@ -66,7 +67,7 @@ upstream specification and interoperability tests.
 
 AmneziaVPN 5.0.0.5 has a known import-path defect: a native `.conf` can be
 accepted while the AWG 3.x fields are omitted from the application's internal
-model, preventing the protected handshake. The primary QR/export format for
+model, preventing the protected handshake. The primary export format for
 AmneziaVPN is therefore its `vpn://` share link.
 
 The link contains a third-party `amnezia-awg` container object, an AWG
@@ -120,12 +121,12 @@ project-owned ULA prefix and lives in the dedicated nftables table. An explicit
 routed prefix remains supported for installations where the provider actually
 delegates one.
 
-## Discovery proof of concept
+## Discovery relay
 
 WireGuard-style interfaces do not provide Ethernet broadcast or multicast
 fan-out to every peer. Generic reflectors commonly operate between distinct
-interfaces, while all AWG peers share `awg0`. Before inclusion, a proof of
-concept must demonstrate controlled per-peer fan-out for:
+interfaces, while all AWG peers share `awg0`. The relay implements controlled
+per-peer fan-out for:
 
 - IPv4 mDNS (`224.0.0.251:5353`);
 - IPv4 SSDP (`239.255.255.250:1900`).
@@ -141,4 +142,4 @@ the VPS WAN/LAN interface.
 The inherited code is distributed under CC BY-NC-SA 4.0. The fork must retain
 attribution, indicate modifications, remain non-commercial, and distribute
 adapted material under compatible ShareAlike terms. Dependency and bundled
-binary licenses must be recorded separately before release.
+binary licenses are recorded separately in [third-party notices](../THIRD_PARTY_NOTICES.md).

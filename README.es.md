@@ -10,6 +10,7 @@ Un panel Docker sencillo para **AmneziaWG 3.x**. Es un fork independiente y no c
 
 - Perfiles AWG 3.1 importados mediante enlaces `vpn://` y descarga opcional `.conf`.
 - Modo Home con acceso al panel y a otros clientes Home; modo Guest con acceso únicamente a Internet.
+- Estado en línea, velocidad actual de recepción/transmisión, handshake y endpoint, sin historial de tráfico.
 - DNS AdGuard predeterminado: `94.140.14.14`, `94.140.15.15`, `2a10:50c0::ad1:ff` y `2a10:50c0::ad2:ff`.
 - IPv6 automático mediante ULA y NAT66 limitado cuando el VPS dispone de IPv6.
 - Descubrimiento mDNS y UPnP/SSDP solo para Home. UPnP IGD, NAT-PMP, PCP y cualquier apertura automática de puertos no se admiten de forma intencionada.

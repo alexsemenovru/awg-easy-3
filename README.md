@@ -10,6 +10,7 @@ Highlights:
 
 - AWG 3.1 configuration and AmneziaVPN `vpn://` export, plus optional `.conf` download.
 - Per-client Home/Guest isolation with compact full-tunnel profiles.
+- Live online/offline state, current receive/transmit speed, handshake and endpoint diagnostics without traffic history.
 - Requested AdGuard IPv4/IPv6 DNS defaults.
 - Automatic IPv6 ULA + scoped NAT66 when VPS IPv6 is usable.
 - Home-only mDNS and UPnP/SSDP discovery. UPnP IGD, NAT-PMP, PCP and every form of automatic port opening are intentionally unsupported.

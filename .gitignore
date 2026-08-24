@@ -2,6 +2,7 @@
 /wg0.conf
 /wg0.json
 /src/node_modules
+/.pnpm-store
 .DS_Store
 *.swp
 .idea

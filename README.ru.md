@@ -11,6 +11,7 @@
 - AWG 3.1 `HeaderProtectionKey`, `AdvancedSecurity`, новые timing/padding-поля, `RandomTrailers` и `DisableCookies`.
 - Основной импорт в AmneziaVPN через локально созданную ссылку `vpn://`; `.conf` доступен дополнительно.
 - Home/Guest для каждого клиента. Home видит панель и других Home peers, Guest получает только интернет.
+- Состояние клиента, текущая скорость приёма/передачи, handshake и endpoint в реальном времени без истории трафика.
 - Компактные full-tunnel профили для IPv4 и, когда VPS поддерживает его, IPv6.
 - AdGuard DNS по умолчанию: `94.140.14.14`, `94.140.15.15`, а при IPv6 также `2a10:50c0::ad1:ff`, `2a10:50c0::ad2:ff`.
 - Автоматический IPv6 при наличии глобального адреса и default route на VPS: отдельная ULA `/64` и NAT66 только для неё.
