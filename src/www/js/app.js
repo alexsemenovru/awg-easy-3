@@ -44,6 +44,30 @@
       throw error;
     }
   };
+  const copyText = async (text) => {
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return;
+      } catch {}
+    }
+    const activeElement = document.activeElement;
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.readOnly = true;
+    textarea.setAttribute('aria-hidden', 'true');
+    textarea.style.cssText = 'position:fixed;inset:0 auto auto:-9999px;opacity:0;';
+    document.body.append(textarea);
+    textarea.focus();
+    textarea.select();
+    textarea.setSelectionRange(0, textarea.value.length);
+    let copied = false;
+    try { copied = document.execCommand('copy'); } finally {
+      textarea.remove();
+      activeElement?.focus?.();
+    }
+    if (!copied) throw new Error('clipboard copy was rejected');
+  };
   const formatRate = (bytesPerSecond) => {
     const bits = Math.max(0, Number(bytesPerSecond) || 0) * 8;
     if (bits >= 1e9) return `${(bits / 1e9).toFixed(1)} Gbit/s`;
@@ -181,10 +205,12 @@
     try { window.location.href = await guarded(() => api.exportText(selectedClient.id, 'vpn-link')); } catch {}
   });
   $('#copy-profile').addEventListener('click', async () => {
+    let link;
+    try { link = await guarded(() => api.exportText(selectedClient.id, 'vpn-link')); } catch { return; }
     try {
-      await navigator.clipboard.writeText(await guarded(() => api.exportText(selectedClient.id, 'vpn-link')));
+      await copyText(link);
       showNotice(t('copied'));
-    } catch {}
+    } catch { showNotice(t('copyFailed'), true); }
   });
   $('#password-form').addEventListener('submit', async (event) => {
     event.preventDefault();

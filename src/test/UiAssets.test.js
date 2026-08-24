@@ -38,4 +38,8 @@ test('uses only the versioned API and contains no legacy endpoint calls', () => 
   assert.match(i18n, /es:/);
   assert.match(i18n, /'zh-cn':/);
   assert.match(i18n, /language === 'fa' \? 'rtl'/);
+  assert.match(app, /navigator\.clipboard\?\.writeText/);
+  assert.match(app, /document\.execCommand\('copy'\)/);
+  assert.match(app, /copyFailed/);
+  assert.match(i18n, /copyFailed:/);
 });

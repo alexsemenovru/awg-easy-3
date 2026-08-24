@@ -1,6 +1,6 @@
 services:
   awg-easy:
-    image: ${AWG_IMAGE:-ghcr.io/alexsemenovru/awg-easy-3:0.1.0-rc.4}
+    image: ${AWG_IMAGE:-ghcr.io/alexsemenovru/awg-easy-3:0.1.0-rc.5}
     container_name: awg-easy-3
     restart: unless-stopped
     network_mode: host

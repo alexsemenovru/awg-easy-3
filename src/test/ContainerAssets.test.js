@@ -18,7 +18,7 @@ test('pins amd64 base images and official AWG source revisions', () => {
   assert.match(compose, /network_mode: host/);
   assert.match(compose, /read_only: true/);
   assert.match(compose, /AWG_LANG: \$\{AWG_LANG:-en\}/);
-  assert.match(compose, /ghcr\.io\/alexsemenovru\/awg-easy-3:0\.1\.0-rc\.4/);
+  assert.match(compose, /ghcr\.io\/alexsemenovru\/awg-easy-3:0\.1\.0-rc\.5/);
   assert.match(dockerfile, /\$\{AWG_PANEL_PORT\}/);
   assert.doesNotMatch(compose, /SYS_MODULE|ports:/);
 });
