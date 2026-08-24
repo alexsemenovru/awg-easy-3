@@ -12,7 +12,7 @@ Highlights:
 - Per-client Home/Guest isolation with compact full-tunnel profiles.
 - Requested AdGuard IPv4/IPv6 DNS defaults.
 - Automatic IPv6 ULA + scoped NAT66 when VPS IPv6 is usable.
-- Home-only mDNS/SSDP discovery; no UPnP IGD or port mapping.
+- Home-only mDNS and UPnP/SSDP discovery. UPnP IGD, NAT-PMP, PCP and every form of automatic port opening are intentionally unsupported.
 - VPN-only panel at `http://10.8.0.1:51821` with one password.
 - Dedicated nftables table, narrowly tagged `awg0` rules in Docker's
   `DOCKER-USER` chain when required, and no public Web UI port.

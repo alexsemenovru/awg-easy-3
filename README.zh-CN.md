@@ -12,7 +12,7 @@
 - Home 客户端可访问面板及其他 Home 客户端；Guest 只能访问互联网。
 - 默认 AdGuard DNS：`94.140.14.14`、`94.140.15.15`、`2a10:50c0::ad1:ff`、`2a10:50c0::ad2:ff`。
 - VPS 支持 IPv6 时自动配置 ULA 和限定范围的 NAT66。
-- 仅为 Home 提供 mDNS/SSDP 发现，不提供 UPnP IGD，也不开放端口。
+- 仅为 Home 提供 mDNS 和 UPnP/SSDP 服务发现。明确不支持 UPnP IGD、NAT-PMP、PCP 以及任何自动开放或映射端口的功能。
 - 面板仅可在 VPN 内通过 `http://10.8.0.1:51821` 访问。
 - 使用独立 nftables 表和范围严格的 `awg0` 规则，不清除其他服务的规则。
 - 不提供 2.x 迁移、备份恢复、用户角色或旧版 WireGuard 后端。
