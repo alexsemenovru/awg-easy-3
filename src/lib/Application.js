@@ -7,6 +7,7 @@ const { ApiService } = require('./ApiService');
 const { buildAwgArtifacts } = require('./AwgArtifacts');
 const { BootstrapInstaller } = require('./BootstrapInstaller');
 const { ClientManager } = require('./ClientManager');
+const { ClientDiagnostics } = require('./ClientDiagnostics');
 const { DiscoveryRelay } = require('./DiscoveryRelay');
 const { HttpServer } = require('./HttpServer');
 const { PasswordManager } = require('./PasswordManager');
@@ -101,7 +102,8 @@ class Application {
         applier: this.applier,
         onStateChanged: (nextState) => this.discovery.refresh(nextState),
       });
-      const api = new ApiService({ store: this.store, passwordManager, sessionManager, clientManager });
+      const diagnostics = new ClientDiagnostics({ store: this.store, runner: this.runner });
+      const api = new ApiService({ store: this.store, passwordManager, sessionManager, clientManager, diagnostics });
       this.http = this.httpFactory({ api, publicDirectory: this.publicDirectory });
       return await this.http.listen({ host: state.server.address4, port: state.server.panelPort });
     } catch (error) {

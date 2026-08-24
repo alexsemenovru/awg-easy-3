@@ -19,6 +19,8 @@ window.awgI18n = (() => {
       deleteTitle: 'Delete client?', cancel: 'Cancel', deleteDisconnectHint: 'If this device uses that profile now, the panel will disconnect as soon as deletion succeeds.',
       deletingClient: 'Deleting client…', deletedConnectionLost: 'The request was sent. The panel disconnected because this device was using the deleted profile.', duplicateName: 'A client with this name already exists.',
       passwordChanged: 'Password changed. All previous sessions ended — sign in again.', httpError: 'HTTP error {status}',
+      checking: 'Checking…', diagnostics: 'Diagnostics', lastHandshake: 'Last handshake', endpoint: 'Endpoint',
+      online: 'Online', offline: 'Offline', never: 'Never', secondsAgo: '{count} s ago', minutesAgo: '{count} min ago',
     },
     ru: {
       tagline: 'Простая панель для AmneziaWG 3.x', logout: 'Выйти', loginTitle: 'Вход в панель',
@@ -37,6 +39,8 @@ window.awgI18n = (() => {
       deleteTitle: 'Удалить клиента?', cancel: 'Отмена', deleteDisconnectHint: 'Если это устройство сейчас подключено через удаляемый профиль, панель отключится сразу после успешного удаления.',
       deletingClient: 'Удаление клиента…', deletedConnectionLost: 'Запрос отправлен. Панель отключилась, потому что это устройство использовало удалённый профиль.', duplicateName: 'Клиент с таким названием уже существует.',
       passwordChanged: 'Пароль изменён. Все старые сессии завершены — войдите снова.', httpError: 'Ошибка HTTP {status}',
+      checking: 'Проверка…', diagnostics: 'Диагностика', lastHandshake: 'Последний handshake', endpoint: 'Внешний адрес',
+      online: 'В сети', offline: 'Нет связи', never: 'Никогда', secondsAgo: '{count} с назад', minutesAgo: '{count} мин назад',
     },
     es: {
       tagline: 'Panel sencillo para AmneziaWG 3.x', logout: 'Cerrar sesión', loginTitle: 'Acceso al panel',
@@ -54,6 +58,8 @@ window.awgI18n = (() => {
       copied: 'Enlace copiado', deleteConfirm: '¿Eliminar el cliente «{name}»? Su perfil dejará de conectarse.',
       deleteTitle: '¿Eliminar cliente?', cancel: 'Cancelar', deleteDisconnectHint: 'Si este dispositivo usa ahora ese perfil, el panel se desconectará al eliminarlo.', deletingClient: 'Eliminando cliente…', deletedConnectionLost: 'La solicitud fue enviada. El panel se desconectó porque este dispositivo usaba el perfil eliminado.', duplicateName: 'Ya existe un cliente con este nombre.',
       passwordChanged: 'Contraseña cambiada. Todas las sesiones anteriores finalizaron; vuelve a entrar.', httpError: 'Error HTTP {status}',
+      checking: 'Comprobando…', diagnostics: 'Diagnóstico', lastHandshake: 'Último handshake', endpoint: 'Dirección externa',
+      online: 'En línea', offline: 'Sin conexión', never: 'Nunca', secondsAgo: 'hace {count} s', minutesAgo: 'hace {count} min',
     },
     'zh-cn': {
       tagline: '简洁的 AmneziaWG 3.x 管理面板', logout: '退出登录', loginTitle: '登录面板',
@@ -71,6 +77,8 @@ window.awgI18n = (() => {
       copied: '链接已复制', deleteConfirm: '要删除客户端“{name}”吗？其配置将无法再连接。',
       deleteTitle: '删除客户端？', cancel: '取消', deleteDisconnectHint: '如果此设备正在使用该配置，删除成功后面板会立即断开。', deletingClient: '正在删除客户端…', deletedConnectionLost: '请求已发送。由于此设备使用了被删除的配置，面板已断开。', duplicateName: '已存在同名客户端。',
       passwordChanged: '密码已更改。所有旧会话均已结束，请重新登录。', httpError: 'HTTP 错误 {status}',
+      checking: '正在检查…', diagnostics: '诊断', lastHandshake: '最近握手', endpoint: '外部地址',
+      online: '在线', offline: '离线', never: '从未', secondsAgo: '{count} 秒前', minutesAgo: '{count} 分钟前',
     },
     fa: {
       tagline: 'پنل ساده برای AmneziaWG 3.x', logout: 'خروج', loginTitle: 'ورود به پنل',
@@ -88,6 +96,8 @@ window.awgI18n = (() => {
       copied: 'پیوند کپی شد', deleteConfirm: 'کاربر «{name}» حذف شود؟ پروفایل او دیگر متصل نخواهد شد.',
       deleteTitle: 'کاربر حذف شود؟', cancel: 'لغو', deleteDisconnectHint: 'اگر این دستگاه اکنون از همان پروفایل استفاده کند، پس از حذف پنل قطع می‌شود.', deletingClient: 'در حال حذف کاربر…', deletedConnectionLost: 'درخواست ارسال شد. پنل به‌دلیل استفادهٔ این دستگاه از پروفایل حذف‌شده قطع شد.', duplicateName: 'کاربری با این نام وجود دارد.',
       passwordChanged: 'رمز عبور تغییر کرد. همهٔ نشست‌های قبلی پایان یافتند؛ دوباره وارد شوید.', httpError: 'خطای HTTP {status}',
+      checking: 'در حال بررسی…', diagnostics: 'عیب‌یابی', lastHandshake: 'آخرین handshake', endpoint: 'نشانی بیرونی',
+      online: 'آنلاین', offline: 'آفلاین', never: 'هرگز', secondsAgo: '{count} ثانیه پیش', minutesAgo: '{count} دقیقه پیش',
     },
   };
   let language = 'en';

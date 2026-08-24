@@ -18,6 +18,7 @@
   let clients = [];
   let selectedClient;
   let pendingDelete;
+  let diagnosticsTimer;
 
   const savedLanguage = localStorage.getItem('awg-easy-language');
   if (supportedLanguages.includes(savedLanguage)) {
@@ -32,7 +33,10 @@
     if (timeout) showNotice.timer = setTimeout(() => notice.classList.add('hidden'), timeout);
   };
   const showLogin = () => { loginView.classList.remove('hidden'); appView.classList.add('hidden'); logout.classList.add('hidden'); };
-  const showApp = () => { loginView.classList.add('hidden'); appView.classList.remove('hidden'); logout.classList.remove('hidden'); };
+  const showApp = () => {
+    loginView.classList.add('hidden'); appView.classList.remove('hidden'); logout.classList.remove('hidden');
+    startDiagnostics();
+  };
   const guarded = async (action) => {
     try { return await action(); } catch (error) {
       if (error.status === 401) showLogin();
@@ -40,6 +44,41 @@
       throw error;
     }
   };
+  const formatRate = (bytesPerSecond) => {
+    const bits = Math.max(0, Number(bytesPerSecond) || 0) * 8;
+    if (bits >= 1e9) return `${(bits / 1e9).toFixed(1)} Gbit/s`;
+    if (bits >= 1e6) return `${(bits / 1e6).toFixed(1)} Mbit/s`;
+    if (bits >= 1e3) return `${(bits / 1e3).toFixed(0)} Kbit/s`;
+    return `${Math.round(bits)} bit/s`;
+  };
+  const formatHandshake = (seconds) => {
+    if (seconds === null || seconds === undefined) return t('never');
+    if (seconds < 60) return t('secondsAgo', { count: seconds });
+    return t('minutesAgo', { count: Math.floor(seconds / 60) });
+  };
+  const paintDiagnostics = (item) => {
+    const node = clientsNode.querySelector(`[data-client-id="${CSS.escape(item.id)}"]`);
+    if (!node) return;
+    const line = node.querySelector('.live-line');
+    line.className = `live-line ${item.state}`;
+    node.querySelector('.live-state').textContent = t(item.state);
+    node.querySelector('.live-rates').textContent = item.state === 'online'
+      ? `↓ ${formatRate(item.downloadBps)} · ↑ ${formatRate(item.uploadBps)}` : '';
+    node.querySelector('.diag-handshake').textContent = formatHandshake(item.handshakeAgeSeconds);
+    node.querySelector('.diag-endpoint').textContent = item.endpoint || '—';
+    node.querySelector('.diag-mtu').textContent = item.mtu;
+    node.querySelector('.diag-keepalive').textContent = `${item.persistentKeepalive} s`;
+  };
+  const refreshDiagnostics = async () => {
+    if (appView.classList.contains('hidden')) return;
+    try { (await api.diagnostics()).forEach(paintDiagnostics); }
+    catch (error) { if (error.status === 401) showLogin(); }
+  };
+  function startDiagnostics() {
+    clearInterval(diagnosticsTimer);
+    refreshDiagnostics();
+    diagnosticsTimer = setInterval(refreshDiagnostics, 4000);
+  }
   const update = async (client, changes, input) => {
     input.disabled = true;
     try { await guarded(() => api.updateClient(client.id, changes)); await loadClients(); }
@@ -95,6 +134,7 @@
   languageSelect.addEventListener('change', () => {
     i18n.setLanguage(languageSelect.value);
     localStorage.setItem('awg-easy-language', languageSelect.value);
+    refreshDiagnostics();
   });
   $('#show-create').addEventListener('click', () => createDialog.showModal());
   document.querySelectorAll('.close-dialog').forEach((button) => button.addEventListener('click', () => button.closest('dialog').close()));

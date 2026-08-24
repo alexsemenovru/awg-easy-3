@@ -112,6 +112,9 @@ class HttpServer {
         return sendJson(response, 201, await this.api.createClient(token, await readJson(request)));
       }
     }
+    if (url.pathname === '/api/v1/diagnostics' && request.method === 'GET') {
+      return sendJson(response, 200, await this.api.clientDiagnostics(token));
+    }
 
     const client = clientRoute(url.pathname);
     if (client && !client.export && request.method === 'PATCH') {

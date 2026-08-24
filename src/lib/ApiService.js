@@ -27,7 +27,7 @@ const exportFileName = (name) => {
 };
 
 class ApiService {
-  constructor({ store, passwordManager, sessionManager, clientManager, qrGenerator = defaultQrGenerator } = {}) {
+  constructor({ store, passwordManager, sessionManager, clientManager, diagnostics, qrGenerator = defaultQrGenerator } = {}) {
     if (!store || typeof store.load !== 'function') throw new TypeError('store must provide load');
     if (!passwordManager || typeof passwordManager.verify !== 'function'
       || typeof passwordManager.changePassword !== 'function') {
@@ -41,11 +41,13 @@ class ApiService {
       throw new TypeError('clientManager is invalid');
     }
     if (typeof qrGenerator !== 'function') throw new TypeError('qrGenerator must be a function');
+    if (diagnostics && typeof diagnostics.snapshot !== 'function') throw new TypeError('diagnostics must provide snapshot');
     this.store = store;
     this.passwordManager = passwordManager;
     this.sessionManager = sessionManager;
     this.clientManager = clientManager;
     this.qrGenerator = qrGenerator;
+    this.diagnostics = diagnostics;
   }
 
   async login(password, { secureCookie = false } = {}) {
@@ -74,6 +76,12 @@ class ApiService {
     const state = await this.store.load();
     if (!state) throw new ApiError(503, 'AWG-Easy 3 is not initialized');
     return Object.freeze(state.clients.map(publicClient));
+  }
+
+  async clientDiagnostics(token) {
+    await this.authorize(token);
+    if (!this.diagnostics) return Object.freeze([]);
+    return this.diagnostics.snapshot();
   }
 
   async createClient(token, input) {
