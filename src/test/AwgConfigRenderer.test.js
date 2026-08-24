@@ -32,7 +32,7 @@ test('renders an AWG 3.1 server without firewall shell hooks', () => {
   assert.match(config, /^\[Interface\]/);
   assert.match(config, /^HeaderProtectionKey = /m);
   assert.match(config, /^RandomTrailers = on$/m);
-  assert.match(config, /^AdvancedSecurity = on$/m);
+  assert.doesNotMatch(config, /^AdvancedSecurity\s*=/m);
   assert.doesNotMatch(config, /PostUp|PostDown|iptables|nft/);
 });
 

@@ -42,7 +42,8 @@ host port mapping. nftables permits it from home peer addresses only.
 Official AWG 3.x tools currently expose the existing obfuscation fields plus:
 
 - `HeaderProtectionKey` on the interface;
-- `AdvancedSecurity` on peers;
+- AWG userspace peers are AWG-native and do not emit the kernel-only
+  `AdvancedSecurity` compatibility flag;
 - `ContentPaddingAddition`;
 - `RekeyAfterTime`;
 - `RekeyTimeout`;

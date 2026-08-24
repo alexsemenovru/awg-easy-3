@@ -2,7 +2,7 @@
 
 const net = require('node:net');
 
-const { renderInterfaceFields, renderPeerSecurity } = require('./Awg3Config');
+const { renderInterfaceFields } = require('./Awg3Config');
 const { renderDnsLine } = require('./DnsPolicy');
 
 const lineValue = (value, field) => {
@@ -56,7 +56,6 @@ const renderServerPeer = (peer, index) => {
     `PublicKey = ${lineValue(peer.publicKey, `peers[${index}].publicKey`)}`,
   ];
   if (peer.presharedKey) lines.push(`PresharedKey = ${lineValue(peer.presharedKey, `peers[${index}].presharedKey`)}`);
-  lines.push(renderPeerSecurity({ advancedSecurity: true }));
   lines.push(`AllowedIPs = ${cidrList(peer.allowedIps, `peers[${index}].allowedIps`).join(', ')}`);
   return lines.join('\n');
 };
@@ -110,7 +109,6 @@ const renderClientConfig = ({
     `PublicKey = ${lineValue(serverPublicKey, 'serverPublicKey')}`,
   ];
   if (presharedKey) lines.push(`PresharedKey = ${lineValue(presharedKey, 'presharedKey')}`);
-  lines.push(renderPeerSecurity({ advancedSecurity: true }));
   lines.push(`AllowedIPs = ${cidrList(allowedIps, 'allowedIps').join(', ')}`);
   lines.push(`PersistentKeepalive = ${keepalive}`);
   lines.push(`Endpoint = ${formatEndpoint(endpointHost, endpointPort)}`);
@@ -121,4 +119,3 @@ module.exports = {
   renderClientConfig,
   renderServerConfig,
 };
-

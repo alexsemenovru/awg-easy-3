@@ -234,15 +234,10 @@ const renderInterfaceFields = (input) => {
     .join('\n');
 };
 
-const renderPeerSecurity = ({ advancedSecurity = true } = {}) => {
-  return `AdvancedSecurity = ${parseBoolean(advancedSecurity, 'advancedSecurity') ? 'on' : 'off'}`;
-};
-
 module.exports = {
   OFFICIAL_DEFAULTS,
   generateHeaderProtectionKey,
   generateOfficialProfile,
   renderInterfaceFields,
-  renderPeerSecurity,
   validateProfile,
 };

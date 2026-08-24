@@ -7,7 +7,6 @@ const {
   generateHeaderProtectionKey,
   generateOfficialProfile,
   renderInterfaceFields,
-  renderPeerSecurity,
   validateProfile,
 } = require('../lib/Awg3Config');
 
@@ -54,7 +53,6 @@ test('renders official AWG config field names', () => {
   assert.match(rendered, /^ContentPaddingAddition = 50-100$/m);
   assert.match(rendered, /^RandomTrailers = on$/m);
   assert.match(rendered, /^DisableCookies = off$/m);
-  assert.equal(renderPeerSecurity(), 'AdvancedSecurity = on');
 });
 
 test('rejects overlapping header ranges', () => {
