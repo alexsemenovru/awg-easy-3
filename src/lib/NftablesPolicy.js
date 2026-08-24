@@ -46,7 +46,9 @@ const validateAddressList = (value, family, field) => {
 };
 
 const quote = (value) => `"${value}"`;
-const elements = (values) => values.length === 0 ? '{ }' : `{ ${values.join(', ')} }`;
+const elementsClause = (values) => values.length === 0
+  ? ''
+  : `\n    elements = { ${values.join(', ')} }`;
 
 const renderNftablesPolicy = ({
   interfaceName = 'awg0',
@@ -84,13 +86,11 @@ const renderNftablesPolicy = ({
 
   const ipv6Sets = subnet6 ? `
   set home6 {
-    type ipv6_addr
-    elements = ${elements(normalizedHome6)}
+    type ipv6_addr${elementsClause(normalizedHome6)}
   }
 
   set guest6 {
-    type ipv6_addr
-    elements = ${elements(normalizedGuest6)}
+    type ipv6_addr${elementsClause(normalizedGuest6)}
   }
 
 ` : '';
@@ -112,13 +112,11 @@ const renderNftablesPolicy = ({
   return `# Managed by AWG-Easy 3. Do not append unrelated rules to this table.
 table inet ${TABLE_NAME} {
   set home4 {
-    type ipv4_addr
-    elements = ${elements(normalizedHome4)}
+    type ipv4_addr${elementsClause(normalizedHome4)}
   }
 
   set guest4 {
-    type ipv4_addr
-    elements = ${elements(normalizedGuest4)}
+    type ipv4_addr${elementsClause(normalizedGuest4)}
   }
 ${ipv6Sets}
   chain input {

@@ -61,6 +61,20 @@ test('adds NAT66 only for the project IPv6 prefix when requested', () => {
   }), /requires ipv6Subnet/);
 });
 
+test('omits the elements clause for empty nftables sets', () => {
+  const policy = renderNftablesPolicy({
+    ...basePolicy(),
+    guest4: [],
+    ipv6Subnet: 'fd42:8:3::/64',
+    home6: ['fd42:8:3::2'],
+    guest6: [],
+  });
+
+  assert.doesNotMatch(policy, /elements\s*=\s*\{\s*\}/);
+  assert.match(policy, /set guest4 \{\n    type ipv4_addr\n  \}/);
+  assert.match(policy, /set guest6 \{\n    type ipv6_addr\n  \}/);
+});
+
 test('rejects peer membership overlap', () => {
   assert.throws(
     () => renderNftablesPolicy({ ...basePolicy(), guest4: ['10.8.0.2'] }),
