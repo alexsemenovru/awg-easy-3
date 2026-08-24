@@ -92,12 +92,18 @@ class ClientManager {
   createClient({ name, networkGroup } = {}) {
     return this.serialize(async () => {
       const state = await this.requireState();
+      const normalizedName = typeof name === 'string' ? name.trim() : '';
+      if (state.clients.some((client) => client.name.trim().toLocaleLowerCase() === normalizedName.toLocaleLowerCase())) {
+        const error = new Error('A client with this name already exists');
+        error.code = 'CLIENT_NAME_EXISTS';
+        throw error;
+      }
       const policy = normalizeClientPolicy({ networkGroup });
       const addresses = allocateClientAddresses({ server: state.server, clients: state.clients });
       const keys = await this.keyManager.generatePeerKeys();
       const client = {
         id: this.idGenerator(),
-        name,
+        name: normalizedName,
         enabled: true,
         ...policy,
         ...addresses,

@@ -12,13 +12,16 @@
   const notice = $('#notice');
   const createDialog = $('#create-dialog');
   const profileDialog = $('#profile-dialog');
+  const deleteDialog = $('#delete-dialog');
+  let clients = [];
   let selectedClient;
+  let pendingDelete;
 
-  const showNotice = (message, error = false) => {
+  const showNotice = (message, error = false, timeout = 5000) => {
     notice.textContent = message;
     notice.className = `notice ${error ? 'error' : 'success'}`;
     clearTimeout(showNotice.timer);
-    showNotice.timer = setTimeout(() => notice.classList.add('hidden'), 5000);
+    if (timeout) showNotice.timer = setTimeout(() => notice.classList.add('hidden'), timeout);
   };
   const showLogin = () => { loginView.classList.remove('hidden'); appView.classList.add('hidden'); logout.classList.add('hidden'); };
   const showApp = () => { loginView.classList.add('hidden'); appView.classList.remove('hidden'); logout.classList.remove('hidden'); };
@@ -35,9 +38,15 @@
     catch { input.checked = !input.checked; }
     finally { input.disabled = false; }
   };
+  const askDelete = (client) => {
+    pendingDelete = client;
+    $('#delete-message').textContent = t('deleteConfirm', { name: client.name });
+    deleteDialog.showModal();
+  };
   const renderClient = (client) => {
     const node = $('#client-template').content.firstElementChild.cloneNode(true);
     i18n.translate(node);
+    node.dataset.clientId = client.id;
     node.querySelector('.client-name').textContent = client.name;
     node.querySelector('.client-address').textContent = [client.address4, client.address6].filter(Boolean).join(' · ');
     const status = node.querySelector('.status');
@@ -50,22 +59,16 @@
     enabled.checked = client.enabled;
     enabled.addEventListener('change', () => update(client, { enabled: enabled.checked }, enabled));
     node.querySelector('.show-profile').addEventListener('click', () => openProfile(client));
-    node.querySelector('.delete-client').addEventListener('click', async () => {
-      if (!confirm(t('deleteConfirm', { name: client.name }))) return;
-      await guarded(() => api.deleteClient(client.id));
-      showNotice(t('deleted'));
-      await loadClients();
-    });
+    node.querySelector('.delete-client').addEventListener('click', () => askDelete(client));
     return node;
   };
   const loadClients = async () => {
-    const clients = await guarded(() => api.clients());
+    clients = await guarded(() => api.clients());
     clientsNode.replaceChildren(...clients.map(renderClient));
   };
   const openProfile = (client) => {
     selectedClient = client;
     $('#profile-title').textContent = client.name;
-    $('#profile-qr').src = `${api.exportUrl(client.id, 'qr-svg')}&t=${Date.now()}`;
     $('#download-config').href = api.exportUrl(client.id, 'native-config');
     profileDialog.showModal();
   };
@@ -73,33 +76,72 @@
   $('#login-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     const password = $('#password');
-    await guarded(() => api.login(password.value));
-    password.value = '';
-    showApp();
-    await loadClients();
+    try {
+      await guarded(() => api.login(password.value));
+      password.value = '';
+      showApp();
+      await loadClients();
+    } catch {}
   });
   logout.addEventListener('click', async () => { await api.logout(); showLogin(); });
   $('#show-create').addEventListener('click', () => createDialog.showModal());
   document.querySelectorAll('.close-dialog').forEach((button) => button.addEventListener('click', () => button.closest('dialog').close()));
+  $('#cancel-delete').addEventListener('click', () => deleteDialog.close());
+  $('#confirm-delete').addEventListener('click', async () => {
+    const client = pendingDelete;
+    if (!client) return;
+    deleteDialog.close();
+    clients = clients.filter((item) => item.id !== client.id);
+    clientsNode.querySelector(`[data-client-id="${CSS.escape(client.id)}"]`)?.remove();
+    showNotice(t('deletingClient'), false, 0);
+    try {
+      await api.deleteClient(client.id);
+      showNotice(t('deleted'));
+      await loadClients();
+    } catch (error) {
+      if (error.status === 401) showLogin();
+      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+        showNotice(t('deletedConnectionLost'), false, 0);
+        return;
+      }
+      showNotice(error.message, true);
+      await loadClients().catch(() => {});
+    } finally { pendingDelete = undefined; }
+  });
   $('#create-form').addEventListener('submit', async (event) => {
     event.preventDefault();
-    const result = await guarded(() => api.createClient({ name: $('#client-name').value, networkGroup: $('#client-group').value }));
-    createDialog.close();
-    event.target.reset();
-    await loadClients();
-    openProfile(result.client);
+    const name = $('#client-name').value.trim();
+    if (clients.some((client) => client.name.trim().toLocaleLowerCase() === name.toLocaleLowerCase())) {
+      showNotice(t('duplicateName'), true);
+      return;
+    }
+    try {
+      const result = await guarded(() => api.createClient({ name, networkGroup: $('#client-group').value }));
+      createDialog.close();
+      event.target.reset();
+      await loadClients();
+      openProfile(result.client);
+    } catch (error) {
+      if (error.status === 409) showNotice(t('duplicateName'), true);
+    }
   });
-  $('#open-profile').addEventListener('click', async () => { window.location.href = await guarded(() => api.exportText(selectedClient.id, 'vpn-link')); });
+  $('#open-profile').addEventListener('click', async () => {
+    try { window.location.href = await guarded(() => api.exportText(selectedClient.id, 'vpn-link')); } catch {}
+  });
   $('#copy-profile').addEventListener('click', async () => {
-    await navigator.clipboard.writeText(await guarded(() => api.exportText(selectedClient.id, 'vpn-link')));
-    showNotice(t('copied'));
+    try {
+      await navigator.clipboard.writeText(await guarded(() => api.exportText(selectedClient.id, 'vpn-link')));
+      showNotice(t('copied'));
+    } catch {}
   });
   $('#password-form').addEventListener('submit', async (event) => {
     event.preventDefault();
-    await guarded(() => api.changePassword($('#current-password').value, $('#new-password').value));
-    event.target.reset();
-    showLogin();
-    alert(t('passwordChanged'));
+    try {
+      await guarded(() => api.changePassword($('#current-password').value, $('#new-password').value));
+      event.target.reset();
+      showLogin();
+      alert(t('passwordChanged'));
+    } catch {}
   });
   api.session().then(async ({ authenticated, language }) => {
     i18n.setLanguage(language);

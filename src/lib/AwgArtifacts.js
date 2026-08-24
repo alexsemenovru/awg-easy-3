@@ -81,7 +81,7 @@ const buildAwgArtifacts = ({ server, clients }) => {
       dns: dnsPolicy.amneziaDns,
       profile: server.profile,
       client: {
-        address: `${client.address4}/32`,
+        addresses,
         privateKey: client.privateKey,
         publicKey: client.publicKey,
         serverPublicKey: server.publicKey,

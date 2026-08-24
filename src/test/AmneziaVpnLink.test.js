@@ -36,7 +36,7 @@ const options = () => ({
     disableCookies: false,
   },
   client: {
-    address: '10.8.0.2/32',
+    addresses: ['10.8.0.2/32', 'fd00::2/128'],
     privateKey: 'client-private-key',
     publicKey: 'client-public-key',
     serverPublicKey: 'server-public-key',
@@ -65,7 +65,8 @@ test('builds the official third-party AWG container shape', () => {
 
   const lastConfig = JSON.parse(payload.containers[0].awg.last_config);
   assert.equal(lastConfig.HeaderProtectionKey, input.profile.headerProtectionKey);
-  assert.equal(lastConfig.config, undefined);
+  assert.equal(lastConfig.config, input.client.nativeConfig);
+  assert.equal(lastConfig.client_ip, '10.8.0.2/32, fd00::2/128');
 });
 
 test('round-trips every AWG 3.x field through a vpn:// link', () => {
@@ -80,7 +81,7 @@ test('round-trips every AWG 3.x field through a vpn:// link', () => {
   assert.equal(lastConfig.DisableCookies, 'off');
   assert.equal(lastConfig.clientId, input.client.publicKey);
   assert.deepEqual(lastConfig.allowed_ips, ['0.0.0.0/0', '::/0']);
-  assert.ok(createVpnLink(input).length < 1_000);
+  assert.ok(createVpnLink(input).length < 1_500);
 });
 
 test('rejects malformed vpn links', () => {

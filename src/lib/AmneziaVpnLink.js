@@ -19,6 +19,14 @@ const optionalString = (value, field) => {
   return requireString(String(value), field);
 };
 
+const normalizeClientAddresses = (client) => {
+  const values = client.addresses ?? (client.address ? [client.address] : []);
+  if (!Array.isArray(values) || values.length === 0) {
+    throw new TypeError('client.addresses must contain at least one address');
+  }
+  return values.map((address, index) => requireString(address, `client.addresses[${index}]`));
+};
+
 const normalizePort = (value) => {
   const port = Number(value);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
@@ -96,7 +104,7 @@ const buildAmneziaPayload = ({
   const lastConfig = {
     hostName: normalizedHost,
     port: normalizedPort,
-    client_ip: requireString(client.address, 'client.address'),
+    client_ip: normalizeClientAddresses(client).join(', '),
     client_priv_key: requireString(client.privateKey, 'client.privateKey'),
     client_pub_key: requireString(client.publicKey, 'client.publicKey'),
     server_pub_key: requireString(client.serverPublicKey, 'client.serverPublicKey'),
@@ -107,6 +115,9 @@ const buildAmneziaPayload = ({
     mtu: String(client.mtu ?? 1280),
     ...profileToAmneziaFields(profile),
   };
+
+  const nativeConfig = optionalString(client.nativeConfig, 'client.nativeConfig');
+  if (nativeConfig) lastConfig.config = nativeConfig;
 
   const psk = optionalString(client.presharedKey, 'client.presharedKey');
   if (psk) lastConfig.psk_key = psk;

@@ -73,7 +73,13 @@ class ApiService {
 
   async createClient(token, input) {
     await this.authorize(token);
-    const result = await this.clientManager.createClient(input);
+    let result;
+    try {
+      result = await this.clientManager.createClient(input);
+    } catch (error) {
+      if (error.code === 'CLIENT_NAME_EXISTS') throw new ApiError(409, error.message);
+      throw error;
+    }
     return Object.freeze({ client: publicClient(result.client) });
   }
 

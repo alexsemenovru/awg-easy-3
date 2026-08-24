@@ -11,7 +11,7 @@ test('ships a self-contained UI with every required control', () => {
   const html = fs.readFileSync(path.join(www, 'index.html'), 'utf8');
   for (const id of [
     'login-form', 'clients', 'show-create', 'client-group',
-    'profile-qr', 'open-profile', 'download-config', 'password-form',
+    'profile-dialog', 'open-profile', 'download-config', 'password-form', 'delete-dialog',
   ]) {
     assert.match(html, new RegExp(`id="${id}"`));
   }

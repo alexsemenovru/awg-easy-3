@@ -72,6 +72,14 @@ test('creates a guest by default and returns its AmneziaVPN export', async () =>
   assert.equal(applications[0].interfaceActive, true);
 });
 
+test('rejects duplicate client names case-insensitively', async () => {
+  const { manager } = fixture();
+  await assert.rejects(
+    manager.createClient({ name: ' HOME ADMIN ' }),
+    (error) => error.code === 'CLIENT_NAME_EXISTS',
+  );
+});
+
 test('switches network policy and blocks unsafe fields', async () => {
   const { manager } = fixture();
   await manager.createClient({ name: 'Phone' });
