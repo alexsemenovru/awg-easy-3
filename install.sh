@@ -58,6 +58,14 @@ if ss -H -ltn "sport = :$AWG_PANEL_PORT_VALUE" | grep -q .; then
   die "TCP port $AWG_PANEL_PORT_VALUE is already in use"
 fi
 
+export AWG_HOST="$AWG_HOST_VALUE"
+export AWG_PORT="$AWG_PORT_VALUE"
+export AWG_PANEL_PORT="$AWG_PANEL_PORT_VALUE"
+export AWG_LANG="$AWG_LANG_VALUE"
+
+info "Pulling the pinned linux/amd64 image"
+docker compose pull awg-easy
+
 info "Enabling IPv4/IPv6 forwarding"
 umask 077
 cat > /etc/sysctl.d/99-awg-easy-3.conf <<'EOF'
@@ -68,13 +76,6 @@ chmod 0644 /etc/sysctl.d/99-awg-easy-3.conf
 sysctl --system >/dev/null
 
 install -d -m 0700 data
-export AWG_HOST="$AWG_HOST_VALUE"
-export AWG_PORT="$AWG_PORT_VALUE"
-export AWG_PANEL_PORT="$AWG_PANEL_PORT_VALUE"
-export AWG_LANG="$AWG_LANG_VALUE"
-
-info "Building the pinned linux/amd64 image"
-docker compose build --pull awg-easy
 
 info "Creating the first Home profile"
 docker compose run --rm --no-deps \

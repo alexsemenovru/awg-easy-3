@@ -43,7 +43,7 @@ sudo ./install.sh --host ПУБЛИЧНЫЙ_IP_ИЛИ_ДОМЕН --lang ru
 
 1. проверит архитектуру, Docker Compose и TUN;
 2. включит IPv4/IPv6 forwarding через `/etc/sysctl.d/99-awg-easy-3.conf`;
-3. соберёт закреплённый `linux/amd64` образ;
+3. скачает готовый `linux/amd64` образ из GitHub Container Registry;
 4. создаст первый профиль Home;
 5. один раз покажет пароль и `vpn://`;
 6. запустит контейнер.

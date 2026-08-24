@@ -18,6 +18,7 @@ test('pins amd64 base images and official AWG source revisions', () => {
   assert.match(compose, /network_mode: host/);
   assert.match(compose, /read_only: true/);
   assert.match(compose, /AWG_LANG: \$\{AWG_LANG:-en\}/);
+  assert.match(compose, /ghcr\.io\/alexsemenovru\/awg-easy-3:0\.1\.0-rc\.1/);
   assert.match(dockerfile, /\$\{AWG_PANEL_PORT\}/);
   assert.doesNotMatch(compose, /SYS_MODULE|ports:/);
 });
@@ -32,7 +33,10 @@ test('installer initializes before startup and never publishes the panel port', 
   const installer = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
   assert.match(installer, /x86_64\|amd64/);
   assert.match(installer, /docker compose run[\s\S]*awg-easy init/);
+  assert.match(installer, /docker compose pull awg-easy/);
+  assert.doesNotMatch(installer, /docker compose build/);
   assert.match(installer, /docker compose up -d awg-easy/);
+  assert.ok(installer.indexOf('docker compose pull awg-easy') < installer.indexOf('Enabling IPv4/IPv6 forwarding'));
   assert.ok(installer.indexOf(' awg-easy init') < installer.indexOf('docker compose up -d'));
   assert.match(installer, /http:\/\/10\.8\.0\.1:%s/);
   assert.doesNotMatch(installer, /51821:51821/);
