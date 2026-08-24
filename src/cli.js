@@ -9,9 +9,6 @@ const application = new Application({
 });
 
 const printBootstrap = async (result) => {
-  const qr = await require('qrcode').toString(result.vpnLink, {
-    type: 'terminal', small: true, errorCorrectionLevel: 'M',
-  });
   process.stdout.write([
     '',
     'AWG-Easy 3 initialized successfully.',
@@ -19,7 +16,6 @@ const printBootstrap = async (result) => {
     `Panel password (shown once): ${result.bootstrapPassword}`,
     '',
     'First Home profile for AmneziaVPN:',
-    qr,
     result.vpnLink,
     '',
   ].join('\n'));
