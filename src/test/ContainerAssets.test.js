@@ -51,12 +51,37 @@ test('installer rejects network conflicts before changing host settings', () => 
   for (const preflight of [
     'ip link show dev awg0',
     'ip -4 route show exact 10.8.0.0/24',
-    'ss -H -lun "sport = :$AWG_PORT_VALUE"',
-    'ss -H -ltn "sport = :$AWG_PANEL_PORT_VALUE"',
+    'docker container inspect awg-easy-3',
+    'nft list table inet awg_easy_3',
+    'choose_available_port udp',
+    'choose_available_port tcp',
   ]) {
     assert.match(installer, new RegExp(preflight.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     assert.ok(installer.indexOf(preflight) < forwarding);
   }
+});
+
+test('installer can provision missing runtime dependencies without replacing foreign state', () => {
+  const installer = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
+  assert.match(installer, /detect_package_manager/);
+  assert.match(installer, /apt-get dnf yum zypper pacman apk/);
+  assert.match(installer, /docker-compose-v2/);
+  assert.match(installer, /docker-compose-plugin/);
+  assert.match(installer, /systemctl enable --now docker/);
+  assert.match(installer, /the installer will not remove an existing container/);
+  assert.match(installer, /the installer will not overwrite an unowned or stale table/);
+  assert.doesNotMatch(installer, /docker (rm|stop|kill) /);
+  assert.doesNotMatch(installer, /nft (delete|flush) table/);
+});
+
+test('installer suggests ports interactively but keeps explicit options strict', () => {
+  const installer = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
+  assert.match(installer, /AWG_PORT_EXPLICIT/);
+  assert.match(installer, /AWG_PANEL_PORT_EXPLICIT/);
+  assert.match(installer, /next_free_port/);
+  assert.match(installer, /Enter another port/);
+  assert.match(installer, /rerun with --\$option/);
+  assert.match(installer, /choose another value \(for example \$suggestion\)/);
 });
 
 test('installer accepts validated AWG port, panel port and language options', () => {

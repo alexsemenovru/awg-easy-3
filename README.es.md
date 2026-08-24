@@ -4,7 +4,7 @@
 
 Un panel Docker sencillo para **AmneziaWG 3.x**. Es un fork independiente y no comercial de [JohnnyVBut/awg-easy](https://github.com/JohnnyVBut/awg-easy), reconstruido para instalaciones limpias de AWG 3.x.
 
-> Estado: candidato a prerelease. AWG 3.1, Docker, la importación en AmneziaVPN para Android, IPv4/IPv6, el aislamiento Home/Guest y la revocación de perfiles ya se validaron en un VPS. El descubrimiento Home aún necesita una prueba con dos dispositivos.
+> Estado: candidato a prerelease. AWG 3.1, Docker, la importación en AmneziaVPN para Android, IPv4/IPv6, el aislamiento Home/Guest y la revocación de perfiles ya se validaron en un VPS. La retransmisión Home del servidor y la reescritura de direcciones SSDP también se validaron entre dos peers reales; la visibilidad final depende del soporte multicast de la aplicación cliente sobre la interfaz VPN.
 
 ## Funciones
 
@@ -21,7 +21,7 @@ Un panel Docker sencillo para **AmneziaWG 3.x**. Es un fork independiente y no c
 
 ## Requisitos e instalación
 
-Se requiere un VPS Linux `amd64`, Docker Engine, Docker Compose v2, `/dev/net/tun`, acceso root y el puerto UDP 51820 entrante.
+Se requiere un VPS Linux `amd64`, `/dev/net/tun`, acceso root, un gestor de paquetes compatible y un puerto UDP entrante disponible. El instalador puede instalar Docker Engine, Docker Compose v2, iproute2 y nftables desde los repositorios del sistema.
 
 ```bash
 git clone https://github.com/alexsemenovru/awg-easy-3.git
@@ -29,7 +29,7 @@ cd awg-easy-3
 sudo ./install.sh --host IP_PUBLICA_O_DOMINIO --lang es
 ```
 
-También puede usar `--port`, `--panel-port` y `--lang en|ru|fa|es|zh-cn`. El puerto del panel permanece privado aunque se cambie. El instalador muestra una vez la contraseña y el primer enlace Home. Importe el enlace en AmneziaVPN y abra `http://10.8.0.1:51821`.
+También puede usar `--port`, `--panel-port` y `--lang en|ru|fa|es|zh-cn`. Si un puerto predeterminado está ocupado, el modo interactivo propone el siguiente libre; un puerto indicado explícitamente produce un error y nunca se cambia en silencio. Se admiten APT, DNF, YUM, Zypper, Pacman y APK. El puerto del panel permanece privado aunque se cambie. El instalador muestra una vez la contraseña y el primer enlace Home. Importe el enlace en AmneziaVPN y abra `http://10.8.0.1:51821`.
 
 ## Administración local
 

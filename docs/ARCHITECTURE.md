@@ -36,6 +36,13 @@ The intended first release contains:
    visibility remains dependent on client multicast support over the VPN interface.
 6. An installer/bootstrap command that creates the first peer and credentials.
 
+The installer treats dependency installation and conflict handling as a
+preflight phase. It can provision Docker Engine, Docker Compose v2, iproute2
+and nftables through a supported distribution package manager. Default port
+collisions are resolved interactively; explicit port arguments remain strict.
+Existing containers, interfaces, routes and nftables objects are never removed
+or renamed automatically.
+
 The Web UI listens inside the container/network namespace but has no public
 host port mapping. nftables permits it from home peer addresses only.
 

@@ -23,7 +23,7 @@ Highlights:
 
 ## Install
 
-Requirements: an amd64 Linux VPS, Docker Engine, Docker Compose v2, `/dev/net/tun`, root access, and inbound UDP 51820.
+Requirements: an amd64 Linux VPS, `/dev/net/tun`, root access, a supported package manager, and an available inbound UDP port. When needed, the installer provisions Docker Engine, Docker Compose v2, iproute2 and nftables from the distribution repositories.
 
 ```bash
 git clone https://github.com/alexsemenovru/awg-easy-3.git
@@ -37,7 +37,9 @@ The installer prints the first Home profile, panel password, and `vpn://` link o
 docker compose run --rm --no-deps awg-easy export-client "Home admin"
 ```
 
-Optional `--port`, `--panel-port`, and `--lang en|ru|fa|es|zh-cn` arguments select the AWG UDP port, VPN-only panel TCP port, and interface language. English is the default; Persian uses an RTL layout. Russian, Spanish, and Simplified Chinese are also included.
+Optional `--port`, `--panel-port`, and `--lang en|ru|fa|es|zh-cn` arguments select the AWG UDP port, VPN-only panel TCP port, and interface language. If a default port is occupied, an interactive run suggests the next free port and asks for confirmation; an explicitly supplied occupied port remains a strict error. English is the default; Persian uses an RTL layout. Russian, Spanish, and Simplified Chinese are also included.
+
+Supported package managers are APT, DNF, YUM, Zypper, Pacman and APK. The installer never removes a conflicting container, interface, route or nftables table; conflicts it cannot resolve safely are reported before host networking is changed.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for design notes and [NOTICE](NOTICE) for attribution.
 

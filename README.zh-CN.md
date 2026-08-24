@@ -4,7 +4,7 @@
 
 一个面向 **AmneziaWG 3.x** 的轻量 Docker 管理面板。本项目是 [JohnnyVBut/awg-easy](https://github.com/JohnnyVBut/awg-easy) 的独立、非商业分支，专为全新安装 AWG 3.x 而重新构建。
 
-> 状态：预发布候选版。AWG 3.1、Docker 部署、AmneziaVPN Android 导入、IPv4/IPv6、Home/Guest 隔离以及已删除配置的撤销均已在独立 VPS 上验证。Home 发现功能仍需使用两台真实设备测试。
+> 状态：预发布候选版。AWG 3.1、Docker 部署、AmneziaVPN Android 导入、IPv4/IPv6、Home/Guest 隔离以及已删除配置的撤销均已在独立 VPS 上验证。服务器端 Home 发现转发和 SSDP 地址重写也已在两个真实 peer 之间验证；最终可见性取决于客户端应用是否通过 VPN 接口支持组播。
 
 ## 功能
 
@@ -21,7 +21,7 @@
 
 ## 要求与安装
 
-需要 `amd64` Linux VPS、Docker Engine、Docker Compose v2、`/dev/net/tun`、root 权限以及开放入站 UDP 51820。
+需要 `amd64` Linux VPS、`/dev/net/tun`、root 权限、受支持的软件包管理器以及一个可用的入站 UDP 端口。安装程序可按需从系统仓库安装 Docker Engine、Docker Compose v2、iproute2 和 nftables。
 
 ```bash
 git clone https://github.com/alexsemenovru/awg-easy-3.git
@@ -29,7 +29,7 @@ cd awg-easy-3
 sudo ./install.sh --host 公网IP或域名 --lang zh-cn
 ```
 
-可选参数包括 `--port`、`--panel-port` 和 `--lang en|ru|fa|es|zh-cn`。即使修改面板端口，它仍不会公开到互联网。安装程序只显示一次面板密码和首个 Home 配置链接。将链接导入 AmneziaVPN，然后打开 `http://10.8.0.1:51821`。
+可选参数包括 `--port`、`--panel-port` 和 `--lang en|ru|fa|es|zh-cn`。默认端口被占用时，交互式运行会建议下一个可用端口；明确指定的占用端口会报错，不会被静默替换。支持 APT、DNF、YUM、Zypper、Pacman 和 APK。即使修改面板端口，它仍不会公开到互联网。安装程序只显示一次面板密码和首个 Home 配置链接。将链接导入 AmneziaVPN，然后打开 `http://10.8.0.1:51821`。
 
 ## 本地管理
 
