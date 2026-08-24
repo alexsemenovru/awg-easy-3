@@ -18,7 +18,7 @@ const publicClient = (client) => Object.freeze({
 });
 
 const defaultQrGenerator = (value) => require('qrcode').toString(value, {
-  type: 'svg', width: 320, margin: 2, errorCorrectionLevel: 'M',
+  type: 'svg', width: 512, margin: 4, errorCorrectionLevel: 'L',
 });
 
 class ApiService {

@@ -83,6 +83,11 @@ the AWG interface and the project's assigned prefixes. Updates should be
 applied atomically. Deleting the application removes only objects owned by the
 application.
 
+When Docker's host `FORWARD` policy would otherwise drop VPN traffic, the
+runtime adds only four marker-owned `awg0` accept/return rules to Docker's
+supported `DOCKER-USER` chains. It does not flush, replace, or reorder rules
+owned by Docker or other applications, and removes its marked rules on stop.
+
 Peer addresses are maintained in sets:
 
 - `home4` / `home6`;

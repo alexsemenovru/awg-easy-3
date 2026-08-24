@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const { EventEmitter } = require('node:events');
 const test = require('node:test');
 
 const { runProcess } = require('../lib/ProcessRunner');
@@ -29,6 +30,20 @@ test('passes secret material through stdin instead of a command string', async (
 
   await runProcess('awg', ['pubkey'], { input: 'private-key\n', execFile });
   assert.equal(suppliedInput, 'private-key\n');
+});
+
+test('does not crash when a successful short-lived process closes stdin early', async () => {
+  const execFile = (_file, _args, _options, callback) => {
+    const stdin = new EventEmitter();
+    stdin.end = () => {
+      queueMicrotask(() => stdin.emit('error', Object.assign(new Error('closed'), { code: 'EPIPE' })));
+      queueMicrotask(() => callback(null, 'public-key\n', ''));
+    };
+    return { stdin };
+  };
+
+  const result = await runProcess('awg', ['pubkey'], { input: 'private-key\n', execFile });
+  assert.equal(result.stdout, 'public-key');
 });
 
 test('rejects tokens containing line breaks or null bytes', () => {

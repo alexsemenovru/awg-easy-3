@@ -33,7 +33,7 @@ test('preflights nftables before bringing up a new interface', async (t) => {
 
   assert.equal(result.interfaceActive, true);
   assert.deepEqual(calls.map((call) => `${call.file} ${call.args[0]}`), [
-    'nft list', 'awg-quick strip', 'nft -c', 'awg-quick up', 'nft -f',
+    'nft list', 'nft -a', 'nft -a', 'awg-quick strip', 'nft -c', 'awg-quick up', 'nft -f',
   ]);
   assert.equal(await fs.readFile(path.join(directory, 'awg0.conf'), 'utf8'), CONFIG);
   assert.equal(await fs.readFile(path.join(directory, 'rules.nft'), 'utf8'), POLICY);
@@ -130,5 +130,43 @@ test('stops only its saved AWG interface and dedicated nftables table', async (t
     ['awg-quick', 'down', path.join(directory, 'awg0.conf')],
     ['nft', 'list', 'table', 'inet', 'awg_easy_3'],
     ['nft', 'delete', 'table', 'inet', 'awg_easy_3'],
+    ['nft', '-a', 'list', 'chain', 'ip', 'filter', 'DOCKER-USER'],
+    ['nft', '-a', 'list', 'chain', 'ip6', 'filter', 'DOCKER-USER'],
+  ]);
+});
+
+test('adds and removes only marked awg0 rules in Docker user chains', async (t) => {
+  const directory = await temporaryDirectory(t);
+  const batches = [];
+  const deleted = [];
+  const runner = async (file, args) => {
+    if (args[0] === 'list' && args[1] === 'table') {
+      throw Object.assign(new Error('missing'), { code: 1 });
+    }
+    if (args[0] === '-a' && args[2] === 'chain') {
+      const family = args[3];
+      return {
+        stdout: family === 'ip'
+          ? 'chain DOCKER-USER {\n iifname "awg0" accept comment "awg_easy_3_forward_v4" # handle 41\n}'
+          : 'chain DOCKER-USER {\n}',
+        stderr: '',
+      };
+    }
+    if (args[0] === 'strip') return { stdout: 'stripped', stderr: '' };
+    if (file === 'nft' && args[0] === '-f') batches.push(await fs.readFile(args[1], 'utf8'));
+    if (file === 'nft' && args[0] === 'delete' && args[1] === 'rule') deleted.push(args);
+    return { stdout: '', stderr: '' };
+  };
+  const applier = new RuntimeApplier({ runtimeDirectory: directory, runner });
+
+  await applier.apply({ serverConfig: CONFIG, nftables: POLICY });
+  const dockerBatch = batches.find((batch) => batch.includes('DOCKER-USER'));
+  assert.doesNotMatch(dockerBatch, /awg_easy_3_forward_v4/);
+  assert.match(dockerBatch, /awg_easy_3_return_v4/);
+  assert.match(dockerBatch, /awg_easy_3_forward_v6/);
+
+  await applier.removeDockerCompatibility(['awg_easy_3_forward_v4']);
+  assert.deepEqual(deleted, [
+    ['delete', 'rule', 'ip', 'filter', 'DOCKER-USER', 'handle', '41'],
   ]);
 });

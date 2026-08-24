@@ -65,6 +65,7 @@ test('builds the official third-party AWG container shape', () => {
 
   const lastConfig = JSON.parse(payload.containers[0].awg.last_config);
   assert.equal(lastConfig.HeaderProtectionKey, input.profile.headerProtectionKey);
+  assert.equal(lastConfig.config, undefined);
 });
 
 test('round-trips every AWG 3.x field through a vpn:// link', () => {
@@ -79,6 +80,7 @@ test('round-trips every AWG 3.x field through a vpn:// link', () => {
   assert.equal(lastConfig.DisableCookies, 'off');
   assert.equal(lastConfig.clientId, input.client.publicKey);
   assert.deepEqual(lastConfig.allowed_ips, ['0.0.0.0/0', '::/0']);
+  assert.ok(createVpnLink(input).length < 1_000);
 });
 
 test('rejects malformed vpn links', () => {

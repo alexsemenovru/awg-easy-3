@@ -94,7 +94,6 @@ const buildAmneziaPayload = ({
   }
 
   const lastConfig = {
-    config: requireString(client.nativeConfig, 'client.nativeConfig'),
     hostName: normalizedHost,
     port: normalizedPort,
     client_ip: requireString(client.address, 'client.address'),

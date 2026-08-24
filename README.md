@@ -12,7 +12,8 @@ Highlights:
 - Automatic IPv6 ULA + scoped NAT66 when VPS IPv6 is usable.
 - Home-only mDNS/SSDP discovery; no UPnP IGD or port mapping.
 - VPN-only panel at `http://10.8.0.1:51821` with one password.
-- Dedicated nftables table and no public Web UI port.
+- Dedicated nftables table, narrowly tagged `awg0` rules in Docker's
+  `DOCKER-USER` chain when required, and no public Web UI port.
 - Pinned `linux/amd64` base images and official AWG source revisions.
 - No migrations, backup/restore, roles, or legacy WireGuard backend.
 - GeoIP-based selective routing is intentionally deferred pending a server-side design.

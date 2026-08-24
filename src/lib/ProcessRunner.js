@@ -33,6 +33,14 @@ const runProcess = (file, args = [], {
   }
 
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const fail = (error, stderr = '') => {
+      if (settled) return;
+      settled = true;
+      error.command = Object.freeze({ file, args: Object.freeze([...safeArgs]) });
+      error.stderr = String(stderr).trim();
+      reject(error);
+    };
     const child = execFile(file, safeArgs, {
       cwd,
       env,
@@ -42,18 +50,28 @@ const runProcess = (file, args = [], {
       timeout: timeoutMs,
       windowsHide: true,
     }, (error, stdout = '', stderr = '') => {
-      if (error) {
-        error.command = Object.freeze({ file, args: Object.freeze([...safeArgs]) });
-        error.stderr = String(stderr).trim();
-        return reject(error);
-      }
-      return resolve(Object.freeze({
+      if (error) return fail(error, stderr);
+      if (settled) return;
+      settled = true;
+      resolve(Object.freeze({
         stdout: String(stdout).trim(),
         stderr: String(stderr).trim(),
       }));
     });
 
-    if (input !== undefined) child.stdin.end(input);
+    if (input !== undefined) {
+      child.stdin.on?.('error', (error) => {
+        // Short-lived key utilities may successfully read one line and close
+        // stdin before Node finishes closing its pipe. Their exit status is
+        // still authoritative; consuming EPIPE prevents a process-wide crash.
+        if (error.code !== 'EPIPE') fail(error);
+      });
+      try {
+        child.stdin.end(input);
+      } catch (error) {
+        if (error.code !== 'EPIPE') fail(error);
+      }
+    }
   });
 };
 
