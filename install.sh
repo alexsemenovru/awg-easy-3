@@ -113,9 +113,18 @@ confirm_data_removal() {
   if ! is_interactive; then
     return 0
   fi
-  printf 'This permanently deletes every AWG-Easy 3 client, key, password and setting. Continue? [y/N]: '
-  read -r answer
-  case "$answer" in y|Y|yes|YES|Yes) return 0 ;; *) return 1 ;; esac
+  while :; do
+    printf 'This permanently deletes every AWG-Easy 3 client, key, password and setting. Continue? [y/N]: '
+    if ! read -r answer; then
+      printf 'Confirmation input was closed; nothing was removed.\n' >&2
+      return 1
+    fi
+    case "$answer" in
+      y|Y|yes|YES|Yes|д|Д|да|ДА|Да) return 0 ;;
+      ''|n|N|no|NO|No|н|Н|нет|НЕТ|Нет) return 1 ;;
+      *) printf 'Please answer y/yes (or д/да) to continue, or n/no (or н/нет) to cancel.\n' >&2 ;;
+    esac
+  done
 }
 
 choose_existing_install_action

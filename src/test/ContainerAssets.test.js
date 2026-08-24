@@ -108,6 +108,8 @@ test('installer offers owned uninstall and clean reinstall without touching fore
   assert.match(installer, /\/etc\/awg-easy-3-install-dir/);
   assert.match(installer, /install -m 0755 "\$SCRIPT_DIR\/awg-easy-3"/);
   assert.match(installer, /Run sudo awg-easy-3 from any directory/);
+  assert.match(installer, /Confirmation input was closed; nothing was removed/);
+  assert.match(installer, /Please answer y\/yes \(or д\/да\)/);
   for (const command of ['start', 'stop', 'restart', 'status', 'settings', 'logs', 'diagnose', 'update', 'reset-password', 'export-client', 'uninstall', 'reinstall']) {
     assert.match(manager, new RegExp(`\\b${command.replace('-', '\\-')}\\b`));
   }
