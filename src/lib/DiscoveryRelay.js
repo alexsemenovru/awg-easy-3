@@ -9,6 +9,18 @@ const SERVICES = Object.freeze([
 
 const normalizedAddress = (value) => String(value).toLowerCase().replace(/^::ffff:/, '');
 
+const rewriteSsdpLocation = (message, sourceAddress) => {
+  const marker = message.indexOf('\r\n\r\n');
+  const headerEnd = marker === -1 ? message.length : marker;
+  const header = message.subarray(0, headerEnd).toString('utf8');
+  const rewritten = header.replace(
+    /^(LOCATION|AL):(\s*https?:\/\/)(\[[^\]]+\]|[^\s/:]+)(:\d+)?/gim,
+    (_match, name, scheme, _host, port = '') => `${name}:${scheme}${sourceAddress}${port}`,
+  );
+  if (rewritten === header) return message;
+  return Buffer.concat([Buffer.from(rewritten, 'utf8'), message.subarray(headerEnd)]);
+};
+
 class DiscoveryRelay {
   constructor({ socketFactory = dgram.createSocket, clock = () => Date.now(), requesterTtlMs = 15_000 } = {}) {
     if (typeof socketFactory !== 'function' || typeof clock !== 'function') {
@@ -60,8 +72,11 @@ class DiscoveryRelay {
     this.sockets.push(socket);
     socket.on('message', (message, rinfo) => {
       if (message.length > 65_507) return;
+      const payload = service.name === 'ssdp4'
+        ? rewriteSsdpLocation(message, normalizedAddress(rinfo.address))
+        : message;
       for (const target of this.targets(service, rinfo)) {
-        socket.send(message, target.port, target.address, () => {});
+        socket.send(payload, target.port, target.address, () => {});
       }
     });
     await new Promise((resolve, reject) => {
@@ -104,4 +119,4 @@ class DiscoveryRelay {
   }
 }
 
-module.exports = { DiscoveryRelay, SERVICES, normalizedAddress };
+module.exports = { DiscoveryRelay, SERVICES, normalizedAddress, rewriteSsdpLocation };
