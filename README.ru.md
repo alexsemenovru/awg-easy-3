@@ -1,13 +1,15 @@
 # AWG-Easy 3
 
+[English](README.md) | [Русский](README.ru.md) | [فارسی](README.fa.md) | [Español](README.es.md) | [简体中文](README.zh-CN.md)
+
 Простая Docker-панель для **AmneziaWG 3.x**. Независимый некоммерческий форк [JohnnyVBut/awg-easy](https://github.com/JohnnyVBut/awg-easy), переписанный для чистой установки AWG 3.x.
 
-> Статус: prerelease-кандидат. Локальные тесты проходят, но реальная совместимость движка, AmneziaVPN Android и Home discovery должна быть подтверждена на отдельной VPS до первого релиза.
+> Статус: prerelease-кандидат. На отдельной VPS уже проверены AWG 3.1, Docker-развёртывание, импорт в AmneziaVPN Android, IPv4/IPv6, изоляция Home/Guest и отзыв удалённых профилей. Home discovery ещё требует полевого теста с двумя устройствами.
 
 ## Что уже реализовано
 
 - AWG 3.1 `HeaderProtectionKey`, `AdvancedSecurity`, новые timing/padding-поля, `RandomTrailers` и `DisableCookies`.
-- Основной импорт в AmneziaVPN через локально созданную ссылку `vpn://` и QR-код; `.conf` доступен дополнительно.
+- Основной импорт в AmneziaVPN через локально созданную ссылку `vpn://`; `.conf` доступен дополнительно.
 - Home/Guest для каждого клиента. Home видит панель и других Home peers, Guest получает только интернет.
 - Компактные full-tunnel профили для IPv4 и, когда VPS поддерживает его, IPv6.
 - AdGuard DNS по умолчанию: `94.140.14.14`, `94.140.15.15`, а при IPv6 также `2a10:50c0::ad1:ff`, `2a10:50c0::ad2:ff`.
@@ -42,7 +44,7 @@ sudo ./install.sh --host ПУБЛИЧНЫЙ_IP_ИЛИ_ДОМЕН --lang ru
 2. включит IPv4/IPv6 forwarding через `/etc/sysctl.d/99-awg-easy-3.conf`;
 3. соберёт закреплённый `linux/amd64` образ;
 4. создаст первый профиль Home;
-5. один раз покажет пароль, QR и `vpn://`;
+5. один раз покажет пароль и `vpn://`;
 6. запустит контейнер.
 
 Необязательные параметры позволяют избежать конфликтов с другой инфраструктурой:
@@ -81,7 +83,7 @@ docker compose exec awg-easy nft list table inet awg_easy_3
 - Обычные WireGuard-клиенты не поддерживают AWG 3.x.
 - Выборочная маршрутизация по GeoIP отложена до отдельного архитектурного решения: текущая версия всегда использует full tunnel.
 - mDNS/SSDP relay не открывает порты и не является UPnP IGD.
-- Реальная Docker-сборка и сетевые тесты отложены до появления тестовой VPS.
+- Home mDNS/SSDP discovery пока не проверен между двумя реальными устройствами.
 
 Архитектура и точные решения описаны в [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), продуктовая спецификация — в [docs/PRODUCT_SPEC.ru.md](docs/PRODUCT_SPEC.ru.md).
 
