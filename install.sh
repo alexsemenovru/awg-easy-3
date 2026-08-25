@@ -310,6 +310,28 @@ remove_existing_installation() {
   info "Stopping only the AWG-Easy 3 Compose service"
   docker compose --project-directory "$EXISTING_INSTALL_DIR" -f "$EXISTING_INSTALL_DIR/docker-compose.yml" down --remove-orphans
   if ip link show dev awg0 >/dev/null 2>&1; then
+    info "Removing the residual owned AWG interface"
+    ip link delete dev awg0 || die "failed to remove the owned AWG interface; settings were preserved"
+  fi
+  if nft list table inet awg_easy_3 >/dev/null 2>&1; then
+    info "Removing the residual owned nftables table"
+    nft delete table inet awg_easy_3 || die "failed to remove the owned nftables table; settings were preserved"
+  fi
+  for family in ip ip6; do
+    chain=$(nft -a list chain "$family" filter DOCKER-USER 2>/dev/null || true)
+    for marker in awg_easy_3_forward_v4 awg_easy_3_return_v4 awg_easy_3_forward_v6 awg_easy_3_return_v6; do
+      handles=$(printf '%s\n' "$chain" | awk -v marker="$marker" '
+        index($0, "comment \"" marker "\"") {
+          for (field = 1; field <= NF; field += 1) if ($field == "handle") print $(field + 1)
+        }
+      ')
+      for handle in $handles; do
+        nft delete rule "$family" filter DOCKER-USER handle "$handle" \
+          || die "failed to remove an owned Docker compatibility rule; settings were preserved"
+      done
+    done
+  done
+  if ip link show dev awg0 >/dev/null 2>&1; then
     die "AWG interface awg0 is still active; settings were preserved so it can be inspected safely"
   fi
   if nft list table inet awg_easy_3 >/dev/null 2>&1; then

@@ -77,7 +77,7 @@ test('installer can provision missing runtime dependencies without replacing for
   assert.match(installer, /the installer will not remove an existing container/);
   assert.match(installer, /the installer will not overwrite an unowned or stale table/);
   assert.doesNotMatch(installer, /docker (rm|stop|kill) /);
-  assert.doesNotMatch(installer, /nft (delete|flush) table/);
+  assert.doesNotMatch(installer, /nft (delete|flush) table (?!inet awg_easy_3)/);
 });
 
 test('installer suggests ports interactively but keeps explicit options strict', () => {
@@ -104,6 +104,12 @@ test('installer offers owned uninstall and clean reinstall without touching fore
   assert.match(installer, /rm -rf -- "\$EXISTING_INSTALL_DIR\/data"/);
   assert.match(installer, /rm -f -- \/etc\/sysctl\.d\/99-awg-easy-3\.conf/);
   assert.match(installer, /Host forwarding values were left unchanged/);
+  assert.match(installer, /ip link delete dev awg0/);
+  assert.match(installer, /nft delete table inet awg_easy_3/);
+  for (const marker of ['awg_easy_3_forward_v4', 'awg_easy_3_return_v4', 'awg_easy_3_forward_v6', 'awg_easy_3_return_v6']) {
+    assert.match(installer, new RegExp(marker));
+  }
+  assert.match(installer, /nft delete rule "\$family" filter DOCKER-USER handle/);
   assert.match(installer, /\/usr\/local\/sbin\/awg-easy-3/);
   assert.match(installer, /\/etc\/awg-easy-3-install-dir/);
   assert.match(installer, /install -m 0755 "\$SCRIPT_DIR\/awg-easy-3"/);
