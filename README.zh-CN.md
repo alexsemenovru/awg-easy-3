@@ -19,6 +19,12 @@
 - 不提供 2.x 迁移、备份恢复、用户角色或旧版 WireGuard 后端。
 - GeoIP 选择性路由推迟到具备合适的服务端设计之后。
 
+## 客户端应用
+
+请使用 **[AmneziaVPN 5.0.0.5 或更高版本](https://github.com/amnezia-vpn/amnezia-client/releases)** 导入 AWG-Easy 3 生成的配置。在 Android 上，请从 [Google Play 安装最新版 AmneziaVPN](https://play.google.com/store/apps/details?id=org.amnezia.vpn)。导入安装程序或面板显示的 `vpn://` 链接；需要时也可下载 `.conf` 文件。
+
+AWG 3.x 不向后兼容 AWG 2.x。普通 WireGuard 客户端以及独立的 AmneziaWG 应用目前不支持这些配置。AWG-Easy 3 与 AmneziaVPN 相互独立；此处仅将其列为已经验证的兼容客户端。
+
 ## 要求与安装
 
 需要原生 `amd64` Linux VPS、`/dev/net/tun`、root 权限、受支持的软件包管理器以及一个可用的入站 UDP 端口。FreeBSD、OpenBSD、NetBSD、macOS 和 WSL 会在安装软件包之前被拒绝。安装程序可按需从系统仓库安装 Docker Engine、Docker Compose v2、iproute2 和 nftables。

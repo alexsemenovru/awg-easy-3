@@ -23,6 +23,12 @@
   чужие правила не очищаются.
 - Чистая установка без миграций, backup/restore и legacy WireGuard backend.
 
+## Клиентское приложение
+
+Для профилей AWG-Easy 3 требуется **[AmneziaVPN версии 5.0.0.5 или новее](https://github.com/amnezia-vpn/amnezia-client/releases)**. На Android установите актуальное приложение [AmneziaVPN из Google Play](https://play.google.com/store/apps/details?id=org.amnezia.vpn). Импортируйте ссылку `vpn://`, которую показывает установщик или панель; при необходимости там же можно скачать файл `.conf`.
+
+AWG 3.x не имеет обратной совместимости с AWG 2.x. Обычные клиенты WireGuard и отдельное приложение AmneziaWG сейчас такие профили не поддерживают. AWG-Easy 3 не связан с AmneziaVPN: приложение указано только как проверенный совместимый клиент.
+
 ## Требования
 
 - Linux VPS, архитектура `amd64`/`x86_64`.

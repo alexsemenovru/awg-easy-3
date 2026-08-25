@@ -19,6 +19,12 @@
 - بدون مهاجرت از 2.x، پشتیبان‌گیری، نقش‌های کاربری یا WireGuard قدیمی.
 - مسیریابی انتخابی GeoIP تا طراحی مناسب سمت سرور به تعویق افتاده است.
 
+## برنامهٔ کلاینت
+
+برای ورود پروفایل‌های ساخته‌شده توسط AWG-Easy 3 از **[AmneziaVPN نسخهٔ 5.0.0.5 یا جدیدتر](https://github.com/amnezia-vpn/amnezia-client/releases)** استفاده کنید. در Android، نسخهٔ فعلی [AmneziaVPN را از Google Play](https://play.google.com/store/apps/details?id=org.amnezia.vpn) نصب کنید. پیوند `vpn://` نمایش‌داده‌شده توسط نصب‌کننده یا پنل را وارد کنید؛ در صورت نیاز فایل `.conf` نیز قابل دریافت است.
+
+AWG 3.x با AWG 2.x سازگاری معکوس ندارد. کلاینت‌های معمول WireGuard و برنامهٔ مستقل AmneziaWG در حال حاضر از این پروفایل‌ها پشتیبانی نمی‌کنند. AWG-Easy 3 مستقل از AmneziaVPN است و نام این برنامه فقط به‌عنوان کلاینت سازگارِ آزمایش‌شده ذکر شده است.
+
 ## نیازمندی و نصب
 
 یک VPS لینوکس بومی `amd64`، مسیر `/dev/net/tun`، دسترسی root، مدیر بستهٔ پشتیبانی‌شده و یک پورت UDP ورودی آزاد لازم است. FreeBSD، OpenBSD، NetBSD، macOS و WSL پیش از نصب بسته‌ها رد می‌شوند. نصب‌کننده در صورت نیاز Docker Engine، Docker Compose v2، iproute2 و nftables را از مخزنهای سیستم نصب می‌کند.

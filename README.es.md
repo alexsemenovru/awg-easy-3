@@ -19,6 +19,12 @@ Un panel Docker sencillo para **AmneziaWG 3.x**. Es un fork independiente y no c
 - Sin migración desde 2.x, copias de seguridad, roles ni backend WireGuard heredado.
 - El enrutamiento selectivo GeoIP queda aplazado hasta contar con un diseño del lado del servidor.
 
+## Aplicación cliente
+
+Use **[AmneziaVPN 5.0.0.5 o posterior](https://github.com/amnezia-vpn/amnezia-client/releases)** para importar los perfiles creados por AWG-Easy 3. En Android, instale la versión actual de [AmneziaVPN desde Google Play](https://play.google.com/store/apps/details?id=org.amnezia.vpn). Importe el enlace `vpn://` mostrado por el instalador o el panel; también puede descargar un archivo `.conf` cuando sea necesario.
+
+AWG 3.x no es compatible con AWG 2.x. Los clientes WireGuard convencionales y la aplicación AmneziaWG independiente no admiten actualmente estos perfiles. AWG-Easy 3 es independiente de AmneziaVPN; se menciona únicamente como cliente compatible verificado.
+
 ## Requisitos e instalación
 
 Se requiere un VPS Linux nativo `amd64`, `/dev/net/tun`, acceso root, un gestor de paquetes compatible y un puerto UDP entrante disponible. FreeBSD, OpenBSD, NetBSD, macOS y WSL se rechazan antes de instalar paquetes. El instalador puede instalar Docker Engine, Docker Compose v2, iproute2 y nftables desde los repositorios del sistema.
