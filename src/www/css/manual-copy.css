@@ -1,0 +1,24 @@
+.manual-copy {
+  display: grid;
+  gap: 8px;
+  text-align: left;
+}
+
+.manual-copy textarea {
+  width: 100%;
+  min-height: 86px;
+  padding: 11px 12px;
+  resize: vertical;
+  border: 1px solid #36a5ff;
+  border-radius: 10px;
+  outline: none;
+  background: #081523;
+  color: #fff;
+  font: inherit;
+  line-height: 1.35;
+}
+
+.manual-copy p {
+  font-size: .8rem;
+  line-height: 1.4;
+}

@@ -45,28 +45,11 @@
     }
   };
   const copyText = async (text) => {
-    if (navigator.clipboard?.writeText) {
-      try {
-        await navigator.clipboard.writeText(text);
-        return;
-      } catch {}
-    }
-    const activeElement = document.activeElement;
-    const textarea = document.createElement('textarea');
-    textarea.value = text;
-    textarea.readOnly = true;
-    textarea.setAttribute('aria-hidden', 'true');
-    textarea.style.cssText = 'position:fixed;inset:0 auto auto:-9999px;opacity:0;';
-    document.body.append(textarea);
-    textarea.focus();
-    textarea.select();
-    textarea.setSelectionRange(0, textarea.value.length);
-    let copied = false;
-    try { copied = document.execCommand('copy'); } finally {
-      textarea.remove();
-      activeElement?.focus?.();
-    }
-    if (!copied) throw new Error('clipboard copy was rejected');
+    if (!window.isSecureContext || !navigator.clipboard?.writeText) return false;
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch { return false; }
   };
   const formatRate = (bytesPerSecond) => {
     const bits = Math.max(0, Number(bytesPerSecond) || 0) * 8;
@@ -141,6 +124,8 @@
     selectedClient = client;
     $('#profile-title').textContent = client.name;
     $('#download-config').href = api.exportUrl(client.id, 'native-config');
+    $('#manual-copy').classList.add('hidden');
+    $('#profile-link').value = '';
     profileDialog.showModal();
   };
 
@@ -207,10 +192,16 @@
   $('#copy-profile').addEventListener('click', async () => {
     let link;
     try { link = await guarded(() => api.exportText(selectedClient.id, 'vpn-link')); } catch { return; }
-    try {
-      await copyText(link);
+    if (await copyText(link)) {
       showNotice(t('copied'));
-    } catch { showNotice(t('copyFailed'), true); }
+      return;
+    }
+    const field = $('#profile-link');
+    field.value = link;
+    $('#manual-copy').classList.remove('hidden');
+    field.focus();
+    field.select();
+    field.setSelectionRange(0, field.value.length);
   });
   $('#password-form').addEventListener('submit', async (event) => {
     event.preventDefault();

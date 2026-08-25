@@ -25,6 +25,7 @@ test('ships a self-contained UI with every required control', () => {
 });
 
 test('uses only the versioned API and contains no legacy endpoint calls', () => {
+  const html = fs.readFileSync(path.join(www, 'index.html'), 'utf8');
   const api = fs.readFileSync(path.join(www, 'js', 'api.js'), 'utf8');
   const app = fs.readFileSync(path.join(www, 'js', 'app.js'), 'utf8');
   const i18n = fs.readFileSync(path.join(www, 'js', 'i18n.js'), 'utf8');
@@ -38,8 +39,10 @@ test('uses only the versioned API and contains no legacy endpoint calls', () => 
   assert.match(i18n, /es:/);
   assert.match(i18n, /'zh-cn':/);
   assert.match(i18n, /language === 'fa' \? 'rtl'/);
+  assert.match(app, /window\.isSecureContext/);
   assert.match(app, /navigator\.clipboard\?\.writeText/);
-  assert.match(app, /document\.execCommand\('copy'\)/);
-  assert.match(app, /copyFailed/);
-  assert.match(i18n, /copyFailed:/);
+  assert.doesNotMatch(app, /document\.execCommand\('copy'\)/);
+  assert.match(app, /manual-copy/);
+  assert.match(html, /id="profile-link"/);
+  assert.match(i18n, /manualCopyHint:/);
 });
