@@ -11,7 +11,7 @@ test('ships a self-contained UI with every required control', () => {
   const html = fs.readFileSync(path.join(www, 'index.html'), 'utf8');
   for (const id of [
     'login-form', 'clients', 'show-create', 'client-group',
-    'profile-dialog', 'open-profile', 'download-config', 'password-form', 'delete-dialog',
+    'profile-dialog', 'share-profile', 'download-config', 'password-form', 'delete-dialog',
   ]) {
     assert.match(html, new RegExp(`id="${id}"`));
   }
@@ -43,6 +43,10 @@ test('uses only the versioned API and contains no legacy endpoint calls', () => 
   assert.match(app, /navigator\.clipboard\?\.writeText/);
   assert.doesNotMatch(app, /document\.execCommand\('copy'\)/);
   assert.match(app, /manual-copy/);
+  assert.match(app, /navigator\.share/);
+  assert.match(app, /navigator\.canShare/);
+  assert.match(app, /AbortError/);
+  assert.doesNotMatch(app, /window\.location\.href/);
   assert.match(html, /id="profile-link"/);
   assert.match(i18n, /manualCopyHint:/);
 });

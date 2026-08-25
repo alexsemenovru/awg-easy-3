@@ -51,6 +51,14 @@
       return true;
     } catch { return false; }
   };
+  const showManualLink = (link) => {
+    const field = $('#profile-link');
+    field.value = link;
+    $('#manual-copy').classList.remove('hidden');
+    field.focus();
+    field.select();
+    field.setSelectionRange(0, field.value.length);
+  };
   const formatRate = (bytesPerSecond) => {
     const bits = Math.max(0, Number(bytesPerSecond) || 0) * 8;
     if (bits >= 1e9) return `${(bits / 1e9).toFixed(1)} Gbit/s`;
@@ -186,8 +194,19 @@
       if (error.status === 409) showNotice(t('duplicateName'), true);
     }
   });
-  $('#open-profile').addEventListener('click', async () => {
-    try { window.location.href = await guarded(() => api.exportText(selectedClient.id, 'vpn-link')); } catch {}
+  $('#share-profile').addEventListener('click', async () => {
+    let link;
+    try { link = await guarded(() => api.exportText(selectedClient.id, 'vpn-link')); } catch { return; }
+    const shareData = { title: selectedClient.name, text: link };
+    if (navigator.share && (!navigator.canShare || navigator.canShare(shareData))) {
+      try {
+        await navigator.share(shareData);
+        return;
+      } catch (error) {
+        if (error?.name === 'AbortError') return;
+      }
+    }
+    showManualLink(link);
   });
   $('#copy-profile').addEventListener('click', async () => {
     let link;
@@ -196,12 +215,7 @@
       showNotice(t('copied'));
       return;
     }
-    const field = $('#profile-link');
-    field.value = link;
-    $('#manual-copy').classList.remove('hidden');
-    field.focus();
-    field.select();
-    field.setSelectionRange(0, field.value.length);
+    showManualLink(link);
   });
   $('#password-form').addEventListener('submit', async (event) => {
     event.preventDefault();
