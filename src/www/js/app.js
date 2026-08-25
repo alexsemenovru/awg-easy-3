@@ -44,13 +44,6 @@
       throw error;
     }
   };
-  const copyText = async (text) => {
-    if (!window.isSecureContext || !navigator.clipboard?.writeText) return false;
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch { return false; }
-  };
   const showManualLink = (link) => {
     const field = $('#profile-link');
     field.value = link;
@@ -194,27 +187,9 @@
       if (error.status === 409) showNotice(t('duplicateName'), true);
     }
   });
-  $('#share-profile').addEventListener('click', async () => {
+  $('#show-profile-link').addEventListener('click', async () => {
     let link;
     try { link = await guarded(() => api.exportText(selectedClient.id, 'vpn-link')); } catch { return; }
-    const shareData = { title: selectedClient.name, text: link };
-    if (navigator.share && (!navigator.canShare || navigator.canShare(shareData))) {
-      try {
-        await navigator.share(shareData);
-        return;
-      } catch (error) {
-        if (error?.name === 'AbortError') return;
-      }
-    }
-    showManualLink(link);
-  });
-  $('#copy-profile').addEventListener('click', async () => {
-    let link;
-    try { link = await guarded(() => api.exportText(selectedClient.id, 'vpn-link')); } catch { return; }
-    if (await copyText(link)) {
-      showNotice(t('copied'));
-      return;
-    }
     showManualLink(link);
   });
   $('#password-form').addEventListener('submit', async (event) => {

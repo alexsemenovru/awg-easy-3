@@ -23,7 +23,7 @@ const loadI18n = () => {
 test('provides every interface string in all supported languages', () => {
   const markupKeys = [...html.matchAll(/data-i18n(?:-placeholder|-label|-alt)?="([^"]+)"/g)]
     .map((match) => match[1]);
-  const dynamicKeys = ['disabled', 'deleted', 'copied', 'deleteConfirm', 'deletingClient',
+  const dynamicKeys = ['disabled', 'deleted', 'deleteConfirm', 'deletingClient',
     'deletedConnectionLost', 'duplicateName', 'passwordChanged', 'httpError'];
   const keys = [...new Set([...markupKeys, ...dynamicKeys])];
   const { i18n } = loadI18n();
