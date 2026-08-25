@@ -18,6 +18,12 @@ test('ships a self-contained UI with every required control', () => {
   assert.doesNotMatch(html, /(?:src|href)="https?:\/\//i);
   assert.match(html, /\/js\/app\.js\?v=[0-9-]+/);
   assert.match(html, /\/js\/i18n\.js\?v=[0-9-]+/);
+  assert.match(html, /\/img\/logo\.png\?v=[0-9-]+/);
+  assert.match(html, /rel="apple-touch-icon"/);
+  assert.doesNotMatch(html, /logo\.svg/);
+  assert.ok(fs.existsSync(path.join(www, 'img', 'logo.png')));
+  assert.ok(fs.existsSync(path.join(www, 'img', 'favicon.ico')));
+  assert.ok(fs.existsSync(path.join(www, 'img', 'apple-touch-icon.png')));
   assert.doesNotMatch(html, /backup|restore|expire|wireguard/i);
   assert.match(html, /Home/);
   assert.match(html, /Guest/);
