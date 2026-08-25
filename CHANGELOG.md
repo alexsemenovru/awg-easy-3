@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.1 — 2026-08-25
+
+- Replaced inherited Amnezia artwork with an original AWG-Easy 3 emblem.
+- Updated the panel header, favicon, Apple touch icon, web manifest and project screenshot.
+- Renamed the installed web application in the manifest from AmneziaWG to AWG-Easy 3.
+
 ## v0.1.0 — 2026-08-25
 
 Initial public release of AWG-Easy 3:

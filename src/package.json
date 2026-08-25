@@ -1,6 +1,6 @@
 {
   "name": "awg-easy-3",
-  "version": "0.1.0-dev",
+  "version": "0.1.1",
   "description": "A simple self-hosted web panel for AmneziaWG 3.x.",
   "main": "server.js",
   "scripts": {

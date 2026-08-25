@@ -1,7 +1,9 @@
 {
-  "name": "AmneziaWG",
+  "name": "AWG-Easy 3",
+  "short_name": "AWG-Easy 3",
   "display": "standalone",
-  "background_color": "#fff",
+  "background_color": "#061426",
+  "theme_color": "#061426",
   "icons": [
     {
       "src": "img/favicon.ico",
