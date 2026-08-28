@@ -15,9 +15,15 @@ test('ships a self-contained UI with every required control', () => {
   ]) {
     assert.match(html, new RegExp(`id="${id}"`));
   }
-  assert.doesNotMatch(html, /(?:src|href)="https?:\/\//i);
+  const externalUrls = [...html.matchAll(/(?:src|href)="(https?:\/\/[^\"]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(externalUrls, ['https://github.com/alexsemenovru']);
+  assert.match(html, /<footer class="credits"><a href="https:\/\/github\.com\/alexsemenovru" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" dir="ltr">alexsemenovru<\/a><\/footer>/);
   assert.match(html, /\/js\/app\.js\?v=[0-9-]+/);
   assert.match(html, /\/js\/i18n\.js\?v=[0-9-]+/);
+  assert.match(html, /\/js\/diagnostics\.js\?v=[0-9-]+/);
+  assert.ok(html.indexOf('/js/diagnostics.js') < html.indexOf('/js/app.js'));
+  assert.match(html, /data-i18n="diagnosticsHint"/);
+  assert.match(html, /class="diag-window"/);
   assert.match(html, /\/img\/logo\.png\?v=[0-9-]+/);
   assert.match(html, /rel="apple-touch-icon"/);
   assert.doesNotMatch(html, /logo\.svg/);

@@ -27,10 +27,11 @@ test('computes current upload and download rates from counter deltas', async () 
     }) },
     runner: async () => ({ stdout: output }),
     now: () => measuredAt,
+    monotonicNow: () => measuredAt,
   });
   assert.deepEqual(await diagnostics.snapshot(), [{
-    id: 'phone', state: 'online', downloadBps: 0, uploadBps: 0,
-    handshakeAgeSeconds: 10, lastHandshakeAt: '2023-11-14T22:13:20.000Z',
+    id: 'phone', state: 'online', downloadBps: null, uploadBps: null, sampleIntervalSeconds: null,
+      handshakeAgeSeconds: 10, lastHandshakeAt: '2023-11-14T22:13:20.000Z',
     endpoint: '203.0.113.7:54321', mtu: 1280, persistentKeepalive: '25-35',
   }]);
   measuredAt += 4_000;

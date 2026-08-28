@@ -21,7 +21,9 @@ window.awgI18n = (() => {
       deletingClient: 'Deleting client…', deletedConnectionLost: 'The request was sent. The panel disconnected because this device was using the deleted profile.', duplicateName: 'A client with this name already exists.',
       passwordChanged: 'Password changed. All previous sessions ended — sign in again.', httpError: 'HTTP error {status}',
       checking: 'Checking…', diagnostics: 'Diagnostics', lastHandshake: 'Last handshake', endpoint: 'Endpoint',
-      online: 'Online', offline: 'Offline', never: 'Never', secondsAgo: '{count} s ago', minutesAgo: '{count} min ago',
+      online: 'Recent connection', offline: 'No recent connection', never: 'Never', secondsAgo: '{count} s ago', minutesAgo: '{count} min ago',
+      measuring: 'Measuring…', diagnosticsUnavailable: 'Data unavailable', sampleWindow: 'Rate sample interval', sampleSeconds: '{count} s',
+      diagnosticsHint: 'Recent connection means a handshake within 150 seconds, not guaranteed current connectivity. Rates are interval averages in bits/s: ↓ sent to the client, ↑ received from the client. Server counters can include service traffic; sending does not confirm delivery.',
     },
     ru: {
       tagline: 'Простая панель для AmneziaWG 3.x', logout: 'Выйти', loginTitle: 'Вход в панель',
@@ -42,7 +44,9 @@ window.awgI18n = (() => {
       deletingClient: 'Удаление клиента…', deletedConnectionLost: 'Запрос отправлен. Панель отключилась, потому что это устройство использовало удалённый профиль.', duplicateName: 'Клиент с таким названием уже существует.',
       passwordChanged: 'Пароль изменён. Все старые сессии завершены — войдите снова.', httpError: 'Ошибка HTTP {status}',
       checking: 'Проверка…', diagnostics: 'Диагностика', lastHandshake: 'Последний handshake', endpoint: 'Внешний адрес',
-      online: 'В сети', offline: 'Нет связи', never: 'Никогда', secondsAgo: '{count} с назад', minutesAgo: '{count} мин назад',
+      online: 'Недавняя связь', offline: 'Связь не подтверждена', never: 'Никогда', secondsAgo: '{count} с назад', minutesAgo: '{count} мин назад',
+      measuring: 'Измерение…', diagnosticsUnavailable: 'Данные недоступны', sampleWindow: 'Интервал замера скорости', sampleSeconds: '{count} с',
+      diagnosticsHint: 'Недавняя связь — handshake за последние 150 секунд, а не гарантия текущего подключения. Скорость — средняя за интервал, в бит/с: ↓ отправлено клиенту, ↑ получено от него. Счётчики сервера могут включать служебный трафик; отправка не подтверждает доставку.',
     },
     es: {
       tagline: 'Panel sencillo para AmneziaWG 3.x', logout: 'Cerrar sesión', loginTitle: 'Acceso al panel',
@@ -62,7 +66,9 @@ window.awgI18n = (() => {
       deleteTitle: '¿Eliminar cliente?', cancel: 'Cancelar', deleteDisconnectHint: 'Si este dispositivo usa ahora ese perfil, el panel se desconectará al eliminarlo.', deletingClient: 'Eliminando cliente…', deletedConnectionLost: 'La solicitud fue enviada. El panel se desconectó porque este dispositivo usaba el perfil eliminado.', duplicateName: 'Ya existe un cliente con este nombre.',
       passwordChanged: 'Contraseña cambiada. Todas las sesiones anteriores finalizaron; vuelve a entrar.', httpError: 'Error HTTP {status}',
       checking: 'Comprobando…', diagnostics: 'Diagnóstico', lastHandshake: 'Último handshake', endpoint: 'Dirección externa',
-      online: 'En línea', offline: 'Sin conexión', never: 'Nunca', secondsAgo: 'hace {count} s', minutesAgo: 'hace {count} min',
+      online: 'Conexión reciente', offline: 'Sin conexión reciente', never: 'Nunca', secondsAgo: 'hace {count} s', minutesAgo: 'hace {count} min',
+      measuring: 'Midiendo…', diagnosticsUnavailable: 'Datos no disponibles', sampleWindow: 'Intervalo de medición', sampleSeconds: '{count} s',
+      diagnosticsHint: 'Conexión reciente indica un handshake en los últimos 150 segundos, no garantiza conexión actual. Las velocidades son promedios del intervalo en bits/s: ↓ enviado al cliente, ↑ recibido del cliente. Los contadores pueden incluir tráfico de control; enviar no confirma la entrega.',
     },
     'zh-cn': {
       tagline: '简洁的 AmneziaWG 3.x 管理面板', logout: '退出登录', loginTitle: '登录面板',
@@ -82,7 +88,9 @@ window.awgI18n = (() => {
       deleteTitle: '删除客户端？', cancel: '取消', deleteDisconnectHint: '如果此设备正在使用该配置，删除成功后面板会立即断开。', deletingClient: '正在删除客户端…', deletedConnectionLost: '请求已发送。由于此设备使用了被删除的配置，面板已断开。', duplicateName: '已存在同名客户端。',
       passwordChanged: '密码已更改。所有旧会话均已结束，请重新登录。', httpError: 'HTTP 错误 {status}',
       checking: '正在检查…', diagnostics: '诊断', lastHandshake: '最近握手', endpoint: '外部地址',
-      online: '在线', offline: '离线', never: '从未', secondsAgo: '{count} 秒前', minutesAgo: '{count} 分钟前',
+      online: '近期连接', offline: '近期无连接', never: '从未', secondsAgo: '{count} 秒前', minutesAgo: '{count} 分钟前',
+      measuring: '测量中…', diagnosticsUnavailable: '数据不可用', sampleWindow: '速率采样间隔', sampleSeconds: '{count} 秒',
+      diagnosticsHint: '近期连接表示过去 150 秒内有握手，不保证设备当前在线。速率为采样间隔内的平均值，单位为比特/秒：↓ 发送至客户端，↑ 从客户端接收。服务器计数可能包含控制流量；发送不代表已送达。',
     },
     fa: {
       tagline: 'پنل ساده برای AmneziaWG 3.x', logout: 'خروج', loginTitle: 'ورود به پنل',
@@ -102,7 +110,9 @@ window.awgI18n = (() => {
       deleteTitle: 'کاربر حذف شود؟', cancel: 'لغو', deleteDisconnectHint: 'اگر این دستگاه اکنون از همان پروفایل استفاده کند، پس از حذف پنل قطع می‌شود.', deletingClient: 'در حال حذف کاربر…', deletedConnectionLost: 'درخواست ارسال شد. پنل به‌دلیل استفادهٔ این دستگاه از پروفایل حذف‌شده قطع شد.', duplicateName: 'کاربری با این نام وجود دارد.',
       passwordChanged: 'رمز عبور تغییر کرد. همهٔ نشست‌های قبلی پایان یافتند؛ دوباره وارد شوید.', httpError: 'خطای HTTP {status}',
       checking: 'در حال بررسی…', diagnostics: 'عیب‌یابی', lastHandshake: 'آخرین handshake', endpoint: 'نشانی بیرونی',
-      online: 'آنلاین', offline: 'آفلاین', never: 'هرگز', secondsAgo: '{count} ثانیه پیش', minutesAgo: '{count} دقیقه پیش',
+      online: 'اتصال اخیر', offline: 'بدون اتصال اخیر', never: 'هرگز', secondsAgo: '{count} ثانیه پیش', minutesAgo: '{count} دقیقه پیش',
+      measuring: 'در حال اندازه‌گیری…', diagnosticsUnavailable: 'داده در دسترس نیست', sampleWindow: 'بازهٔ اندازه‌گیری سرعت', sampleSeconds: '{count} ثانیه',
+      diagnosticsHint: 'اتصال اخیر یعنی handshake در ۱۵۰ ثانیهٔ گذشته؛ اتصال فعلی را تضمین نمی‌کند. سرعت‌ها میانگین بازه و برحسب بیت بر ثانیه‌اند: ↓ ارسال به کاربر، ↑ دریافت از کاربر. شمارنده‌ها ممکن است ترافیک کنترلی را هم شامل شوند؛ ارسال به معنی تحویل نیست.',
     },
   };
   let language = 'en';

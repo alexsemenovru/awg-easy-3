@@ -18,7 +18,8 @@
   let clients = [];
   let selectedClient;
   let pendingDelete;
-  let diagnosticsTimer;
+  let lastDiagnostics = [];
+  const { formatRate, createPoller } = window.awgDiagnostics;
 
   const savedLanguage = localStorage.getItem('awg-easy-language');
   if (supportedLanguages.includes(savedLanguage)) {
@@ -32,10 +33,13 @@
     clearTimeout(showNotice.timer);
     if (timeout) showNotice.timer = setTimeout(() => notice.classList.add('hidden'), timeout);
   };
-  const showLogin = () => { loginView.classList.remove('hidden'); appView.classList.add('hidden'); logout.classList.add('hidden'); };
+  const showLogin = () => {
+    diagnosticsPoller.stop();
+    lastDiagnostics = [];
+    loginView.classList.remove('hidden'); appView.classList.add('hidden'); logout.classList.add('hidden');
+  };
   const showApp = () => {
     loginView.classList.add('hidden'); appView.classList.remove('hidden'); logout.classList.remove('hidden');
-    startDiagnostics();
   };
   const guarded = async (action) => {
     try { return await action(); } catch (error) {
@@ -52,13 +56,6 @@
     field.select();
     field.setSelectionRange(0, field.value.length);
   };
-  const formatRate = (bytesPerSecond) => {
-    const bits = Math.max(0, Number(bytesPerSecond) || 0) * 8;
-    if (bits >= 1e9) return `${(bits / 1e9).toFixed(1)} Gbit/s`;
-    if (bits >= 1e6) return `${(bits / 1e6).toFixed(1)} Mbit/s`;
-    if (bits >= 1e3) return `${(bits / 1e3).toFixed(0)} Kbit/s`;
-    return `${Math.round(bits)} bit/s`;
-  };
   const formatHandshake = (seconds) => {
     if (seconds === null || seconds === undefined) return t('never');
     if (seconds < 60) return t('secondsAgo', { count: seconds });
@@ -69,24 +66,47 @@
     if (!node) return;
     const line = node.querySelector('.live-line');
     line.className = `live-line ${item.state}`;
+    node.querySelector('.live-state').dataset.i18n = item.state;
     node.querySelector('.live-state').textContent = t(item.state);
-    node.querySelector('.live-rates').textContent = item.state === 'online'
-      ? `↓ ${formatRate(item.downloadBps)} · ↑ ${formatRate(item.uploadBps)}` : '';
+    node.querySelector('.live-rates').textContent = item.state === 'disabled' ? ''
+      : (item.downloadBps === null || item.uploadBps === null ? t('measuring')
+        : `↓ ${formatRate(item.downloadBps)} · ↑ ${formatRate(item.uploadBps)}`);
     node.querySelector('.diag-handshake').textContent = formatHandshake(item.handshakeAgeSeconds);
     node.querySelector('.diag-endpoint').textContent = item.endpoint || '—';
     node.querySelector('.diag-mtu').textContent = item.mtu;
     node.querySelector('.diag-keepalive').textContent = `${item.persistentKeepalive} s`;
+    node.querySelector('.diag-window').textContent = item.sampleIntervalSeconds == null ? '—'
+      : t('sampleSeconds', { count: item.sampleIntervalSeconds.toFixed(1) });
   };
-  const refreshDiagnostics = async () => {
-    if (appView.classList.contains('hidden')) return;
-    try { (await api.diagnostics()).forEach(paintDiagnostics); }
-    catch (error) { if (error.status === 401) showLogin(); }
+  const clearDiagnostics = (key = 'diagnosticsUnavailable') => {
+    lastDiagnostics = [];
+    clientsNode.querySelectorAll('.client-card').forEach((node) => {
+      node.querySelector('.live-line').className = 'live-line unavailable';
+      const state = node.querySelector('.live-state');
+      state.dataset.i18n = key;
+      state.textContent = t(key);
+      node.querySelector('.live-rates').textContent = '';
+      node.querySelectorAll('.diagnostics dd').forEach((field) => { field.textContent = '—'; });
+    });
   };
+  const diagnosticsPoller = createPoller({
+    load: (signal) => api.diagnostics(signal),
+    onData: (items) => {
+      if (!Array.isArray(items)) throw new Error('Invalid diagnostics response');
+      clearDiagnostics();
+      lastDiagnostics = items;
+      items.forEach(paintDiagnostics);
+    },
+    onError: (error) => { clearDiagnostics(); if (error.status === 401) showLogin(); },
+  });
   function startDiagnostics() {
-    clearInterval(diagnosticsTimer);
-    refreshDiagnostics();
-    diagnosticsTimer = setInterval(refreshDiagnostics, 4000);
+    if (!appView.classList.contains('hidden') && !document.hidden) diagnosticsPoller.start();
   }
+  document.addEventListener('visibilitychange', () => {
+    diagnosticsPoller.stop();
+    clearDiagnostics('checking');
+    startDiagnostics();
+  });
   const update = async (client, changes, input) => {
     input.disabled = true;
     try { await guarded(() => api.updateClient(client.id, changes)); await loadClients(); }
@@ -118,8 +138,11 @@
     return node;
   };
   const loadClients = async () => {
+    diagnosticsPoller.stop();
+    clearDiagnostics('checking');
     clients = await guarded(() => api.clients());
     clientsNode.replaceChildren(...clients.map(renderClient));
+    startDiagnostics();
   };
   const openProfile = (client) => {
     selectedClient = client;
@@ -144,7 +167,7 @@
   languageSelect.addEventListener('change', () => {
     i18n.setLanguage(languageSelect.value);
     localStorage.setItem('awg-easy-language', languageSelect.value);
-    refreshDiagnostics();
+    lastDiagnostics.forEach(paintDiagnostics);
   });
   $('#show-create').addEventListener('click', () => createDialog.showModal());
   document.querySelectorAll('.close-dialog').forEach((button) => button.addEventListener('click', () => button.closest('dialog').close()));

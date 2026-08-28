@@ -10,7 +10,7 @@ Un panel Docker sencillo para **AmneziaWG 3.x**. Es un fork independiente y no c
 
 - Perfiles AWG 3.1 importados mediante enlaces `vpn://` y descarga opcional `.conf`.
 - Modo Home con acceso al panel y a otros clientes Home; modo Guest con acceso únicamente a Internet.
-- Estado en línea, velocidad actual de recepción/transmisión, handshake y endpoint, sin historial de tráfico.
+- Estado de handshake reciente, velocidades medias por intervalo, handshake y endpoint, sin historial de tráfico.
 - DNS AdGuard predeterminado: `94.140.14.14`, `94.140.15.15`, `2a10:50c0::ad1:ff` y `2a10:50c0::ad2:ff`.
 - IPv6 automático mediante ULA y NAT66 limitado cuando el VPS dispone de IPv6.
 - Descubrimiento mDNS y UPnP/SSDP solo para Home. UPnP IGD, NAT-PMP, PCP y cualquier apertura automática de puertos no se admiten de forma intencionada. La visibilidad depende de que la aplicación cliente admita multicast en la interfaz VPN.
@@ -18,6 +18,10 @@ Un panel Docker sencillo para **AmneziaWG 3.x**. Es un fork independiente y no c
 - Tabla nftables dedicada y reglas `awg0` limitadas; no se limpia la configuración ajena.
 - Sin migración desde 2.x, copias de seguridad, roles ni backend WireGuard heredado.
 - El enrutamiento selectivo GeoIP queda aplazado hasta contar con un diseño del lado del servidor.
+
+## Diagnóstico de conexión
+
+«Conexión reciente» indica un handshake en los últimos 150 segundos, no garantiza que el dispositivo siga conectado. Las velocidades son promedios por intervalo en bits/s: ↓ enviado al cliente, ↑ recibido del cliente. Los contadores pueden incluir tráfico de control; enviar no confirma la entrega. La primera muestra indica «Midiendo…»; un error o timeout muestra datos no disponibles, no velocidades antiguas. El intervalo real se muestra en los detalles de diagnóstico.
 
 ## Aplicación cliente
 
@@ -35,7 +39,9 @@ cd awg-easy-3
 sudo ./install.sh --host IP_PUBLICA_O_DOMINIO --lang es
 ```
 
-También puede usar `--port`, `--panel-port` y `--lang en|ru|fa|es|zh-cn`. Si un puerto predeterminado está ocupado, el modo interactivo propone el siguiente libre; un puerto indicado explícitamente produce un error y nunca se cambia en silencio. Se admiten APT, DNF, YUM, Zypper, Pacman y APK. En NixOS, el instalador muestra un módulo declarativo y una orden `nixos-rebuild` limitada a un solo trabajo, sin editar automáticamente `configuration.nix`. El puerto del panel permanece privado aunque se cambie. El instalador muestra una vez la contraseña y el primer enlace Home. Importe el enlace en AmneziaVPN y abra `http://10.8.0.1:51821`.
+Sin `--port` ni `AWG_PORT`, una instalación limpia elige un puerto UDP libre y aleatorio entre **20000–60000**, excluyendo el antiguo `51820`. Comprueba sockets del sistema y puertos publicados por Docker, muestra el puerto elegido y lo incluye en los perfiles. Autorícelo en el firewall del VPS/proveedor. Las actualizaciones conservan el puerto guardado; una reinstalación limpia vuelve a elegirlo salvo que se indique explícitamente. Esto no garantiza evitar la detección de VPN o el bloqueo de IP.
+
+También puede usar `--port`, `--panel-port` y `--lang en|ru|fa|es|zh-cn`. Si el puerto TCP predeterminado del panel está ocupado, el modo interactivo propone el siguiente libre; un puerto indicado explícitamente produce un error y nunca se cambia en silencio. Se admiten APT, DNF, YUM, Zypper, Pacman y APK. En NixOS, el instalador muestra un módulo declarativo y una orden `nixos-rebuild` limitada a un solo trabajo, sin editar automáticamente `configuration.nix`. El puerto del panel permanece privado aunque se cambie. El instalador muestra una vez la contraseña y el primer enlace Home. Importe el enlace en AmneziaVPN y abra `http://10.8.0.1:51821`.
 
 Al volver a ejecutarlo de forma interactiva, el instalador detecta la instalación existente y permite conservarla, desinstalarla o reinstalarla desde cero. Las dos últimas opciones requieren confirmación y eliminan permanentemente todos los clientes, claves, contraseñas y ajustes de AWG-Easy 3. Para automatización existen `--uninstall` y `--reinstall`. Solo se eliminan el servicio Compose del proyecto, sus datos y su archivo sysctl; Docker, contenedores, imágenes, redes y reglas ajenas, así como los valores actuales de forwarding, no se modifican.
 

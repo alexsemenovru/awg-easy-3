@@ -24,7 +24,7 @@ AWG-Easy 3 management commands:
   awg-easy-3 stop            Stop the panel and VPN cleanly
   awg-easy-3 restart         Restart the panel and VPN
   awg-easy-3 status          Show container and network status
-  awg-easy-3 settings        Show non-secret runtime settings
+  awg-easy-3 settings        Show non-secret saved settings
   awg-easy-3 logs            Follow panel logs
   awg-easy-3 diagnose        Show status and recent logs
   awg-easy-3 update          Pull project and pinned image updates
@@ -49,8 +49,9 @@ case "$command" in
     if nft list table inet awg_easy_3 >/dev/null 2>&1; then printf 'nftables policy: active\n'; else printf 'nftables policy: inactive\n'; fi
     ;;
   settings)
-    docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' awg-easy-3 2>/dev/null \
-      | grep -E '^AWG_(HOST|PORT|PANEL_PORT|LANG)=' || die "AWG-Easy 3 container is unavailable"
+    # State, not initialization-time environment, is authoritative after updates.
+    # One-shot read also works while the VPN container is deliberately stopped.
+    compose run --rm --no-deps -T awg-easy settings
     ;;
   logs) compose logs --tail=100 -f awg-easy ;;
   diagnose)
