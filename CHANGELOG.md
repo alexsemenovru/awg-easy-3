@@ -8,6 +8,7 @@
 - Clean installs select a free random UDP port in 20000-60000, excluding 51820. Explicit and saved ports stay unchanged. Checks include Docker-published ports without a listening proxy.
 - The settings command reads saved non-secret parameters instead of stale container environment values, without starting the VPN.
 - Added a discreet GitHub credit link for alexsemenovru, without external resources or referrer disclosure.
+- **Protection against devils** («Защита от чертей» / «Protección contra demonios» / «محافظت در برابر شیاطین» / «抵御恶魔»): added the approved original SVG mark and static Pride-colour background. The header mark is inline SVG; favicon and platform icons use standards-compatible files. This is a visual statement, not a technical access-control mechanism.
 
 Not released or VPS-validated yet. The pinned image stays at 0.1.1 until a matching candidate is built and tested. The old image does not contain the new panel or settings command.
 
