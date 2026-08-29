@@ -56,6 +56,24 @@ instances. The installer does not patch `configuration.nix` automatically.
 The Web UI listens inside the container/network namespace but has no public
 host port mapping. nftables permits it from home peer addresses only.
 
+## Stable update lifecycle
+
+New installations register one delayed update check after each OS boot using
+the host's existing systemd or OpenRC mechanism. It is enabled by default but
+can be removed and recreated explicitly; no cron entry, updater container or
+additional permanent daemon is introduced. Unsupported init systems keep the
+same manual stable updater without acquiring a new init framework.
+
+Updates trust only exact stable semantic-version tags from the canonical
+repository. Before changing the checkout, the updater requires clean tracked
+files, validates release and state-schema metadata, checks fast-forward
+ancestry, extracts the full candidate and pulls its matching pinned image.
+State data and untracked local files are not replaced. An atomic PID lock
+serializes manual/boot updates with uninstall and reinstall. The boot path
+skips an intentionally stopped service. After replacement, container health
+must pass; otherwise the checkout, management command and container are rolled
+back to the previous commit and cached image.
+
 ## AWG 3.x configuration surface
 
 Official AWG 3.x tools currently expose the existing obfuscation fields plus:

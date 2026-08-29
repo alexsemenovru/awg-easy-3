@@ -21,6 +21,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Verify stable release metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(tr -d '\r\n' < VERSION)"
+          state_version="$(tr -d '\r\n' < STATE_VERSION)"
+          test "$GITHUB_REF_TYPE" = tag
+          test "$GITHUB_REF_NAME" = "v$version"
+          test "$(node -p "require('./src/package.json').version")" = "$version"
+          grep -Fq "ghcr.io/alexsemenovru/awg-easy-3:$version" docker-compose.yml
+          grep -Fq "const STATE_VERSION = $state_version;" src/lib/StateStore.js
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 

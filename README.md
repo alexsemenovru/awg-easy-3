@@ -57,6 +57,8 @@ When run again in an interactive terminal, the installer detects its existing in
 
 After installation, run `sudo awg-easy-3` from any directory to open the same management menu. `sudo awg-easy-3 --uninstall` and `sudo awg-easy-3 --reinstall` are also available without locating the project directory.
 
-Common commands include `sudo awg-easy-3 start|stop|restart|status|settings|logs|diagnose|update`, plus `reset-password`, `export-client NAME`, `uninstall`, and `reinstall`. Run `sudo awg-easy-3 help` for the complete built-in reference.
+On systemd and OpenRC installations, the installer enables one stable-release check after each OS boot without asking a question. It waits five minutes, uses no cron job or additional permanent daemon, ignores prereleases and does nothing when the current release is already current or the panel was deliberately stopped. A candidate image is downloaded and validated before replacement; clients, keys, password, ports and settings are retained. A download failure leaves the running version untouched, while a failed container health check restores the previous release. Systems without a supported native boot hook retain manual updates.
+
+Common commands include `sudo awg-easy-3 start|stop|restart|status|settings|logs|diagnose|update`, plus `reset-password`, `export-client NAME`, `uninstall`, and `reinstall`. Manage the boot check with `sudo awg-easy-3 auto-update status|enable|disable|run`; in particular, `sudo awg-easy-3 auto-update disable` turns the default on-boot check off. Run `sudo awg-easy-3 help` for the complete built-in reference.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for design notes and [NOTICE](NOTICE) for attribution.

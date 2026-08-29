@@ -45,6 +45,8 @@ sudo ./install.sh --host 公网IP或域名 --lang zh-cn
 
 在交互式终端中再次运行时，安装程序会检测现有安装，并提供保留、完全卸载或从零重新安装三个选项。后两项需要确认，并会永久删除 AWG-Easy 3 的所有客户端、密钥、密码和设置。自动化环境可使用 `--uninstall` 或 `--reinstall`。卸载只停止本项目的 Compose 服务并删除其数据和专用 sysctl 文件；Docker、其他容器、镜像、网络、防火墙规则以及主机当前的转发值均不会被修改。
 
+在 systemd 和 OpenRC 系统上，安装程序不会询问，而是默认启用“每次系统启动五分钟后检查一次稳定版本”。它不会安装 cron、额外容器或常驻守护进程。预发布版本会被忽略；当前版本已是最新或面板被有意停止时，不会执行替换。候选镜像会在替换前完整下载并验证，客户端、密钥、密码、端口和设置均会保留。网络失败不会改动工作版本，容器健康检查失败则会恢复上一版本。其他 init 系统仍可使用安全的手动更新。
+
 ## 本地管理
 
 ```bash
@@ -55,6 +57,6 @@ sudo awg-easy-3 reset-password
 sudo awg-easy-3 export-client "Home admin"
 ```
 
-还可从任意目录使用 `start`、`stop`、`restart`、`settings`、`logs`、`diagnose`、`uninstall` 和 `reinstall`。
+还可从任意目录使用 `start`、`stop`、`restart`、`settings`、`logs`、`diagnose`、`uninstall` 和 `reinstall`。使用 `sudo awg-easy-3 auto-update status|enable|disable|run` 管理启动后检查；若要关闭默认启用的功能，请运行 `sudo awg-easy-3 auto-update disable`。
 
 继承并改编的材料按 **CC BY-NC-SA 4.0** 发布。请参阅 [LICENSE](LICENSE)、[NOTICE](NOTICE) 和 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。本项目与 AmneziaVPN 没有关联，也未获其官方认可。

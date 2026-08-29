@@ -65,6 +65,9 @@ case "$(uname -m)" in x86_64|amd64) ;; *) die "only linux/amd64 is supported in 
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$SCRIPT_DIR"
+[ -r "$SCRIPT_DIR/lib/auto-update.sh" ] || die "installer auto-update support is missing"
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/lib/auto-update.sh"
 EXISTING_INSTALL_DIR=""
 
 detect_existing_installation() {
@@ -310,6 +313,14 @@ has_command nft || die "nftables installation did not provide the nft command"
 
 remove_existing_installation() {
   confirm_data_removal || die "removal cancelled; the existing installation was left unchanged"
+  if ! awg_easy_acquire_update_lock; then
+    die "an AWG-Easy 3 update is running; wait for it to finish before removing the installation"
+  fi
+  AWG_EASY_UPDATE_STAGE=
+  trap awg_easy_update_cleanup 0
+  trap 'awg_easy_update_cleanup; exit 1' HUP INT TERM
+  info "Disabling the AWG-Easy 3 automatic update hook"
+  awg_easy_auto_update_disable
   info "Stopping only the AWG-Easy 3 Compose service"
   docker compose --project-directory "$EXISTING_INSTALL_DIR" -f "$EXISTING_INSTALL_DIR/docker-compose.yml" down --remove-orphans
   if ip link show dev awg0 >/dev/null 2>&1; then
@@ -544,7 +555,20 @@ docker compose run --rm --no-deps \
 
 info "Starting AWG-Easy 3"
 docker compose up -d awg-easy
+awg_easy_wait_healthy || die "AWG-Easy 3 did not become healthy; automatic updates were not enabled"
 install_management_command
+
+info "Enabling the stable update check after OS boot"
+if awg_easy_auto_update_enable; then
+  :
+else
+  auto_update_status=$?
+  if [ "$auto_update_status" -eq 2 ]; then
+    printf 'The panel is installed, but this init system has no supported automatic-update hook.\n' >&2
+  else
+    die "the panel is installed, but its automatic-update hook could not be enabled"
+  fi
+fi
 
 printf '\nInstallation complete.\n'
 printf 'AWG endpoint: %s:%s/udp\n' "$AWG_HOST_VALUE" "$AWG_PORT_VALUE"
@@ -552,3 +576,5 @@ printf 'Panel language: %s\n' "$AWG_LANG_VALUE"
 printf 'The panel has no public TCP listener. Connect the first Home profile, then open http://10.8.0.1:%s\n' "$AWG_PANEL_PORT_VALUE"
 printf 'If your provider has a cloud firewall, allow inbound UDP %s manually.\n' "$AWG_PORT_VALUE"
 printf 'Run sudo awg-easy-3 from any directory to manage, uninstall or reinstall the panel.\n'
+printf 'Automatic stable update checks are enabled when systemd or OpenRC is available.\n'
+printf 'Disable them with: sudo awg-easy-3 auto-update disable\n'

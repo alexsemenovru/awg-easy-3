@@ -45,6 +45,8 @@ También puede usar `--port`, `--panel-port` y `--lang en|ru|fa|es|zh-cn`. Si el
 
 Al volver a ejecutarlo de forma interactiva, el instalador detecta la instalación existente y permite conservarla, desinstalarla o reinstalarla desde cero. Las dos últimas opciones requieren confirmación y eliminan permanentemente todos los clientes, claves, contraseñas y ajustes de AWG-Easy 3. Para automatización existen `--uninstall` y `--reinstall`. Solo se eliminan el servicio Compose del proyecto, sus datos y su archivo sysctl; Docker, contenedores, imágenes, redes y reglas ajenas, así como los valores actuales de forwarding, no se modifican.
 
+En systemd y OpenRC, el instalador activa sin preguntar una comprobación de versiones estables cinco minutos después de cada arranque. No instala cron ni un demonio permanente adicional. Ignora versiones preliminares y no cambia nada si la versión es actual o el panel se detuvo deliberadamente. Descarga y valida por completo la imagen candidata antes de sustituirla, conserva clientes, claves, contraseña, puertos y ajustes, y restaura la versión anterior si falla el healthcheck. Un fallo de red deja intacta la instalación activa. En otros sistemas init permanece disponible la actualización manual segura.
+
 ## Administración local
 
 ```bash
@@ -55,6 +57,6 @@ sudo awg-easy-3 reset-password
 sudo awg-easy-3 export-client "Home admin"
 ```
 
-También están disponibles `start`, `stop`, `restart`, `settings`, `logs`, `diagnose`, `uninstall` y `reinstall` desde cualquier directorio.
+También están disponibles `start`, `stop`, `restart`, `settings`, `logs`, `diagnose`, `uninstall` y `reinstall` desde cualquier directorio. Gestione la comprobación al arrancar con `sudo awg-easy-3 auto-update status|enable|disable|run`; para desactivar la función predeterminada use `sudo awg-easy-3 auto-update disable`.
 
 El material adaptado heredado se distribuye bajo **CC BY-NC-SA 4.0**. Consulte [LICENSE](LICENSE), [NOTICE](NOTICE) y [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Este proyecto no está afiliado ni respaldado por AmneziaVPN.
