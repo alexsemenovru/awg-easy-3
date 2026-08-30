@@ -26,7 +26,7 @@ awg_easy_auto_update_backend() {
 }
 
 awg_easy_auto_update_enable_systemd() {
-  cat > "$AWG_EASY_UPDATE_SERVICE" <<'EOF'
+  cat > "$AWG_EASY_UPDATE_SERVICE" <<'EOF' || return 1
 [Unit]
 Description=Check for a stable AWG-Easy 3 update
 Wants=network-online.target
@@ -37,8 +37,9 @@ ConditionPathExists=/etc/awg-easy-3-install-dir
 Type=oneshot
 ExecStart=/usr/local/sbin/awg-easy-3 auto-update run
 TimeoutStartSec=15min
+TimeoutStopSec=3min
 EOF
-  cat > "$AWG_EASY_UPDATE_TIMER" <<'EOF'
+  cat > "$AWG_EASY_UPDATE_TIMER" <<'EOF' || return 1
 [Unit]
 Description=Check for a stable AWG-Easy 3 update after boot
 
@@ -52,7 +53,7 @@ Unit=awg-easy-3-update.service
 [Install]
 WantedBy=timers.target
 EOF
-  chmod 0644 "$AWG_EASY_UPDATE_SERVICE" "$AWG_EASY_UPDATE_TIMER"
+  chmod 0644 "$AWG_EASY_UPDATE_SERVICE" "$AWG_EASY_UPDATE_TIMER" || return 1
   if ! systemctl daemon-reload; then
     awg_easy_auto_update_disable
     return 1
@@ -66,16 +67,16 @@ EOF
 
 awg_easy_auto_update_enable_openrc() {
   install -d -m 0755 /usr/local/libexec || return 1
-  cat > "$AWG_EASY_UPDATE_OPENRC_RUNNER" <<'EOF'
+  cat > "$AWG_EASY_UPDATE_OPENRC_RUNNER" <<'EOF' || return 1
 #!/bin/sh
 exec >> /var/log/awg-easy-3-update.log 2>&1
 sleep 300
 exec /usr/local/sbin/awg-easy-3 auto-update run
 EOF
-  chmod 0755 "$AWG_EASY_UPDATE_OPENRC_RUNNER"
+  chmod 0755 "$AWG_EASY_UPDATE_OPENRC_RUNNER" || return 1
   openrc_run=$(command -v openrc-run) || return 1
-  printf '#!%s\n' "$openrc_run" > "$AWG_EASY_UPDATE_OPENRC_SERVICE"
-  cat >> "$AWG_EASY_UPDATE_OPENRC_SERVICE" <<'EOF'
+  printf '#!%s\n' "$openrc_run" > "$AWG_EASY_UPDATE_OPENRC_SERVICE" || return 1
+  cat >> "$AWG_EASY_UPDATE_OPENRC_SERVICE" <<'EOF' || return 1
 description="Check for a stable AWG-Easy 3 update after boot"
 command="/usr/local/libexec/awg-easy-3-update-on-boot"
 command_background="yes"
@@ -86,7 +87,7 @@ depend() {
   after docker
 }
 EOF
-  chmod 0755 "$AWG_EASY_UPDATE_OPENRC_SERVICE"
+  chmod 0755 "$AWG_EASY_UPDATE_OPENRC_SERVICE" || return 1
   if ! rc-update add awg-easy-3-update default >/dev/null; then
     awg_easy_auto_update_disable
     return 1
@@ -162,6 +163,13 @@ awg_easy_semver_is_newer() {
   }'
 }
 
+# Candidates are installed deliberately. Only a stable release may replace one.
+awg_easy_stable_is_update() {
+  installed_base=${2%%-*}
+  if awg_easy_semver_is_newer "$1" "$installed_base"; then return 0; fi
+  [ "$1" = "$installed_base" ] && [ "$2" != "$installed_base" ]
+}
+
 awg_easy_latest_stable_version() {
   refs=$(GIT_TERMINAL_PROMPT=0 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 \
     ls-remote --tags --refs "$AWG_EASY_UPDATE_REPOSITORY" 'v*') \
@@ -212,22 +220,17 @@ awg_easy_update_cleanup() {
 }
 
 awg_easy_acquire_update_lock() {
-  install -d -m 0755 /run/lock
+  install -d -m 0755 /run/lock || return 1
   if mkdir "$AWG_EASY_UPDATE_LOCK" 2>/dev/null; then
-    printf '%s\n' "$$" > "$AWG_EASY_UPDATE_LOCK/pid"
+    if ! printf '%s\n' "$$" > "$AWG_EASY_UPDATE_LOCK/pid"; then
+      rmdir "$AWG_EASY_UPDATE_LOCK" 2>/dev/null || true
+      return 1
+    fi
     return 0
   fi
-  lock_pid=$(sed -n '1p' "$AWG_EASY_UPDATE_LOCK/pid" 2>/dev/null || true)
-  case "$lock_pid" in
-    ''|*[!0-9]*) lock_pid= ;;
-  esac
-  if [ -z "$lock_pid" ] || ! kill -0 "$lock_pid" 2>/dev/null; then
-    rm -f -- "$AWG_EASY_UPDATE_LOCK/pid"
-    if rmdir "$AWG_EASY_UPDATE_LOCK" 2>/dev/null && mkdir "$AWG_EASY_UPDATE_LOCK" 2>/dev/null; then
-      printf '%s\n' "$$" > "$AWG_EASY_UPDATE_LOCK/pid"
-      return 0
-    fi
-  fi
+  # Never steal an existing directory: its owner may still be writing the PID,
+  # and two concurrent stale-lock removers could otherwise remove a live lock.
+  # An unclean shutdown's orphan is cleared with /run on the next OS boot.
   return 1
 }
 
@@ -235,19 +238,42 @@ awg_easy_stable_compose() {
   AWG_IMAGE= docker compose --project-directory "$project_dir" -f "$project_dir/docker-compose.yml" "$@"
 }
 
-awg_easy_rollback_update() {
+awg_easy_install_manager() {
+  install -m 0755 "$project_dir/awg-easy-3" /usr/local/sbin/.awg-easy-3-update-new || return 1
+  mv -f /usr/local/sbin/.awg-easy-3-update-new /usr/local/sbin/awg-easy-3
+}
+
+awg_easy_restore_previous() {
   old_commit=$1
   reason=$2
+  AWG_EASY_UPDATE_ROLLBACK_COMMIT=
   printf 'Update failed (%s). Rolling back to the previous release...\n' "$reason" >&2
-  git -C "$project_dir" reset --hard "$old_commit" >/dev/null \
-    || die "rollback could not restore the previous project revision"
-  install -m 0755 "$project_dir/awg-easy-3" /usr/local/sbin/awg-easy-3 \
-    || die "rollback restored the project but could not restore the management command"
-  awg_easy_stable_compose up -d awg-easy \
-    || die "rollback restored the project but could not restart the previous container"
-  awg_easy_wait_healthy \
-    || die "rollback restored the project, but the previous container did not become healthy"
+  git -C "$project_dir" reset --hard "$old_commit" >/dev/null || return 1
+  awg_easy_install_manager || return 1
+  # Use the original cached image ID, not a mutable registry tag.
+  AWG_IMAGE="$AWG_EASY_UPDATE_PREVIOUS_IMAGE" docker compose --project-directory "$project_dir" \
+    -f "$project_dir/docker-compose.yml" up -d --pull never awg-easy || return 1
+  awg_easy_wait_healthy || return 1
+  printf 'The previous healthy release was restored.\n' >&2
+}
+
+awg_easy_rollback_update() {
+  awg_easy_restore_previous "$1" "$2" || die "rollback failed; inspect sudo awg-easy-3 diagnose before retrying"
   die "the candidate release did not pass its health check; the previous healthy release was restored"
+}
+
+awg_easy_update_on_exit() {
+  update_exit_status=$?
+  trap - 0
+  trap '' HUP INT TERM
+  if [ -n "${AWG_EASY_UPDATE_ROLLBACK_COMMIT:-}" ]; then
+    if ! awg_easy_restore_previous "$AWG_EASY_UPDATE_ROLLBACK_COMMIT" "update interrupted"; then
+      printf 'Error: interrupted update rollback failed; run sudo awg-easy-3 diagnose.\n' >&2
+    fi
+    update_exit_status=1
+  fi
+  awg_easy_update_cleanup
+  exit "$update_exit_status"
 }
 
 awg_easy_run_stable_update() {
@@ -258,37 +284,44 @@ awg_easy_run_stable_update() {
     || die "the installation directory is not a Git checkout; reinstall from the official repository"
   [ -r "$project_dir/VERSION" ] || die "installed release metadata is missing"
   [ -r "$project_dir/STATE_VERSION" ] || die "installed state compatibility metadata is missing"
+  if ! awg_easy_acquire_update_lock; then
+    die "another AWG-Easy 3 update is already running or its lock remains after an unclean shutdown; retry after it finishes, or reboot to clear an orphaned /run lock"
+  fi
+  AWG_EASY_UPDATE_STAGE=
+  AWG_EASY_UPDATE_ROLLBACK_COMMIT=
+  trap awg_easy_update_on_exit 0
+  trap 'exit 1' HUP INT TERM
   current_version=$(sed -n '1p' "$project_dir/VERSION")
-  case "$current_version" in
-    ''|*[!0-9.]*) die "installed release version is invalid" ;;
-  esac
-  printf '%s\n' "$current_version" | awk '/^[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*$/ { ok = 1 } END { exit !ok }' \
+  printf '%s\n' "$current_version" | awk '/^[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*(-rc\.[1-9][0-9]*)?$/ { ok = 1 } END { exit !ok }' \
     || die "installed release version is invalid"
-  if [ -n "$(git -C "$project_dir" status --porcelain --untracked-files=no)" ]; then
+  tracked_changes=$(git -C "$project_dir" status --porcelain --untracked-files=no) \
+    || die "unable to inspect tracked project files; the installation was left unchanged"
+  if [ -n "$tracked_changes" ]; then
     die "tracked project files contain local changes; commit or restore them before updating"
   fi
 
   if [ "$update_mode" = automatic ]; then
-    running_container=$(awg_easy_stable_compose ps -q awg-easy 2>/dev/null || true)
+    running_container=$(awg_easy_stable_compose ps -q awg-easy) \
+      || die "unable to inspect Docker; the installation was left unchanged"
+    container_running=false
+    if [ -n "$running_container" ]; then
+      container_running=$(docker inspect -f '{{.State.Running}}' "$running_container") \
+        || die "unable to inspect the current container; the installation was left unchanged"
+    fi
     if [ -z "$running_container" ] ||
-       [ "$(docker inspect -f '{{.State.Running}}' "$running_container" 2>/dev/null || true)" != true ]; then
+       [ "$container_running" != true ]; then
       printf 'Automatic update skipped because AWG-Easy 3 was deliberately stopped.\n'
       return 0
     fi
   fi
 
-  if ! awg_easy_acquire_update_lock; then
-    die "another AWG-Easy 3 update is already running"
-  fi
-  AWG_EASY_UPDATE_STAGE=
-  trap awg_easy_update_cleanup 0
-  trap 'awg_easy_update_cleanup; exit 1' HUP INT TERM
   AWG_EASY_UPDATE_STAGE=$(mktemp -d /tmp/awg-easy-3-update.XXXXXX) \
     || die "unable to create a temporary update directory"
 
-  latest_version=$(awg_easy_latest_stable_version)
-  if ! awg_easy_semver_is_newer "$latest_version" "$current_version"; then
-    printf 'AWG-Easy 3 %s is already the newest stable release.\n' "$current_version"
+  latest_version=$(awg_easy_latest_stable_version) \
+    || die "unable to select a stable release; the current installation was left unchanged"
+  if ! awg_easy_stable_is_update "$latest_version" "$current_version"; then
+    printf 'No newer stable release is available (installed: %s, latest stable: %s).\n' "$current_version" "$latest_version"
     return 0
   fi
 
@@ -304,7 +337,9 @@ awg_easy_run_stable_update() {
   git -C "$project_dir" merge-base --is-ancestor "$current_commit" "$candidate_commit" \
     || die "stable release v$latest_version is not a fast-forward update; the current installation was left unchanged"
 
-  git -C "$project_dir" archive "$candidate_commit" | tar -x -C "$AWG_EASY_UPDATE_STAGE" \
+  git -C "$project_dir" archive --output="$AWG_EASY_UPDATE_STAGE/candidate.tar" "$candidate_commit" \
+    || die "unable to archive stable release v$latest_version"
+  tar -xf "$AWG_EASY_UPDATE_STAGE/candidate.tar" -C "$AWG_EASY_UPDATE_STAGE" \
     || die "unable to stage stable release v$latest_version"
   candidate_version=$(sed -n '1p' "$AWG_EASY_UPDATE_STAGE/VERSION" 2>/dev/null || true)
   [ "$candidate_version" = "$latest_version" ] \
@@ -313,7 +348,10 @@ awg_easy_run_stable_update() {
   current_state_version=$(sed -n '1p' "$project_dir/STATE_VERSION")
   [ "$candidate_state_version" = "$current_state_version" ] \
     || die "stable release v$latest_version needs a state migration and cannot be installed automatically"
-  grep -Fq "ghcr.io/alexsemenovru/awg-easy-3:$latest_version" "$AWG_EASY_UPDATE_STAGE/docker-compose.yml" \
+  candidate_image=$(AWG_IMAGE= docker compose --project-directory "$AWG_EASY_UPDATE_STAGE" \
+    -f "$AWG_EASY_UPDATE_STAGE/docker-compose.yml" config --images) \
+    || die "unable to validate candidate Compose settings"
+  [ "$candidate_image" = "ghcr.io/alexsemenovru/awg-easy-3:$latest_version" ] \
     || die "stable release v$latest_version does not pin its matching container image"
   [ -x "$AWG_EASY_UPDATE_STAGE/install.sh" ] \
     || die "stable release v$latest_version has no executable installer"
@@ -325,10 +363,23 @@ awg_easy_run_stable_update() {
     -f "$AWG_EASY_UPDATE_STAGE/docker-compose.yml" pull awg-easy \
     || die "unable to download stable release v$latest_version; the current installation was left unchanged"
 
+  awg_easy_wait_healthy || die "the current container must be healthy before updating; run sudo awg-easy-3 start and diagnose"
+  AWG_EASY_UPDATE_PREVIOUS_IMAGE=$(docker inspect -f '{{.Image}}' awg-easy-3) \
+    || die "unable to record the previous image for rollback"
+  [ -n "$AWG_EASY_UPDATE_PREVIOUS_IMAGE" ] || die "previous container image is unavailable"
+  # Recheck after downloads: refuse to overwrite edits made while waiting.
+  tracked_changes=$(git -C "$project_dir" status --porcelain --untracked-files=no) \
+    || die "unable to inspect project files before replacement"
+  [ -z "$tracked_changes" ] && [ "$(git -C "$project_dir" rev-parse HEAD)" = "$current_commit" ] \
+    || die "the checkout changed while downloading; the installation was left unchanged"
+
   printf 'Installing stable AWG-Easy 3 v%s...\n' "$latest_version"
-  git -C "$project_dir" merge --ff-only "$candidate_commit" \
-    || die "unable to fast-forward the project; the current installation was left unchanged"
-  install -m 0755 "$project_dir/awg-easy-3" /usr/local/sbin/awg-easy-3 \
+  AWG_EASY_UPDATE_ROLLBACK_COMMIT=$current_commit
+  if ! git -C "$project_dir" merge --ff-only "$candidate_commit"; then
+    AWG_EASY_UPDATE_ROLLBACK_COMMIT=
+    die "unable to fast-forward the project; inspect the checkout before retrying"
+  fi
+  awg_easy_install_manager \
     || awg_easy_rollback_update "$current_commit" "management command installation failed"
   if ! awg_easy_stable_compose up -d awg-easy; then
     awg_easy_rollback_update "$current_commit" "container startup failed"
@@ -336,5 +387,6 @@ awg_easy_run_stable_update() {
   if ! awg_easy_wait_healthy; then
     awg_easy_rollback_update "$current_commit" "container health check failed"
   fi
+  AWG_EASY_UPDATE_ROLLBACK_COMMIT=
   printf 'AWG-Easy 3 was updated successfully from %s to %s.\n' "$current_version" "$latest_version"
 }

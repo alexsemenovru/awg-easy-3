@@ -25,6 +25,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
       - run: pnpm run check
+      - name: Check POSIX shell syntax
+        run: |
+          sh -n ../install.sh
+          sh -n ../awg-easy-3
+          sh -n ../lib/auto-update.sh
 
   container:
     runs-on: ubuntu-latest

@@ -74,6 +74,14 @@ skips an intentionally stopped service. After replacement, container health
 must pass; otherwise the checkout, management command and container are rolled
 back to the previous commit and cached image.
 
+Rollback records the running container's immutable image ID and also runs on
+handled interruption after checkout replacement. It is not a backup facility:
+SIGKILL, power loss, disk failure and state migrations need separate recovery.
+An existing lock is never reclaimed in place (including an empty PID file),
+avoiding races between lock owners. An orphan in `/run` is cleared on reboot.
+A manually installed `-rc.N` may advance to the same numeric stable version or
+a newer one; prereleases are never selected as automatic-update targets.
+
 ## AWG 3.x configuration surface
 
 Official AWG 3.x tools currently expose the existing obfuscation fields plus:

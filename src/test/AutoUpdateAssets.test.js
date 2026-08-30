@@ -23,8 +23,11 @@ test('release metadata stays aligned across application, state and image', () =>
   assert.match(compose, new RegExp(`ghcr\\.io/alexsemenovru/awg-easy-3:${version.replaceAll('.', '\\.')}`));
   assert.match(store, new RegExp(`const STATE_VERSION = ${stateVersion};`));
   const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'docker-publish.yml'), 'utf8');
-  assert.match(workflow, /Verify stable release metadata/);
+  assert.match(workflow, /Verify release metadata/);
   assert.match(workflow, /GITHUB_REF_NAME.*v\$version/);
+  assert.match(workflow, /latest=false/);
+  assert.match(workflow, /type=raw,value=latest,enable=.*is_stable/);
+  assert.ok(workflow.indexOf('pnpm test') < workflow.indexOf('Build and push Docker image'));
 });
 
 test('installer enables boot update checks without asking and removes owned hooks on uninstall', () => {
@@ -87,6 +90,10 @@ test('semantic version selection ignores prereleases and orders numeric componen
       awg_easy_latest_stable_version
       awg_easy_semver_is_newer 1.10.0 1.9.99
       if awg_easy_semver_is_newer 1.10.0 1.10.0; then exit 9; fi
+      awg_easy_stable_is_update 1.10.0 1.10.0-rc.1 || exit 10
+      awg_easy_stable_is_update 1.11.0 1.10.0-rc.2 || exit 11
+      if awg_easy_stable_is_update 1.9.0 1.10.0-rc.1; then exit 12; fi
+      if awg_easy_stable_is_update 1.10.0 1.10.0; then exit 13; fi
     `,
     encoding: 'utf8',
     timeout: 10_000,
@@ -122,24 +129,52 @@ const updateFixture = String.raw`
   git -C "$remote" tag v1.1.0
   git clone -q "$remote" "$project_dir"
   git -C "$project_dir" checkout -qb installed v1.0.0
+  mkdir "$project_dir/data"
+  printf 'preserve-state\n' > "$project_dir/data/state.json"
+  printf 'preserve-env\n' > "$project_dir/.env"
   AWG_EASY_UPDATE_REPOSITORY="$remote"
   AWG_EASY_UPDATE_LOCK="$task_root/update.lock"
-  install() {
-    if [ "$1" = -d ]; then return 0; fi
+  AWG_IMAGE=
+  test_stopped=false
+  test_pull_failure=false
+  test_bad_health=false
+  install() { return 0; }
+  awg_easy_install_manager() { return 0; }
+  docker() {
+    printf '%s | image=%s\n' "$*" "$AWG_IMAGE" >> "$task_root/docker.log"
+    case "$*" in
+      *config\ --images) printf 'ghcr.io/alexsemenovru/awg-easy-3:1.1.0\n';;
+      *ps\ -q*) [ "$test_stopped" = true ] || printf 'test-container\n';;
+      *pull\ awg-easy) [ "$test_pull_failure" != true ] || return 1;;
+      inspect*)
+        case "$*" in
+          *'.Image'*) printf 'sha256:previous-image\n';;
+          *'.State.Running'*) printf 'true\n';;
+          *)
+            if [ "$test_bad_health" = true ] &&
+               [ "$(sed -n '1p' "$project_dir/VERSION")" = 1.1.0 ]; then
+              printf 'unhealthy\n'
+            else
+              printf 'healthy\n'
+            fi;;
+        esac;;
+    esac
     return 0
+  }
+  assert_preserved() {
+    [ "$(cat "$project_dir/data/state.json")" = preserve-state ] &&
+      [ "$(cat "$project_dir/.env")" = preserve-env ] &&
+      [ ! -e "$AWG_EASY_UPDATE_LOCK" ]
   }
 `;
 
 test('staged stable update fast-forwards only after the candidate image is available', shellOptions, () => {
   const result = spawnSync(shell, ['-s'], {
     input: `${updater}\n${updateFixture}\n` + String.raw`
-      docker() {
-        if [ "$1" = inspect ]; then printf 'healthy\n'; fi
-        return 0
-      }
-      (awg_easy_run_stable_update manual)
+      (set -eu; awg_easy_run_stable_update manual)
       update_status=$?
       installed_version=$(sed -n '1p' "$project_dir/VERSION")
+      assert_preserved || exit 91
       rm -rf -- "$task_root"
       [ "$update_status" -eq 0 ] && [ "$installed_version" = 1.1.0 ]
     `,
@@ -155,19 +190,12 @@ test('staged stable update fast-forwards only after the candidate image is avail
 test('failed candidate health check restores the previous commit', shellOptions, () => {
   const result = spawnSync(shell, ['-s'], {
     input: `${updater}\n${updateFixture}\n` + String.raw`
-      docker() {
-        if [ "$1" = inspect ]; then
-          if [ "$(sed -n '1p' "$project_dir/VERSION")" = 1.1.0 ]; then
-            printf 'unhealthy\n'
-          else
-            printf 'healthy\n'
-          fi
-        fi
-        return 0
-      }
-      (awg_easy_run_stable_update manual)
+      test_bad_health=true
+      (set -eu; awg_easy_run_stable_update manual)
       update_status=$?
       installed_version=$(sed -n '1p' "$project_dir/VERSION")
+      assert_preserved || exit 91
+      grep -q 'pull never.*image=sha256:previous-image' "$task_root/docker.log" || exit 92
       rm -rf -- "$task_root"
       [ "$update_status" -ne 0 ] && [ "$installed_version" = 1.0.0 ]
     `,
@@ -178,4 +206,52 @@ test('failed candidate health check restores the previous commit', shellOptions,
   assert.ifError(result.error);
   assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.match(result.stderr, /previous healthy release was restored/);
+});
+
+for (const [name, setup, message, success = false] of [
+  ['unavailable image', 'test_pull_failure=true', /unable to download stable release/],
+  ['unavailable release list', 'awg_easy_latest_stable_version() { return 1; }', /unable to select a stable release/],
+  ['unreadable checkout', String.raw`git() { case "$*" in *status*) return 1;; *) command git "$@";; esac; }`, /unable to inspect tracked project files/],
+  ['unavailable Docker', 'docker() { return 1; }', /unable to inspect Docker/],
+  ['deliberately stopped service', 'test_stopped=true', /deliberately stopped/, true],
+  ['exit during replacement', String.raw`
+    awg_easy_install_manager() {
+      if [ "$(cat "$project_dir/VERSION")" = 1.1.0 ]; then exit 77; fi
+    }
+  `, /previous healthy release was restored/],
+]) {
+  test(`${name} preserves installed files and state`, shellOptions, () => {
+    const result = spawnSync(shell, ['-s'], {
+      input: `${updater}\n${updateFixture}\n${setup}\n` + String.raw`
+        (set -eu; awg_easy_run_stable_update automatic)
+        update_status=$?
+        [ "$(cat "$project_dir/VERSION")" = 1.0.0 ] || exit 92
+        assert_preserved || exit 91
+        rm -rf -- "$task_root"
+      ` + `\n[ "$update_status" ${success ? '-eq' : '-ne'} 0 ]\n`,
+      encoding: 'utf8', timeout: 20_000, windowsHide: true,
+    });
+    assert.ifError(result.error);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.match(result.stdout + result.stderr, message);
+  });
+}
+
+test('an existing lock is never stolen, even before its owner writes a PID', shellOptions, () => {
+  const result = spawnSync(shell, ['-s'], {
+    input: `${updater}\n` + String.raw`
+      task_root=$(mktemp -d /tmp/awg-lock-test.XXXXXX) || exit 90
+      AWG_EASY_UPDATE_LOCK="$task_root/update.lock"
+      install() { return 0; }
+      mkdir "$AWG_EASY_UPDATE_LOCK"
+      if awg_easy_acquire_update_lock; then exit 91; fi
+      printf '99999999\n' > "$AWG_EASY_UPDATE_LOCK/pid"
+      if awg_easy_acquire_update_lock; then exit 92; fi
+      [ "$(cat "$AWG_EASY_UPDATE_LOCK/pid")" = 99999999 ] || exit 93
+      rm -rf -- "$task_root"
+    `,
+    encoding: 'utf8', timeout: 10_000, windowsHide: true,
+  });
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
 });

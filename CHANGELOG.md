@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## v0.1.2-rc.1 — 2026-08-30
+
+Test candidate, not a stable release. VPS validation is still required.
 
 - Clarified recent-handshake status: it is not proof that a device is connected now.
 - Serialized diagnostic samples, monotonic rate timing, and reset handling for stale, failed or reset-counter samples.
@@ -9,9 +11,10 @@
 - The settings command reads saved non-secret parameters instead of stale container environment values, without starting the VPN.
 - Added a discreet GitHub credit link for alexsemenovru, without external resources or referrer disclosure.
 - Added a default-on stable update check after each OS boot on systemd and OpenRC, with explicit `auto-update enable|disable|status|run` controls. Updates stage and validate the complete release, preserve state, skip deliberately stopped panels, serialize against removal/reinstall, and roll back after a failed health check.
+- Hardened updater interruption handling, immutable-image rollback, release validation and lock ownership. Existing locks are never stolen; an orphaned `/run` lock is cleared by reboot. An explicitly installed RC can later move to its matching or newer stable release, but never downgrades to an older stable release.
 - **Protection against devils** («Защита от чертей» / «Protección contra demonios» / «محافظت در برابر شیاطین» / «抵御恶魔»): added the approved original SVG mark and static Pride-colour background. The header mark is inline SVG; favicon and platform icons use standards-compatible files. This is a visual statement, not a technical access-control mechanism.
 
-Not released or VPS-validated yet. The pinned image stays at 0.1.1 until a matching candidate is built and tested. The old image does not contain the new panel or settings command.
+The candidate pins `0.1.2-rc.1` consistently in the installer checkout, package and image. Tag publishing runs tests first and never moves `latest` for an RC. Stable `0.1.1` remains unchanged. See the [VPS test checklist](docs/RELEASE_TEST.ru.md).
 
 ## v0.1.1 — 2026-08-25
 
