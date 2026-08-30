@@ -3,3 +3,8 @@
 .credits a{display:inline-block;padding:8px 12px;color:#91a6bf;text-decoration:underline;text-underline-offset:3px;border-radius:6px}
 .credits a:hover{color:#e8eef8}
 .credits a:focus-visible{outline:2px solid #39aaff;outline-offset:3px}
+.ip-summary{color:#91a6bf;font-size:.8rem;padding:4px 0 12px}
+.ipv6-only-warning{color:#f3ce88;font-size:.78rem;line-height:1.5;margin:8px 0}
+.ip-help p{color:#91a6bf;line-height:1.5;margin-top:12px;font-size:.85rem}
+.switch input:focus-visible+span{outline:2px solid #39aaff;outline-offset:3px}
+.client-address{overflow-wrap:anywhere;direction:ltr;unicode-bidi:isolate}

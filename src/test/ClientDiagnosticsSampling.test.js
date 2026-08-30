@@ -87,6 +87,19 @@ test('changed client state invalidates the short cache and disabled peers show n
   assert.equal(f.diagnostics.previous.size, 0);
 });
 
+test('a family-only change invalidates diagnostics cache while the peer stays enabled', async () => {
+  const f = fixture();
+  Object.assign(f.state.clients[0], { ipv4Enabled: true, ipv6Enabled: true });
+  await f.snapshot();
+  f.advance(100);
+  await f.snapshot();
+  assert.equal(f.calls, 1);
+  f.state.clients[0].ipv6Enabled = false;
+  await f.snapshot();
+  assert.equal(f.calls, 2);
+  assert.equal(f.state.clients[0].enabled, true);
+});
+
 test('counter resets discard both rates and start a new baseline', async () => {
   const f = fixture();
   await f.snapshot();

@@ -6,6 +6,7 @@ const path = require('node:path');
 
 const { validateProfile } = require('./Awg3Config');
 const { normalizeClientPolicy } = require('./ClientPolicy');
+const { clientTraffic } = require('./ClientTraffic');
 
 const STATE_VERSION = 1;
 
@@ -79,6 +80,9 @@ const validateState = (input) => {
   }
   server.listenPort = listenPort;
   server.panelPort = panelPort;
+  if (Boolean(server.address6) !== Boolean(server.ipv6Subnet)) {
+    throw new TypeError('server.address6 and server.ipv6Subnet must be configured together');
+  }
   if (!['en', 'ru', 'fa', 'es', 'zh-cn'].includes(input.server.uiLanguage ?? 'en')) {
     throw new TypeError('server.uiLanguage must be en, ru, fa, es or zh-cn');
   }
@@ -103,6 +107,9 @@ const validateState = (input) => {
       throw new TypeError(`clients[${index}] must be an object`);
     }
     const policy = normalizeClientPolicy(inputClient);
+    if (inputClient.address6 && !server.address6) {
+      throw new TypeError('Client IPv6 address requires server IPv6 support');
+    }
     return {
       ...inputClient,
       ...policy,
@@ -113,7 +120,9 @@ const validateState = (input) => {
       privateKey: requiredString(inputClient.privateKey, `clients[${index}].privateKey`),
       publicKey: requiredString(inputClient.publicKey, `clients[${index}].publicKey`),
       presharedKey: optionalString(inputClient.presharedKey, `clients[${index}].presharedKey`),
-      enabled: inputClient.enabled !== false,
+      ...clientTraffic(inputClient, {
+        ipv6Available: Boolean(server.address6 && server.ipv6Subnet && inputClient.address6),
+      }),
     };
   });
 
@@ -163,7 +172,13 @@ class StateStore {
     let handle;
     try {
       handle = await fs.open(temporaryPath, 'wx', 0o600);
-      await handle.writeFile(`${JSON.stringify(state, null, 2)}\n`, 'utf8');
+      // Older releases ignore the new flags. Fail closed on a manual downgrade:
+      // a partially restricted peer must never become unrestricted there.
+      const persisted = { ...state, clients: state.clients.map((client) => ({
+        ...client,
+        enabled: client.ipv4Enabled && (!client.address6 || client.ipv6Enabled),
+      })) };
+      await handle.writeFile(`${JSON.stringify(persisted, null, 2)}\n`, 'utf8');
       await handle.sync();
       await handle.close();
       handle = undefined;

@@ -1,5 +1,7 @@
 'use strict';
 
+const { changeClientTraffic, clientTraffic, trafficError } = require('./ClientTraffic');
+
 const NETWORK_GROUPS = Object.freeze(['home', 'guest']);
 
 const enumValue = (value, allowed, field) => {
@@ -35,15 +37,15 @@ const assertActiveHomeRemains = (clients, clientId, changes) => {
 
   const remaining = clients.filter((client) => !client.deleted).map((client) => {
     if (client.id !== clientId) return client;
-    return { ...client, ...changes };
+    return changeClientTraffic(client, changes);
   });
   const activeHomes = remaining.filter((client) => (
     client.deleted !== true
-    && client.enabled !== false
+    && clientTraffic(client).enabled
     && client.networkGroup === 'home'
   ));
   if (activeHomes.length === 0) {
-    throw new Error('At least one enabled home client must remain');
+    throw trafficError('LAST_HOME', 'At least one enabled home client must remain');
   }
 };
 

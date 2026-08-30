@@ -65,7 +65,8 @@ class ClientDiagnostics {
   async sample() {
     const state = await this.store.load();
     const stateKey = JSON.stringify([state.server.interfaceName, state.clients.map((client) =>
-      [client.id, client.publicKey, client.enabled, client.mtu, client.persistentKeepalive])]);
+      [client.id, client.publicKey, client.enabled, client.ipv4Enabled, client.ipv6Enabled,
+        client.mtu, client.persistentKeepalive])]);
     const cacheAge = this.cached ? this.monotonicNow() - this.cached.measuredAt : Infinity;
     if (this.cached?.stateKey === stateKey && cacheAge >= 0 && cacheAge < MIN_SAMPLE_INTERVAL_MS) {
       return this.cached.result;
