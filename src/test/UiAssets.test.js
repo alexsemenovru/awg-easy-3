@@ -31,6 +31,10 @@ test('ships a self-contained UI with every required control', () => {
   assert.ok(html.indexOf('/js/diagnostics.js') < html.indexOf('/js/app.js'));
   assert.match(html, /data-i18n="diagnosticsHint"/);
   assert.match(html, /class="diag-window"/);
+  assert.match(html, /class="live-rates hidden"/);
+  assert.match(html, /class="diag-sent diag-rate"/);
+  assert.match(html, /class="diag-received diag-rate"/);
+  assert.match(html, /class="diagnostics-hint diag-delivery hidden" data-i18n="deliveryUnconfirmed"/);
   assert.match(html, /<svg class="brand-mark"[^>]+aria-hidden="true"/);
   assert.match(html, /\/img\/favicon\.svg\?v=[0-9-]+/);
   assert.match(html, /rel="alternate icon"/);
@@ -94,6 +98,8 @@ test('uses only the versioned API and contains no legacy endpoint calls', () => 
   assert.match(i18n, /language === 'fa' \? 'rtl'/);
   assert.doesNotMatch(app, /document\.execCommand\('copy'\)/);
   assert.match(app, /manual-copy/);
+  assert.match(app, /paintRates\(node, item, t\)/);
+  assert.match(app, /paintRates\(node, \{ state: 'unavailable' \}, t\)/);
   assert.doesNotMatch(app, /navigator\.(?:share|clipboard)/);
   assert.doesNotMatch(app, /window\.location\.href/);
   assert.match(html, /id="profile-link"/);

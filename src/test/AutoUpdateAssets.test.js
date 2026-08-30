@@ -30,9 +30,9 @@ test('release metadata stays aligned across application, state and image', () =>
   assert.ok(workflow.indexOf('pnpm test') < workflow.indexOf('Build and push Docker image'));
   assert.match(workflow, /needs: build-and-push/);
   assert.match(workflow, /--verify-tag --prerelease --latest=false/);
-  if (version.includes('-rc.')) {
-    assert.ok(fs.existsSync(path.join(root, 'docs', 'releases', `v${version}.md`)));
-  }
+  assert.match(workflow, /--verify-tag --latest \\/);
+  assert.match(workflow, /test "\$existing" = "\$prerelease"/);
+  assert.ok(fs.existsSync(path.join(root, 'docs', 'releases', `v${version}.md`)));
 });
 
 test('installer enables boot update checks without asking and removes owned hooks on uninstall', () => {

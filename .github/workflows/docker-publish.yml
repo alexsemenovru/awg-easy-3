@@ -87,24 +87,33 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  prerelease:
+  release:
     needs: build-and-push
-    if: startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '-rc.')
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Publish the test candidate after the image is available
+      - name: Publish release notes after the image is available
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
+          case "$GITHUB_REF_NAME" in
+            *-rc.*) prerelease=true ;;
+            *) prerelease=false ;;
+          esac
           if existing=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease 2>/dev/null); then
-            test "$existing" = true
-          else
+            test "$existing" = "$prerelease"
+          elif [ "$prerelease" = true ]; then
             gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
               --verify-tag --prerelease --latest=false \
               --title "AWG-Easy 3 $GITHUB_REF_NAME — test candidate" \
+              --notes-file "docs/releases/$GITHUB_REF_NAME.md"
+          else
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --verify-tag --latest \
+              --title "AWG-Easy 3 $GITHUB_REF_NAME" \
               --notes-file "docs/releases/$GITHUB_REF_NAME.md"
           fi

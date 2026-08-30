@@ -10,6 +10,22 @@ window.awgDiagnostics = (() => {
     return `${Math.round(bits)} bit/s`;
   };
 
+  const paintRates = (node, item, t) => {
+    const recentConnection = item.state === 'online';
+    const hasPeer = recentConnection || item.state === 'offline';
+    const live = node.querySelector('.live-rates');
+    live.classList.toggle('hidden', !recentConnection);
+    const measuring = [item.downloadBps, item.uploadBps]
+      .some((rate) => typeof rate !== 'number' || !Number.isFinite(rate));
+    live.textContent = !recentConnection ? '' : (measuring ? t('measuring')
+      : `↓ ${formatRate(item.downloadBps)} · ↑ ${formatRate(item.uploadBps)}`);
+    // An offline peer can still have server-side send attempts. Keep the
+    // measured counters visible here without implying delivery to the device.
+    node.querySelector('.diag-sent').textContent = hasPeer ? formatRate(item.downloadBps) : '—';
+    node.querySelector('.diag-received').textContent = hasPeer ? formatRate(item.uploadBps) : '—';
+    node.querySelector('.diag-delivery').classList.toggle('hidden', item.state !== 'offline');
+  };
+
   // One request at a time. Logout or a replaced client list invalidates old
   // responses, even when the transport does not finish immediately on abort.
   const createPoller = ({ load, onData, onError, intervalMs = 4000, timeoutMs = 8000 }) => {
@@ -56,5 +72,5 @@ window.awgDiagnostics = (() => {
     return Object.freeze({ start, stop, refresh });
   };
 
-  return Object.freeze({ formatRate, createPoller });
+  return Object.freeze({ formatRate, paintRates, createPoller });
 })();

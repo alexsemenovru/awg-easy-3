@@ -19,7 +19,7 @@
   let selectedClient;
   let pendingDelete;
   let lastDiagnostics = [];
-  const { formatRate, createPoller } = window.awgDiagnostics;
+  const { paintRates, createPoller } = window.awgDiagnostics;
 
   const savedLanguage = localStorage.getItem('awg-easy-language');
   if (supportedLanguages.includes(savedLanguage)) {
@@ -68,9 +68,7 @@
     line.className = `live-line ${item.state}`;
     node.querySelector('.live-state').dataset.i18n = item.state;
     node.querySelector('.live-state').textContent = t(item.state);
-    node.querySelector('.live-rates').textContent = item.state === 'disabled' ? ''
-      : (item.downloadBps === null || item.uploadBps === null ? t('measuring')
-        : `↓ ${formatRate(item.downloadBps)} · ↑ ${formatRate(item.uploadBps)}`);
+    paintRates(node, item, t);
     node.querySelector('.diag-handshake').textContent = formatHandshake(item.handshakeAgeSeconds);
     node.querySelector('.diag-endpoint').textContent = item.endpoint || '—';
     node.querySelector('.diag-mtu').textContent = item.mtu;
@@ -85,7 +83,7 @@
       const state = node.querySelector('.live-state');
       state.dataset.i18n = key;
       state.textContent = t(key);
-      node.querySelector('.live-rates').textContent = '';
+      paintRates(node, { state: 'unavailable' }, t);
       node.querySelectorAll('.diagnostics dd').forEach((field) => { field.textContent = '—'; });
     });
   };

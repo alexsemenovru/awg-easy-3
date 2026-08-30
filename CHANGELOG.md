@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.1.2 — 2026-08-30
+
+Includes the diagnostics, installer, boot-time stable updates, credits and original Pride branding from rc.1, and the VPS-tested IPv6 Home forwarding fix from rc.2. Existing ports, profiles and state format are preserved on update. Per-client IPv4/IPv6 switches are not part of this release.
+
+- Hide rates from the main client status line when there is no recent handshake. Preserve measured server send/receive rates in Diagnostics, with an explicit unconfirmed-delivery warning. Disabled peers and unavailable samples do not retain stale rates or invented zero measurements.
+- Clarify manual profile-link copying in all five languages while keeping the button labelled “Show link”. Refresh the changed asset URLs to avoid stale browser caches.
+- Add regression coverage and synthetic browser previews for residual sending, missing samples, disabled clients and API failures. This is a presentation change; AWG counters and the 150-second recent-handshake criterion are unchanged.
+- Replace the invalid Dependabot template with weekly GitHub Actions and Docker base-image PRs. No automatic merging. pnpm 11 dependency updates remain manual pending upstream support; the application image in Compose continues to follow release metadata.
+- Publish stable release notes only after the tagged image build succeeds, as already done for RC notes.
+
+Real VPS validation covered Ubuntu/systemd; OpenRC boot integration still needs a real-host field test. The final display-only changes were tested locally in browsers on synthetic data, not redeployed to the destroyed VPS. See the [field report](docs/VPS_TEST_2026-08-30.ru.md) and [release notes](docs/releases/v0.1.2.md).
+
 ## v0.1.2-rc.2 — 2026-08-30
 
 Test candidate; field validation continues.
