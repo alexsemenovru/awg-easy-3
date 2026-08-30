@@ -35,6 +35,15 @@ test('release metadata stays aligned across application, state and image', () =>
   assert.ok(fs.existsSync(path.join(root, 'docs', 'releases', `v${version}.md`)));
 });
 
+test('all five READMEs identify the current version and link its release notes', () => {
+  const version = fs.readFileSync(path.join(root, 'VERSION'), 'utf8').trim();
+  for (const name of ['README.md', 'README.ru.md', 'README.fa.md', 'README.es.md', 'README.zh-CN.md']) {
+    const readme = fs.readFileSync(path.join(root, name), 'utf8');
+    assert.ok(readme.includes(`**${version}**`), `${name}: current version`);
+    assert.ok(readme.includes(`docs/releases/v${version}.md`), `${name}: release notes`);
+  }
+});
+
 test('installer enables boot update checks without asking and removes owned hooks on uninstall', () => {
   const enable = installer.indexOf('awg_easy_auto_update_enable');
   const complete = installer.indexOf("printf '\\nInstallation complete");
