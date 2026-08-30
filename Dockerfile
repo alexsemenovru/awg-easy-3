@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 ARG AWG_GO_COMMIT=1b86b2ae0e493e7ea93f8c1a0f0cb6735b1551f1
 ARG AWG_TOOLS_COMMIT=ee0f0a9aa34ff0a0da4b3433b9512781cfe02843
-FROM --platform=linux/amd64 golang:1.25.12-alpine3.23@sha256:f128118f1f3a7f38949c57f03d29d13e4afdb06b86f840f8f43e8031e6c1a73a AS awg-go
+FROM --platform=linux/amd64 golang:1.27.0-alpine3.23@sha256:3747dcba41c8b0db3211fda4db61638b980e17ac5bb3c94460a975a9cfe19395 AS awg-go
 ARG AWG_GO_COMMIT
 RUN apk add --no-cache build-base git
 RUN git clone --filter=blob:none https://github.com/amnezia-vpn/amneziawg-go.git /src && git -C /src checkout --detach "$AWG_GO_COMMIT" && test "$(git -C /src rev-parse HEAD)" = "$AWG_GO_COMMIT"
