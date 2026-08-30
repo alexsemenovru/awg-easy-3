@@ -41,4 +41,10 @@ jobs:
           context: .
           platforms: linux/amd64
           push: false
+          load: true
           tags: awg-easy-3:test
+      - name: Smoke-test the built image without host network privileges
+        run: |
+          test "$(docker run --rm --network none --entrypoint node awg-easy-3:test -p 'require("/app/package.json").version')" = "$(cat VERSION)"
+          docker run --rm --network none --entrypoint awg awg-easy-3:test --version
+          docker run --rm --network none --entrypoint nft awg-easy-3:test --version
