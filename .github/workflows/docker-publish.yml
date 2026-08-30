@@ -21,6 +21,41 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.18.0
+
+      - name: Verify release metadata
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(tr -d '\r\n' < VERSION)"
+          state_version="$(tr -d '\r\n' < STATE_VERSION)"
+          test "$GITHUB_REF_TYPE" = tag
+          test "$GITHUB_REF_NAME" = "v$version"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[1-9][0-9]*)?$ ]]
+          test "$(node -p "require('./src/package.json').version")" = "$version"
+          grep -Fq "ghcr.io/alexsemenovru/awg-easy-3:$version" docker-compose.yml
+          grep -Fq "const STATE_VERSION = $state_version;" src/lib/StateStore.js
+          if [[ "$version" == *-* ]]; then
+            echo 'is_stable=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'is_stable=true' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Test before publishing
+        working-directory: src
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.19.0 --activate
+          pnpm install --frozen-lockfile
+          pnpm test
+          pnpm run check
+          sh -n ../install.sh
+          sh -n ../awg-easy-3
+          sh -n ../lib/auto-update.sh
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -36,8 +71,10 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          flavor: latest=false
           tags: |
             type=semver,pattern={{version}}
+            type=raw,value=latest,enable=${{ steps.release.outputs.is_stable == 'true' }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
@@ -49,3 +86,34 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  release:
+    needs: build-and-push
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish release notes after the image is available
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          case "$GITHUB_REF_NAME" in
+            *-rc.*) prerelease=true ;;
+            *) prerelease=false ;;
+          esac
+          if existing=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease 2>/dev/null); then
+            test "$existing" = "$prerelease"
+          elif [ "$prerelease" = true ]; then
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --verify-tag --prerelease --latest=false \
+              --title "AWG-Easy 3 $GITHUB_REF_NAME — test candidate" \
+              --notes-file "docs/releases/$GITHUB_REF_NAME.md"
+          else
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --verify-tag --latest \
+              --title "AWG-Easy 3 $GITHUB_REF_NAME" \
+              --notes-file "docs/releases/$GITHUB_REF_NAME.md"
+          fi

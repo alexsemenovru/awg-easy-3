@@ -1,0 +1,4 @@
+*.sh text eol=lf
+/awg-easy-3 text eol=lf
+/VERSION text eol=lf
+/STATE_VERSION text eol=lf

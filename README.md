@@ -4,13 +4,15 @@
 
 An intentionally small Docker web panel for **AmneziaWG 3.x**. This is an independent, non-commercial fork of [JohnnyVBut/awg-easy](https://github.com/JohnnyVBut/awg-easy), rebuilt around clean AWG 3.x installations.
 
-> Status: initial v0.1.0 release. The pinned AWG 3.1 engine, Docker deployment, AmneziaVPN Android import, IPv4/IPv6 connectivity, Home/Guest isolation and profile revocation have been validated on a dedicated VPS. Server-side Home discovery fan-out and SSDP address rewriting have also been validated between two real peers; end-to-end visibility depends on whether the client application sends and receives multicast on the VPN interface.
+> Current release: **0.1.2**. See the [release notes](docs/releases/v0.1.2.md) and [field report (Russian)](docs/VPS_TEST_2026-08-30.ru.md). Real-host tests covered Ubuntu/systemd, including a phone profile switch and a controlled residual-traffic probe. Final UI changes were browser-tested locally; OpenRC still needs real-host validation.
+
+> The pinned AWG 3.1 engine, Docker deployment, AmneziaVPN Android import, IPv4/IPv6 connectivity, Home/Guest isolation and profile revocation have been validated on a dedicated VPS. Server-side Home discovery fan-out and SSDP address rewriting have also been validated between two real peers; end-to-end visibility depends on whether the client application sends and receives multicast on the VPN interface.
 
 Highlights:
 
 - AWG 3.1 configuration and AmneziaVPN `vpn://` export, plus optional `.conf` download.
 - Per-client Home/Guest isolation with compact full-tunnel profiles.
-- Live online/offline state, current receive/transmit speed, handshake and endpoint diagnostics without traffic history.
+- Recent-handshake state, interval-average receive/transmit rates, handshake and endpoint diagnostics without traffic history.
 - Requested AdGuard IPv4/IPv6 DNS defaults.
 - Automatic IPv6 ULA + scoped NAT66 when VPS IPv6 is usable.
 - Home-only mDNS and UPnP/SSDP discovery. UPnP IGD, NAT-PMP, PCP and every form of automatic port opening are intentionally unsupported. Visibility depends on client applications supporting multicast on the VPN interface.
@@ -20,6 +22,10 @@ Highlights:
 - Pinned `linux/amd64` base images and official AWG source revisions.
 - No migrations, backup/restore, roles, or legacy WireGuard backend.
 - GeoIP-based selective routing is intentionally deferred pending a server-side design.
+
+## Connection diagnostics
+
+“Recent connection” means a handshake within the last 150 seconds, not a guarantee that the device is still connected. Rates are interval averages in bits/s: ↓ sent to the client, ↑ received from it. Server counters may include control traffic; sending does not prove delivery. The first sample shows “Measuring…”, and a failed or timed-out read shows “Data unavailable” instead of stale rates. Expand the diagnostic details to see the actual sampling interval.
 
 ## Client application
 
@@ -43,7 +49,9 @@ The installer prints the first Home profile, panel password, and `vpn://` link o
 docker compose run --rm --no-deps awg-easy export-client "Home admin"
 ```
 
-Optional `--port`, `--panel-port`, and `--lang en|ru|fa|es|zh-cn` arguments select the AWG UDP port, VPN-only panel TCP port, and interface language. If a default port is occupied, an interactive run suggests the next free port and asks for confirmation; an explicitly supplied occupied port remains a strict error. English is the default; Persian uses an RTL layout. Russian, Spanish, and Simplified Chinese are also included.
+Without `--port` or `AWG_PORT`, a clean installation selects one free random UDP port in **20000–60000** (excluding the old default `51820`). The installer checks host sockets and Docker-published ports, then prints the selected endpoint and includes it in client profiles. Allow that UDP port in the VPS/provider firewall. Normal updates preserve the saved port; a clean reinstall selects again unless given an explicit port. A random port is not a guarantee against VPN detection or IP blocking.
+
+Optional `--port`, `--panel-port`, and `--lang en|ru|fa|es|zh-cn` arguments select the AWG UDP port, VPN-only panel TCP port, and interface language. If the default panel TCP port is occupied, an interactive run suggests the next free port and asks for confirmation; an explicitly supplied occupied port remains a strict error. English is the default; Persian uses an RTL layout. Russian, Spanish, and Simplified Chinese are also included.
 
 Supported package managers are APT, DNF, YUM, Zypper, Pacman and APK. NixOS is detected separately: the installer prints a ready-to-use declarative module and low-memory-safe, single-job `nixos-rebuild` instructions instead of editing `configuration.nix`. The installer never removes a conflicting container, interface, route or nftables table; conflicts it cannot resolve safely are reported before host networking is changed.
 
@@ -51,8 +59,8 @@ When run again in an interactive terminal, the installer detects its existing in
 
 After installation, run `sudo awg-easy-3` from any directory to open the same management menu. `sudo awg-easy-3 --uninstall` and `sudo awg-easy-3 --reinstall` are also available without locating the project directory.
 
-Common commands include `sudo awg-easy-3 start|stop|restart|status|settings|logs|diagnose|update`, plus `reset-password`, `export-client NAME`, `uninstall`, and `reinstall`. Run `sudo awg-easy-3 help` for the complete built-in reference.
+On systemd and OpenRC installations, the installer enables one stable-release check after each OS boot without asking a question. It waits five minutes, uses no cron job or additional permanent daemon, ignores prereleases and does nothing when the current release is already current or the panel was deliberately stopped. A candidate image is downloaded and validated before replacement; clients, keys, password, ports and settings are retained. A download failure leaves the running version untouched, while a failed container health check restores the previous release. Systems without a supported native boot hook retain manual updates.
+
+Common commands include `sudo awg-easy-3 start|stop|restart|status|settings|logs|diagnose|update`, plus `reset-password`, `export-client NAME`, `uninstall`, and `reinstall`. Manage the boot check with `sudo awg-easy-3 auto-update status|enable|disable|run`; in particular, `sudo awg-easy-3 auto-update disable` turns the default on-boot check off. Run `sudo awg-easy-3 help` for the complete built-in reference.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for design notes and [NOTICE](NOTICE) for attribution.
-
-Inherited adapted material is licensed under CC BY-NC-SA 4.0. This project is not affiliated with or endorsed by AmneziaVPN.

@@ -1,13 +1,21 @@
 {
   "name": "AWG-Easy 3",
   "short_name": "AWG-Easy 3",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#061426",
-  "theme_color": "#061426",
+  "background_color": "#07111f",
+  "theme_color": "#0d1b2c",
   "icons": [
     {
-      "src": "img/favicon.ico",
-      "type": "image/x-icon"
+      "src": "img/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "img/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
     }
   ]
 }

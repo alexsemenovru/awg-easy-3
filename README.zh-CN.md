@@ -4,13 +4,15 @@
 
 一个面向 **AmneziaWG 3.x** 的轻量 Docker 管理面板。本项目是 [JohnnyVBut/awg-easy](https://github.com/JohnnyVBut/awg-easy) 的独立、非商业分支，专为全新安装 AWG 3.x 而重新构建。
 
-> 状态：首个 v0.1.0 版本。AWG 3.1、Docker 部署、AmneziaVPN Android 导入、IPv4/IPv6、Home/Guest 隔离以及已删除配置的撤销均已在独立 VPS 上验证。服务器端 Home 发现转发和 SSDP 地址重写也已在两个真实 peer 之间验证；最终可见性取决于客户端应用是否通过 VPN 接口支持组播。
+> 当前版本：**0.1.2**。请参阅[发行说明](docs/releases/v0.1.2.md)和[实测报告（俄语）](docs/VPS_TEST_2026-08-30.ru.md)。真实服务器测试覆盖 Ubuntu/systemd，包括手机配置切换和受控的残余流量测试。最后的界面修改已在本地浏览器中验证；OpenRC 仍需真实服务器测试。
+
+> AWG 3.1、Docker 部署、AmneziaVPN Android 导入、IPv4/IPv6、Home/Guest 隔离以及已删除配置的撤销均已在独立 VPS 上验证。服务器端 Home 发现转发和 SSDP 地址重写也已在两个真实 peer 之间验证；最终可见性取决于客户端应用是否通过 VPN 接口支持组播。
 
 ## 功能
 
 - 通过 `vpn://` 链接导入 AWG 3.1 配置，也可下载 `.conf` 文件。
 - Home 客户端可访问面板及其他 Home 客户端；Guest 只能访问互联网。
-- 实时显示在线状态、当前收发速率、握手和端点信息，不保存流量历史。
+- 显示近期握手状态、采样间隔内的平均收发速率、握手和端点信息，不保存流量历史。
 - 默认 AdGuard DNS：`94.140.14.14`、`94.140.15.15`、`2a10:50c0::ad1:ff`、`2a10:50c0::ad2:ff`。
 - VPS 支持 IPv6 时自动配置 ULA 和限定范围的 NAT66。
 - 仅为 Home 提供 mDNS 和 UPnP/SSDP 服务发现。明确不支持 UPnP IGD、NAT-PMP、PCP 以及任何自动开放或映射端口的功能。应用能否发现服务取决于客户端是否在 VPN 接口上支持组播。
@@ -18,6 +20,10 @@
 - 使用独立 nftables 表和范围严格的 `awg0` 规则，不清除其他服务的规则。
 - 不提供 2.x 迁移、备份恢复、用户角色或旧版 WireGuard 后端。
 - GeoIP 选择性路由推迟到具备合适的服务端设计之后。
+
+## 连接诊断
+
+“近期连接”表示过去 150 秒内有握手，不保证设备当前仍在线。速率是采样间隔内的平均值，单位为比特/秒：↓ 发送至客户端，↑ 从客户端接收。计数可能包含控制流量；发送不代表已送达。首次采样显示正在测量；读取失败或超时时显示数据不可用，而不是保留旧速率。展开诊断详情可查看实际采样间隔。
 
 ## 客户端应用
 
@@ -35,9 +41,13 @@ cd awg-easy-3
 sudo ./install.sh --host 公网IP或域名 --lang zh-cn
 ```
 
-可选参数包括 `--port`、`--panel-port` 和 `--lang en|ru|fa|es|zh-cn`。默认端口被占用时，交互式运行会建议下一个可用端口；明确指定的占用端口会报错，不会被静默替换。支持 APT、DNF、YUM、Zypper、Pacman 和 APK。在 NixOS 上，安装程序会输出声明式模块和限制为单任务的 `nixos-rebuild` 命令，不会自动编辑 `configuration.nix`。即使修改面板端口，它仍不会公开到互联网。安装程序只显示一次面板密码和首个 Home 配置链接。将链接导入 AmneziaVPN，然后打开 `http://10.8.0.1:51821`。
+未指定 `--port` 或 `AWG_PORT` 时，全新安装会在 **20000–60000** 中随机选择一个空闲 UDP 端口，排除旧默认值 `51820`。安装程序检查系统套接字及 Docker 发布的端口，显示所选端口并将其写入客户端配置。请在 VPS/提供商防火墙中允许该 UDP 端口。普通更新保留已保存的端口；从零重新安装会重新选择，除非明确指定。随机端口不能保证避开 VPN 检测或 IP 封锁。
+
+可选参数包括 `--port`、`--panel-port` 和 `--lang en|ru|fa|es|zh-cn`。面板的默认 TCP 端口被占用时，交互式运行会建议下一个可用端口；明确指定的占用端口会报错，不会被静默替换。支持 APT、DNF、YUM、Zypper、Pacman 和 APK。在 NixOS 上，安装程序会输出声明式模块和限制为单任务的 `nixos-rebuild` 命令，不会自动编辑 `configuration.nix`。即使修改面板端口，它仍不会公开到互联网。安装程序只显示一次面板密码和首个 Home 配置链接。将链接导入 AmneziaVPN，然后打开 `http://10.8.0.1:51821`。
 
 在交互式终端中再次运行时，安装程序会检测现有安装，并提供保留、完全卸载或从零重新安装三个选项。后两项需要确认，并会永久删除 AWG-Easy 3 的所有客户端、密钥、密码和设置。自动化环境可使用 `--uninstall` 或 `--reinstall`。卸载只停止本项目的 Compose 服务并删除其数据和专用 sysctl 文件；Docker、其他容器、镜像、网络、防火墙规则以及主机当前的转发值均不会被修改。
+
+在 systemd 和 OpenRC 系统上，安装程序不会询问，而是默认启用“每次系统启动五分钟后检查一次稳定版本”。它不会安装 cron、额外容器或常驻守护进程。预发布版本会被忽略；当前版本已是最新或面板被有意停止时，不会执行替换。候选镜像会在替换前完整下载并验证，客户端、密钥、密码、端口和设置均会保留。网络失败不会改动工作版本，容器健康检查失败则会恢复上一版本。其他 init 系统仍可使用安全的手动更新。
 
 ## 本地管理
 
@@ -49,6 +59,6 @@ sudo awg-easy-3 reset-password
 sudo awg-easy-3 export-client "Home admin"
 ```
 
-还可从任意目录使用 `start`、`stop`、`restart`、`settings`、`logs`、`diagnose`、`uninstall` 和 `reinstall`。
+还可从任意目录使用 `start`、`stop`、`restart`、`settings`、`logs`、`diagnose`、`uninstall` 和 `reinstall`。使用 `sudo awg-easy-3 auto-update status|enable|disable|run` 管理启动后检查；若要关闭默认启用的功能，请运行 `sudo awg-easy-3 auto-update disable`。
 
 继承并改编的材料按 **CC BY-NC-SA 4.0** 发布。请参阅 [LICENSE](LICENSE)、[NOTICE](NOTICE) 和 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。本项目与 AmneziaVPN 没有关联，也未获其官方认可。

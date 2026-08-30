@@ -32,6 +32,11 @@ const main = async () => {
       uiLanguage: process.env.AWG_LANG || 'en',
     }));
   }
+  if (command === 'settings') {
+    const settings = await application.settings();
+    process.stdout.write(Object.entries(settings).map(([key, value]) => `${key}=${value}\n`).join(''));
+    return;
+  }
   if (command === 'reset-password') {
     const password = await application.resetPassword(process.argv[3]);
     process.stdout.write(`New panel password (shown once): ${password}\n`);

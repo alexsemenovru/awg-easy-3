@@ -10,6 +10,9 @@ IFS= read -r project_dir < "$location_file"
 case "$project_dir" in /*) ;; *) die "invalid installation location" ;; esac
 [ -f "$project_dir/docker-compose.yml" ] || die "docker-compose.yml not found in $project_dir"
 [ -x "$project_dir/install.sh" ] || die "installer not found in $project_dir"
+[ -r "$project_dir/lib/auto-update.sh" ] || die "auto-update support is missing from $project_dir"
+# shellcheck disable=SC1091
+. "$project_dir/lib/auto-update.sh"
 
 compose() {
   docker compose --project-directory "$project_dir" -f "$project_dir/docker-compose.yml" "$@"
@@ -24,10 +27,12 @@ AWG-Easy 3 management commands:
   awg-easy-3 stop            Stop the panel and VPN cleanly
   awg-easy-3 restart         Restart the panel and VPN
   awg-easy-3 status          Show container and network status
-  awg-easy-3 settings        Show non-secret runtime settings
+  awg-easy-3 settings        Show non-secret saved settings
   awg-easy-3 logs            Follow panel logs
   awg-easy-3 diagnose        Show status and recent logs
-  awg-easy-3 update          Pull project and pinned image updates
+  awg-easy-3 update          Install the newest stable release safely
+  awg-easy-3 auto-update enable|disable|status|run
+                              Manage the check performed after OS boot
   awg-easy-3 reset-password  Generate a new panel password
   awg-easy-3 export-client NAME
                               Export an existing client by name or ID
@@ -49,8 +54,9 @@ case "$command" in
     if nft list table inet awg_easy_3 >/dev/null 2>&1; then printf 'nftables policy: active\n'; else printf 'nftables policy: inactive\n'; fi
     ;;
   settings)
-    docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' awg-easy-3 2>/dev/null \
-      | grep -E '^AWG_(HOST|PORT|PANEL_PORT|LANG)=' || die "AWG-Easy 3 container is unavailable"
+    # State, not initialization-time environment, is authoritative after updates.
+    # One-shot read also works while the VPN container is deliberately stopped.
+    compose run --rm --no-deps -T awg-easy settings
     ;;
   logs) compose logs --tail=100 -f awg-easy ;;
   diagnose)
@@ -59,10 +65,19 @@ case "$command" in
     compose logs --tail=50 awg-easy
     ;;
   update)
-    git -C "$project_dir" pull --ff-only
-    install -m 0755 "$project_dir/awg-easy-3" /usr/local/sbin/awg-easy-3
-    compose pull awg-easy
-    compose up -d awg-easy
+    awg_easy_run_stable_update
+    ;;
+  auto-update)
+    subcommand=${2:-status}
+    case "$subcommand" in
+      enable)
+        if awg_easy_auto_update_enable; then :; else exit $?; fi
+        ;;
+      disable) awg_easy_auto_update_disable ;;
+      status) awg_easy_auto_update_status ;;
+      run) awg_easy_run_stable_update automatic ;;
+      *) die "unknown auto-update command: $subcommand (use enable, disable, status or run)" ;;
+    esac
     ;;
   reset-password)
     shift

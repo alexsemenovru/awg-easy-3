@@ -71,6 +71,18 @@ class Application {
     });
   }
 
+  async settings() {
+    const state = await this.store.load();
+    if (!state) throw new Error('AWG-Easy 3 is not initialized; run the init command first');
+    // An explicit allowlist: never return keys, password hashes or client data.
+    return Object.freeze({
+      AWG_HOST: state.server.endpointHost,
+      AWG_PORT: state.server.listenPort,
+      AWG_PANEL_PORT: state.server.panelPort,
+      AWG_LANG: state.server.uiLanguage ?? 'en',
+    });
+  }
+
   async interfaceActive(interfaceName) {
     try {
       await this.runner('awg', ['show', interfaceName]);

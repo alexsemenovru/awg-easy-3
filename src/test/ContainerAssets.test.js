@@ -18,7 +18,8 @@ test('pins amd64 base images and official AWG source revisions', () => {
   assert.match(compose, /network_mode: host/);
   assert.match(compose, /read_only: true/);
   assert.match(compose, /AWG_LANG: \$\{AWG_LANG:-en\}/);
-  assert.match(compose, /ghcr\.io\/alexsemenovru\/awg-easy-3:0\.1\.1/);
+  const version = fs.readFileSync(path.join(root, 'VERSION'), 'utf8').trim();
+  assert.ok(compose.includes(`ghcr.io/alexsemenovru/awg-easy-3:${version}`));
   assert.match(dockerfile, /\$\{AWG_PANEL_PORT\}/);
   assert.doesNotMatch(compose, /SYS_MODULE|ports:/);
 });
@@ -116,11 +117,12 @@ test('installer offers owned uninstall and clean reinstall without touching fore
   assert.match(installer, /Run sudo awg-easy-3 from any directory/);
   assert.match(installer, /Confirmation input was closed; nothing was removed/);
   assert.match(installer, /Please answer y\/yes \(or д\/да\)/);
-  for (const command of ['start', 'stop', 'restart', 'status', 'settings', 'logs', 'diagnose', 'update', 'reset-password', 'export-client', 'uninstall', 'reinstall']) {
+  for (const command of ['start', 'stop', 'restart', 'status', 'settings', 'logs', 'diagnose', 'update', 'auto-update', 'reset-password', 'export-client', 'uninstall', 'reinstall']) {
     assert.match(manager, new RegExp(`\\b${command.replace('-', '\\-')}\\b`));
   }
   assert.match(manager, /docker compose --project-directory "\$project_dir"/);
-  assert.match(manager, /git -C "\$project_dir" pull --ff-only/);
+  assert.match(manager, /awg_easy_run_stable_update/);
+  assert.doesNotMatch(manager, /git -C "\$project_dir" pull --ff-only/);
   assert.doesNotMatch(manager, /docker system prune|docker volume prune|docker image prune/);
   assert.ok(installer.indexOf(' down --remove-orphans') < installer.indexOf('rm -rf -- "$EXISTING_INSTALL_DIR/data"'));
   assert.doesNotMatch(installer, /docker system prune|docker volume prune|docker image prune/);

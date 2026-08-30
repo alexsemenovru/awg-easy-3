@@ -44,6 +44,24 @@ test('adds IPv6 home and guest policy when enabled', () => {
   assert.match(rules, /ip6 saddr @home6 ip6 daddr @home6 accept/);
 });
 
+test('both Home-family permits precede the shared inter-peer isolation drop', () => {
+  const rules = renderNftablesPolicy({
+    ...basePolicy(),
+    ipv6Subnet: 'fd42:8:3::/64',
+    home6: ['fd42:8:3::2'],
+    guest6: ['fd42:8:3::3'],
+  });
+  const lines = rules.split('\n');
+  const home4 = lines.findIndex((line) => line.includes('ip saddr @home4 ip daddr @home4 accept'));
+  const home6 = lines.findIndex((line) => line.includes('ip6 saddr @home6 ip6 daddr @home6 accept'));
+  const isolation = lines.findIndex((line) => /iifname "awg0" oifname "awg0" drop/.test(line));
+  assert.ok(home4 >= 0 && home6 >= 0 && isolation > home4 && isolation > home6,
+    'a family-neutral drop must not shadow the IPv6 Home permit');
+  assert.equal(lines.filter((line) => /iifname "awg0" oifname "awg0" drop/.test(line)).length, 1);
+  assert.ok(isolation < lines.findIndex((line) => line.includes('AWG IPv4 to WAN')));
+  assert.ok(isolation < lines.findIndex((line) => line.includes('AWG IPv6 to WAN')));
+});
+
 test('adds NAT66 only for the project IPv6 prefix when requested', () => {
   const policy = renderNftablesPolicy({
     interfaceName: 'awg0',

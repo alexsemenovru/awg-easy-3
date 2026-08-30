@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const { Application } = require('../lib/Application');
+const { decodeVpnLink } = require('../lib/AmneziaVpnLink');
 const { generateOfficialProfile } = require('../lib/Awg3Config');
 const { validateState } = require('../lib/StateStore');
 
@@ -96,4 +97,39 @@ test('re-exports an existing client by name or ID without changing state', async
   assert.equal(byId.vpnLink, byName.vpnLink);
   await assert.rejects(application.exportClient('missing'), /Unknown client/);
   await assert.rejects(application.exportClient(''), /required/);
+});
+
+test('restart and client export use the persisted random UDP port', async () => {
+  const { application } = fixture();
+  const base = stateFixture();
+  const state = validateState({ ...base, server: { ...base.server, listenPort: 42123 } });
+  application.store.load = async () => state;
+  const applied = [];
+  application.applier.apply = async (artifacts) => applied.push(artifacts);
+  await application.start();
+  await application.stop();
+  await application.start();
+  assert.equal(applied.length, 2);
+  for (const artifacts of applied) {
+    assert.match(artifacts.serverConfig, /ListenPort = 42123/);
+    assert.match(artifacts.nftables, /tcp dport 51821/);
+  }
+  const exported = decodeVpnLink((await application.exportClient('home-admin')).vpnLink);
+  const config = JSON.parse(exported.containers[0].awg.last_config).config;
+  assert.match(config, /Endpoint = vpn\.example\.com:42123/);
+  await application.stop();
+});
+
+test('settings reports only saved public settings and does not start the runtime', async () => {
+  const { application, calls } = fixture();
+  const base = stateFixture();
+  application.store.load = async () => validateState({
+    ...base, server: { ...base.server, listenPort: 42123, panelPort: 8080, uiLanguage: 'ru' },
+  });
+  assert.deepEqual(await application.settings(), {
+    AWG_HOST: 'vpn.example.com', AWG_PORT: 42123, AWG_PANEL_PORT: 8080, AWG_LANG: 'ru',
+  });
+  assert.deepEqual(calls, []);
+  application.store.load = async () => null;
+  await assert.rejects(application.settings(), /not initialized/);
 });

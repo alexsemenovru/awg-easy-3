@@ -13,7 +13,7 @@ is_interactive() { [ -t 0 ]; }
 has_command() { command -v "$1" >/dev/null 2>&1; }
 
 AWG_HOST_VALUE=${AWG_HOST:-}
-AWG_PORT_VALUE=${AWG_PORT:-51820}
+AWG_PORT_VALUE=${AWG_PORT-}
 AWG_PANEL_PORT_VALUE=${AWG_PANEL_PORT:-51821}
 AWG_LANG_VALUE=${AWG_LANG:-en}
 AWG_PORT_EXPLICIT=0
@@ -35,7 +35,8 @@ while [ "$#" -gt 0 ]; do
       printf '       sudo ./install.sh --uninstall\n'
       printf '       sudo ./install.sh --reinstall [installation options]\n'
       printf '\nMissing runtime packages are installed with the system package manager.\n'
-      printf 'When a default port is occupied, an interactive terminal suggests a free alternative.\n'
+      printf 'Without --port or AWG_PORT, a random free UDP port from 20000 to 60000 is chosen.\n'
+      printf 'When the default panel TCP port is occupied, an interactive terminal suggests a free alternative.\n'
       printf 'Uninstall and reinstall permanently delete every AWG-Easy 3 client and setting.\n'
       exit 0
       ;;
@@ -43,7 +44,9 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-valid_port "$AWG_PORT_VALUE" || die "--port must be an integer between 1 and 65535"
+if [ "$AWG_PORT_EXPLICIT" -eq 1 ]; then
+  valid_port "$AWG_PORT_VALUE" || die "--port must be an integer between 1 and 65535"
+fi
 valid_port "$AWG_PANEL_PORT_VALUE" || die "--panel-port must be an integer between 1 and 65535"
 case "$AWG_LANG_VALUE" in en|ru|fa|es|zh-cn) ;; *) die "--lang must be en, ru, fa, es or zh-cn" ;; esac
 
@@ -62,6 +65,9 @@ case "$(uname -m)" in x86_64|amd64) ;; *) die "only linux/amd64 is supported in 
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$SCRIPT_DIR"
+[ -r "$SCRIPT_DIR/lib/auto-update.sh" ] || die "installer auto-update support is missing"
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/lib/auto-update.sh"
 EXISTING_INSTALL_DIR=""
 
 detect_existing_installation() {
@@ -307,6 +313,14 @@ has_command nft || die "nftables installation did not provide the nft command"
 
 remove_existing_installation() {
   confirm_data_removal || die "removal cancelled; the existing installation was left unchanged"
+  if ! awg_easy_acquire_update_lock; then
+    die "an AWG-Easy 3 update is running; wait for it to finish before removing the installation"
+  fi
+  AWG_EASY_UPDATE_STAGE=
+  trap awg_easy_update_cleanup 0
+  trap 'awg_easy_update_cleanup; exit 1' HUP INT TERM
+  info "Disabling the AWG-Easy 3 automatic update hook"
+  awg_easy_auto_update_disable
   info "Stopping only the AWG-Easy 3 Compose service"
   docker compose --project-directory "$EXISTING_INSTALL_DIR" -f "$EXISTING_INSTALL_DIR/docker-compose.yml" down --remove-orphans
   if ip link show dev awg0 >/dev/null 2>&1; then
@@ -375,10 +389,65 @@ port_in_use() {
   protocol=$1
   port=$2
   case "$protocol" in
-    udp) ss -H -lun "sport = :$port" | grep -q . ;;
-    tcp) ss -H -ltn "sport = :$port" | grep -q . ;;
-    *) return 1 ;;
+    udp) listeners=$(ss -H -uan "sport = :$port") || die "unable to inspect UDP sockets" ;;
+    tcp) listeners=$(ss -H -ltn "sport = :$port") || die "unable to inspect TCP sockets" ;;
+    *) die "unsupported port protocol" ;;
   esac
+  [ -z "$listeners" ] || return 0
+  # Docker can publish a DNAT port without a docker-proxy listening socket.
+  container_ids=$(docker ps -q) || die "unable to inspect Docker port ownership"
+  if [ -n "$container_ids" ]; then
+    # Docker supplies whitespace-separated hexadecimal IDs, not shell code.
+    # shellcheck disable=SC2086
+    published_ports=$(docker inspect --format '{{range $port, $bindings := .NetworkSettings.Ports}}{{range $bindings}}{{printf "%s %s\n" $port .HostPort}}{{end}}{{end}}' $container_ids) \
+      || die "unable to inspect Docker published ports"
+    if printf '%s\n' "$published_ports" | awk -v port="$port" -v protocol="$protocol" '
+      $1 ~ ("/" protocol "$") && $2 == port { found = 1 }
+      END { exit !found }
+    '; then
+      return 0
+    else
+      inspect_status=$?
+      [ "$inspect_status" -eq 1 ] || die "unable to parse Docker published ports"
+    fi
+  fi
+  return 1
+}
+
+random_port_candidate() {
+  # Rejection sampling avoids modulo bias: 0..40000 maps to 20000..60000.
+  # /dev/urandom and od are supplied by Linux/coreutils or BusyBox, no daemon.
+  entropy_attempt=0
+  while [ "$entropy_attempt" -lt 32 ]; do
+    entropy_attempt=$((entropy_attempt + 1))
+    random_value=$(od -An -N2 -tu2 /dev/urandom) || die "unable to read random port data; use --port UDP_PORT"
+    # Word splitting trims od's padding. Validate before arithmetic.
+    # shellcheck disable=SC2086
+    set -- $random_value
+    [ "$#" -eq 1 ] || die "invalid random port data; use --port UDP_PORT"
+    case "$1" in ''|*[!0-9]*) die "invalid random port data; use --port UDP_PORT" ;; esac
+    [ "$1" -le 65535 ] || die "invalid random port data; use --port UDP_PORT"
+    if [ "$1" -le 40000 ]; then
+      printf '%s\n' "$((20000 + $1))"
+      return 0
+    fi
+  done
+  die "unable to choose a random port; use --port UDP_PORT"
+}
+
+choose_random_udp_port() {
+  random_attempt=0
+  while [ "$random_attempt" -lt 128 ]; do
+    random_attempt=$((random_attempt + 1))
+    random_candidate=$(random_port_candidate) || return 1
+    # Avoid accidentally selecting the well-known old default.
+    [ "$random_candidate" -ne 51820 ] || continue
+    if ! port_in_use udp "$random_candidate"; then
+      printf '%s\n' "$random_candidate"
+      return 0
+    fi
+  done
+  die "could not find a free random UDP port after 128 attempts; use --port UDP_PORT"
 }
 
 next_free_port() {
@@ -450,6 +519,10 @@ if nft list table inet awg_easy_3 >/dev/null 2>&1; then
   die "nftables table inet awg_easy_3 already exists; the installer will not overwrite an unowned or stale table"
 fi
 
+if [ "$AWG_PORT_EXPLICIT" -eq 0 ]; then
+  AWG_PORT_VALUE=$(choose_random_udp_port)
+  info "Selected random AWG UDP port: $AWG_PORT_VALUE"
+fi
 AWG_PORT_VALUE=$(choose_available_port udp "$AWG_PORT_VALUE" "$AWG_PORT_EXPLICIT" "AWG UDP")
 AWG_PANEL_PORT_VALUE=$(choose_available_port tcp "$AWG_PANEL_PORT_VALUE" "$AWG_PANEL_PORT_EXPLICIT" "Panel TCP")
 
@@ -482,7 +555,20 @@ docker compose run --rm --no-deps \
 
 info "Starting AWG-Easy 3"
 docker compose up -d awg-easy
+awg_easy_wait_healthy || die "AWG-Easy 3 did not become healthy; automatic updates were not enabled"
 install_management_command
+
+info "Enabling the stable update check after OS boot"
+if awg_easy_auto_update_enable; then
+  :
+else
+  auto_update_status=$?
+  if [ "$auto_update_status" -eq 2 ]; then
+    printf 'The panel is installed, but this init system has no supported automatic-update hook.\n' >&2
+  else
+    die "the panel is installed, but its automatic-update hook could not be enabled"
+  fi
+fi
 
 printf '\nInstallation complete.\n'
 printf 'AWG endpoint: %s:%s/udp\n' "$AWG_HOST_VALUE" "$AWG_PORT_VALUE"
@@ -490,3 +576,5 @@ printf 'Panel language: %s\n' "$AWG_LANG_VALUE"
 printf 'The panel has no public TCP listener. Connect the first Home profile, then open http://10.8.0.1:%s\n' "$AWG_PANEL_PORT_VALUE"
 printf 'If your provider has a cloud firewall, allow inbound UDP %s manually.\n' "$AWG_PORT_VALUE"
 printf 'Run sudo awg-easy-3 from any directory to manage, uninstall or reinstall the panel.\n'
+printf 'Automatic stable update checks are enabled when systemd or OpenRC is available.\n'
+printf 'Disable them with: sudo awg-easy-3 auto-update disable\n'
