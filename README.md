@@ -4,7 +4,7 @@
 
 An intentionally small Docker web panel for **AmneziaWG 3.x**. This is an independent, non-commercial fork of [JohnnyVBut/awg-easy](https://github.com/JohnnyVBut/awg-easy), rebuilt around clean AWG 3.x installations.
 
-> This branch contains test candidate **0.1.2-rc.1**, pending VPS validation. Stable **0.1.1** is unchanged. The previously validated baseline is described below; it does not certify the new changes. See the [candidate test checklist (Russian)](docs/RELEASE_TEST.ru.md). Normal stable updates do not install RC builds.
+> This branch contains test candidate **0.1.2-rc.2**, pending VPS validation. Stable **0.1.1** is unchanged. The previously validated baseline is described below; it does not certify the new changes. See the [candidate test checklist (Russian)](docs/RELEASE_TEST.ru.md). Normal stable updates do not install RC builds.
 
 > Status: initial v0.1.0 release. The pinned AWG 3.1 engine, Docker deployment, AmneziaVPN Android import, IPv4/IPv6 connectivity, Home/Guest isolation and profile revocation have been validated on a dedicated VPS. Server-side Home discovery fan-out and SSDP address rewriting have also been validated between two real peers; end-to-end visibility depends on whether the client application sends and receives multicast on the VPN interface.
 

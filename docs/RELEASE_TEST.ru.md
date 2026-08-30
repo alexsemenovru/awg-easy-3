@@ -1,4 +1,4 @@
-# Проверка кандидата 0.1.2-rc.1 на VPS
+# Проверка кандидата 0.1.2-rc.2 на VPS
 
 Этот сценарий предназначен для временного тестового VPS после его очистки. Он
 проверяет не только AWG-Easy 3, но и то, что установка не повреждает уже
@@ -6,7 +6,7 @@
 
 Нужен образ из того же выпуска, что установщик и управляющий скрипт.
 Использовать кандидат только после успешного workflow **Build and Push Docker
-Image** для тега `v0.1.2-rc.1`. Стабильный образ `0.1.1` этих изменений не содержит.
+Image** для тега `v0.1.2-rc.2`. Стабильный образ `0.1.1` этих изменений не содержит.
 Обычная команда `update` не устанавливает RC.
 
 ## 1. Подготовить контрольную точку
@@ -34,7 +34,7 @@ sysctl net.ipv4.ip_forward net.ipv6.conf.all.forwarding
 На тестовом сервере, где AWG-Easy 3 ещё не установлен:
 
 ```bash
-git clone --branch v0.1.2-rc.1 https://github.com/alexsemenovru/awg-easy-3.git awg-easy-3-rc
+git clone --branch v0.1.2-rc.2 https://github.com/alexsemenovru/awg-easy-3.git awg-easy-3-rc
 cd awg-easy-3-rc
 sudo ./install.sh
 sudo awg-easy-3 status

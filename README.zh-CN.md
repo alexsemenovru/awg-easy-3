@@ -4,7 +4,7 @@
 
 一个面向 **AmneziaWG 3.x** 的轻量 Docker 管理面板。本项目是 [JohnnyVBut/awg-easy](https://github.com/JohnnyVBut/awg-easy) 的独立、非商业分支，专为全新安装 AWG 3.x 而重新构建。
 
-> 本分支包含测试候选版本 **0.1.2-rc.1**，尚待 VPS 验证。稳定版 **0.1.1** 保持不变。下文所述历史测试并不代表新改动已通过验证。请参阅[候选版本测试清单（俄语）](docs/RELEASE_TEST.ru.md)。正常的稳定版更新不会安装 RC 版本。
+> 本分支包含测试候选版本 **0.1.2-rc.2**，尚待 VPS 验证。稳定版 **0.1.1** 保持不变。下文所述历史测试并不代表新改动已通过验证。请参阅[候选版本测试清单（俄语）](docs/RELEASE_TEST.ru.md)。正常的稳定版更新不会安装 RC 版本。
 
 > 状态：首个 v0.1.0 版本。AWG 3.1、Docker 部署、AmneziaVPN Android 导入、IPv4/IPv6、Home/Guest 隔离以及已删除配置的撤销均已在独立 VPS 上验证。服务器端 Home 发现转发和 SSDP 地址重写也已在两个真实 peer 之间验证；最终可见性取决于客户端应用是否通过 VPN 接口支持组播。
 

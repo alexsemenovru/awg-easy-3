@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.1.2-rc.2 — 2026-08-30
+
+Test candidate; field validation continues.
+
+- Fixed a firewall rule-ordering defect found with two actual AWG tunnels on the test VPS: the shared inter-peer drop shadowed the IPv6 Home permit. Both IPv4 and IPv6 Home permits now precede the common isolation rule; Guest traffic remains blocked in both families.
+- Added a regression test for permit/drop ordering. The fix does not add the planned per-client IPv4/IPv6 switches.
+- Includes the diagnostics, installer, branding and boot-update changes from rc.1. Stable `0.1.1` and `latest` are unchanged.
+
 ## v0.1.2-rc.1 — 2026-08-30
 
 Test candidate, not a stable release. VPS validation is still required.
