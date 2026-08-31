@@ -74,6 +74,8 @@ for (const [status, ownPid] of [[0, true], [1, true], [0, false]]) {
     const runner = match[1]
       .replace('exec >> /var/log/awg-easy-3-update.log 2>&1', '')
       .replace('/usr/local/sbin/awg-easy-3 auto-update run', 'run_test_update')
+      // dash rejects hyphens in function names; substitute only the mock command.
+      .replace('rc-service --nodeps', 'run_test_rc_service --nodeps')
       .replace('pidfile=/run/awg-easy-3-update.pid', 'pidfile="$task_root/pid"');
     const result = spawnSync(shell, ['-s'], {
       input: `task_root=$(mktemp -d /tmp/awg-openrc-test.XXXXXX) || exit 90\n`
@@ -81,7 +83,7 @@ for (const [status, ownPid] of [[0, true], [1, true], [0, false]]) {
         + `printf '%s\\n' ${ownPid ? '"$$"' : '99999999'} > "$task_root/pid"\n`
         + `sleep() { [ "$1" = 300 ] || exit 91; }\n`
         + `run_test_update() { return ${status}; }\n`
-        + `rc-service() { [ "$*" = '--nodeps awg-easy-3-update zap' ] || exit 92; printf 'ZAPPED\\n' >&3; }\n`
+        + `run_test_rc_service() { [ "$*" = '--nodeps awg-easy-3-update zap' ] || exit 92; printf 'ZAPPED\\n' >&3; }\n`
         + `exec 3>&1\n${runner}\n`,
       encoding: 'utf8', timeout: 10_000, windowsHide: true,
     });
