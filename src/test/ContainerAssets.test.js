@@ -62,6 +62,12 @@ test('installer rejects network conflicts before changing host settings', () => 
   }
 });
 
+test('installer applies only its own sysctl file using BusyBox-compatible options', () => {
+  const installer = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
+  assert.match(installer, /^sysctl -p \/etc\/sysctl\.d\/99-awg-easy-3\.conf >\/dev\/null$/m);
+  assert.doesNotMatch(installer, /^sysctl --system/m);
+});
+
 test('installer can provision missing runtime dependencies without replacing foreign state', () => {
   const installer = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
   assert.match(installer, /detect_package_manager/);

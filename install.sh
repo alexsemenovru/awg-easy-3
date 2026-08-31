@@ -541,7 +541,9 @@ net.ipv4.ip_forward=1
 net.ipv6.conf.all.forwarding=1
 EOF
 chmod 0644 /etc/sysctl.d/99-awg-easy-3.conf
-sysctl --system >/dev/null
+# BusyBox (Alpine) has no --system option. Apply only our own settings instead
+# of reloading unrelated services' sysctl configuration on this VPS.
+sysctl -p /etc/sysctl.d/99-awg-easy-3.conf >/dev/null
 
 install -d -m 0700 data
 
