@@ -6,7 +6,9 @@
 - Enforce permissions in both directions in the owned nftables table, including existing connections and local server traffic. Do not change foreign interfaces/rules or create direct fallback, WARP, NAT64 or DNS bypass exceptions.
 - Bind the panel to its internal IPv6 address as well as IPv4. Protect the current administration path and the last permitted Home client; translate controls, errors and DNS caveats into all five languages.
 - Read legacy clients without regenerating profiles or enabling disabled peers. Persist conservative legacy `enabled` values so manual downgrade cannot silently reopen a blocked family.
-- Add regression coverage and an optional isolated Linux packet test. Real AWG client DNS compatibility, container build and Alpine/OpenRC field validation remain pending. See [implementation and test plan](docs/IP_FAMILIES.ru.md).
+- Make installation work on minimal Alpine hosts: apply only the owned sysctl file with BusyBox-compatible options, create the management-command directory, and persist TUN loading across OS boots. Uninstall removes only the owned modules-load file and does not unload modules used by other services.
+- Finish the OpenRC one-shot worker without leaving a false crashed-service status; preserve its exit result and avoid clearing a replacement worker's state.
+- Add regression and field coverage: complete Dockerfile build, legacy migration, real AWG family/peer isolation tests and native OpenRC reboot checks on Alpine. Android/Windows AmneziaVPN DNS compatibility remains pending. See the [field report](docs/VPS_TEST_2026-08-31.ru.md) and [implementation/test plan](docs/IP_FAMILIES.ru.md).
 
 ## v0.1.2 — 2026-08-30
 
