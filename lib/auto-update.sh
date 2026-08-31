@@ -71,7 +71,17 @@ awg_easy_auto_update_enable_openrc() {
 #!/bin/sh
 exec >> /var/log/awg-easy-3-update.log 2>&1
 sleep 300
-exec /usr/local/sbin/awg-easy-3 auto-update run
+update_status=0
+/usr/local/sbin/awg-easy-3 auto-update run || update_status=$?
+printf 'Boot update check finished with exit status %s.\n' "$update_status"
+# This worker intentionally exits after one check. Forget its running state so
+# OpenRC does not mistake successful completion for a crashed daemon. Never zap
+# a replacement worker that may have been started in the meantime.
+pidfile=/run/awg-easy-3-update.pid
+if [ -r "$pidfile" ] && [ "$(cat "$pidfile")" = "$$" ]; then
+  rc-service --nodeps awg-easy-3-update zap >/dev/null 2>&1 || true
+fi
+exit "$update_status"
 EOF
   chmod 0755 "$AWG_EASY_UPDATE_OPENRC_RUNNER" || return 1
   openrc_run=$(command -v openrc-run) || return 1
