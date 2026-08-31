@@ -4,7 +4,7 @@
 
 An intentionally small Docker web panel for **AmneziaWG 3.x**. This is an independent, non-commercial fork of [JohnnyVBut/awg-easy](https://github.com/JohnnyVBut/awg-easy), rebuilt around clean AWG 3.x installations.
 
-> Current release: **0.1.2**. See the [release notes](docs/releases/v0.1.2.md) and [field report (Russian)](docs/VPS_TEST_2026-08-30.ru.md). Real-host tests covered Ubuntu/systemd, including a phone profile switch and a controlled residual-traffic probe. Final UI changes were browser-tested locally; OpenRC still needs real-host validation.
+> Current release: **0.1.3**. Adds per-client IPv4/IPv6 permissions and collapsible Access settings. Alpine/OpenRC installation, migration and reboots have now been tested on a real VPS, alongside the earlier Ubuntu/systemd coverage. Final UI changes were browser-tested locally after the VPS was deleted. See the [release notes](docs/releases/v0.1.3.md) and [Alpine field report (Russian)](docs/VPS_TEST_2026-08-31.ru.md).
 
 > The pinned AWG 3.1 engine, Docker deployment, AmneziaVPN Android import, IPv4/IPv6 connectivity, Home/Guest isolation and profile revocation have been validated on a dedicated VPS. Server-side Home discovery fan-out and SSDP address rewriting have also been validated between two real peers; end-to-end visibility depends on whether the client application sends and receives multicast on the VPN interface.
 
@@ -12,16 +12,25 @@ Highlights:
 
 - AWG 3.1 configuration and AmneziaVPN `vpn://` export, plus optional `.conf` download.
 - Per-client Home/Guest isolation with compact full-tunnel profiles.
+- Independent IPv4/IPv6 permissions in Access settings, without re-importing profiles.
 - Recent-handshake state, interval-average receive/transmit rates, handshake and endpoint diagnostics without traffic history.
 - Requested AdGuard IPv4/IPv6 DNS defaults.
 - Automatic IPv6 ULA + scoped NAT66 when VPS IPv6 is usable.
 - Home-only mDNS and UPnP/SSDP discovery. UPnP IGD, NAT-PMP, PCP and every form of automatic port opening are intentionally unsupported. Visibility depends on client applications supporting multicast on the VPN interface.
-- VPN-only panel at `http://10.8.0.1:51821` with one password.
+- VPN-only panel at `http://10.8.0.1:51821` and its internal IPv6 address when available, with one password.
 - Dedicated nftables table, narrowly tagged `awg0` rules in Docker's
   `DOCKER-USER` chain when required, and no public Web UI port.
 - Pinned `linux/amd64` base images and official AWG source revisions.
-- No migrations, backup/restore, roles, or legacy WireGuard backend.
+- No migration from 2.x, backup/restore, roles, or legacy WireGuard backend. Updates from 0.1.2 retain existing clients.
 - GeoIP-based selective routing is intentionally deferred pending a server-side design.
+
+## Client access settings
+
+Expand **Access settings** on a client card to allow IPv4 and IPv6 independently. Both off disables the client; the current mode remains visible when the section is closed. Home/Guest is independent. Changes apply in both directions inside the VPN, including existing connections; keys, profiles, addresses, DNS and routes remain unchanged. The panel protects the current administration path and the last permitted Home client. Internal IPv4/IPv6 panel links are listed under VPN traffic permissions.
+
+**IPv6-only may lose DNS resolution:** AmneziaVPN may apply only its IPv4 DNS fields even when the profile contains IPv6 DNS. Direct IPv6 can still work; enabling IPv4 restores access to IPv4 DNS. No DNS bypass, NAT64, WARP or direct fallback is added. The panel cannot control traffic excluded by the client's split-tunnelling rules; disable those filters for baseline tests. Discovery relay uses IPv4 and does not include clients whose IPv4 is blocked.
+
+Update with `sudo awg-easy-3 update`, not `reinstall`: existing clients, keys, password and ports are retained, and disabled clients stay disabled. Manual downgrade may fully disable partially restricted clients to avoid reopening a forbidden family. See the [release notes](docs/releases/v0.1.3.md).
 
 ## Connection diagnostics
 
