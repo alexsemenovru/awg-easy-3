@@ -62,6 +62,21 @@ test('installer rejects network conflicts before changing host settings', () => 
   }
 });
 
+test('installer applies only its own sysctl file using BusyBox-compatible options', () => {
+  const installer = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
+  assert.match(installer, /^sysctl -p \/etc\/sysctl\.d\/99-awg-easy-3\.conf >\/dev\/null$/m);
+  assert.doesNotMatch(installer, /^sysctl --system/m);
+});
+
+test('installer persists TUN for the next boot and removes only its owned module config', () => {
+  const installer = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
+  assert.match(installer, /install -d -m 0755 \/etc\/modules-load\.d/);
+  assert.ok(installer.includes("printf 'tun\\n' > /etc/modules-load.d/awg-easy-3.conf"));
+  assert.match(installer, /chmod 0644 \/etc\/modules-load\.d\/awg-easy-3\.conf/);
+  assert.match(installer, /rm -f -- \/etc\/modules-load\.d\/awg-easy-3\.conf/);
+  assert.doesNotMatch(installer, /modprobe -r|rmmod|> \/etc\/modules(?:\s|$)/);
+});
+
 test('installer can provision missing runtime dependencies without replacing foreign state', () => {
   const installer = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
   assert.match(installer, /detect_package_manager/);
@@ -114,6 +129,9 @@ test('installer offers owned uninstall and clean reinstall without touching fore
   assert.match(installer, /\/usr\/local\/sbin\/awg-easy-3/);
   assert.match(installer, /\/etc\/awg-easy-3-install-dir/);
   assert.match(installer, /install -m 0755 "\$SCRIPT_DIR\/awg-easy-3"/);
+  assert.match(installer, /install -d -m 0755 \/usr\/local\/sbin/);
+  assert.ok(installer.indexOf('install -d -m 0755 /usr/local/sbin')
+    < installer.indexOf('install -m 0755 "$SCRIPT_DIR/awg-easy-3"'));
   assert.match(installer, /Run sudo awg-easy-3 from any directory/);
   assert.match(installer, /Confirmation input was closed; nothing was removed/);
   assert.match(installer, /Please answer y\/yes \(or д\/да\)/);

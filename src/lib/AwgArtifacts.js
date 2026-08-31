@@ -5,6 +5,7 @@ const { renderClientConfig, renderServerConfig } = require('./AwgConfigRenderer'
 const { buildClientRoutes } = require('./ClientRoutes');
 const { buildDnsPolicy } = require('./DnsPolicy');
 const { renderNftablesPolicy } = require('./NftablesPolicy');
+const { clientTraffic } = require('./ClientTraffic');
 
 const peerAddresses = (client, serverHasIPv6) => [
   `${client.address4}/32`,
@@ -19,7 +20,7 @@ const buildAwgArtifacts = ({ server, clients }) => {
     throw new TypeError('clients must be a non-empty array');
   }
 
-  const enabledClients = clients.filter((client) => client.enabled !== false);
+  const enabledClients = clients.filter((client) => clientTraffic(client).enabled);
   const activeHomes = enabledClients.filter((client) => client.networkGroup === 'home');
   if (activeHomes.length === 0) throw new Error('At least one enabled home client is required');
 
@@ -49,11 +50,14 @@ const buildAwgArtifacts = ({ server, clients }) => {
     ...(serverHasIPv6 ? { ipv6Subnet: server.ipv6Subnet } : {}),
     nat66: serverHasIPv6 && server.ipv6Mode === 'nat66',
     panelPort: server.panelPort ?? 51821,
-    home4: activeHomes.map((client) => client.address4),
-    guest4: enabledClients.filter((client) => client.networkGroup === 'guest').map((client) => client.address4),
-    home6: serverHasIPv6 ? activeHomes.map((client) => client.address6).filter(Boolean) : [],
+    home4: activeHomes.filter((client) => clientTraffic(client).ipv4Enabled).map((client) => client.address4),
+    guest4: enabledClients.filter((client) => client.networkGroup === 'guest' && clientTraffic(client).ipv4Enabled)
+      .map((client) => client.address4),
+    home6: serverHasIPv6 ? activeHomes.filter((client) => clientTraffic(client).ipv6Enabled)
+      .map((client) => client.address6).filter(Boolean) : [],
     guest6: serverHasIPv6
-      ? enabledClients.filter((client) => client.networkGroup === 'guest').map((client) => client.address6).filter(Boolean)
+      ? enabledClients.filter((client) => client.networkGroup === 'guest' && clientTraffic(client).ipv6Enabled)
+        .map((client) => client.address6).filter(Boolean)
       : [],
   });
 

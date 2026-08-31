@@ -4,7 +4,7 @@
 
 Un panel Docker sencillo para **AmneziaWG 3.x**. Es un fork independiente y no comercial de [JohnnyVBut/awg-easy](https://github.com/JohnnyVBut/awg-easy), reconstruido para instalaciones limpias de AWG 3.x.
 
-> Versión actual: **0.1.2**. Consulte las [notas de la versión](docs/releases/v0.1.2.md) y el [informe de campo (en ruso)](docs/VPS_TEST_2026-08-30.ru.md). Las pruebas reales cubrieron Ubuntu/systemd, incluido el cambio de perfil en el teléfono y una prueba controlada de tráfico residual. Los últimos cambios de interfaz se probaron localmente en navegadores; OpenRC aún requiere pruebas en un servidor real.
+> Versión actual: **0.1.3**. Añade permisos IPv4/IPv6 por cliente y Ajustes de acceso plegables. Además de Ubuntu/systemd, ya se probaron la instalación, migración y reinicios en un VPS real con Alpine/OpenRC. Los últimos cambios de interfaz se probaron localmente tras eliminar el VPS. Consulte las [notas de la versión](docs/releases/v0.1.3.md) y el [informe de Alpine (en ruso)](docs/VPS_TEST_2026-08-31.ru.md).
 
 > AWG 3.1, Docker, la importación en AmneziaVPN para Android, IPv4/IPv6, el aislamiento Home/Guest y la revocación de perfiles ya se validaron en un VPS. La retransmisión Home del servidor y la reescritura de direcciones SSDP también se validaron entre dos peers reales; la visibilidad final depende del soporte multicast de la aplicación cliente sobre la interfaz VPN.
 
@@ -12,14 +12,23 @@ Un panel Docker sencillo para **AmneziaWG 3.x**. Es un fork independiente y no c
 
 - Perfiles AWG 3.1 importados mediante enlaces `vpn://` y descarga opcional `.conf`.
 - Modo Home con acceso al panel y a otros clientes Home; modo Guest con acceso únicamente a Internet.
+- Permisos IPv4/IPv6 independientes en Ajustes de acceso, sin volver a importar el perfil.
 - Estado de handshake reciente, velocidades medias por intervalo, handshake y endpoint, sin historial de tráfico.
 - DNS AdGuard predeterminado: `94.140.14.14`, `94.140.15.15`, `2a10:50c0::ad1:ff` y `2a10:50c0::ad2:ff`.
 - IPv6 automático mediante ULA y NAT66 limitado cuando el VPS dispone de IPv6.
 - Descubrimiento mDNS y UPnP/SSDP solo para Home. UPnP IGD, NAT-PMP, PCP y cualquier apertura automática de puertos no se admiten de forma intencionada. La visibilidad depende de que la aplicación cliente admita multicast en la interfaz VPN.
-- Panel disponible únicamente dentro de la VPN en `http://10.8.0.1:51821`.
+- Panel disponible solo dentro de la VPN en `http://10.8.0.1:51821` y en su dirección IPv6 interna cuando esté disponible.
 - Tabla nftables dedicada y reglas `awg0` limitadas; no se limpia la configuración ajena.
 - Sin migración desde 2.x, copias de seguridad, roles ni backend WireGuard heredado.
 - El enrutamiento selectivo GeoIP queda aplazado hasta contar con un diseño del lado del servidor.
+
+## Ajustes de acceso del cliente
+
+Abra **Ajustes de acceso** para permitir IPv4 e IPv6 por separado. Desactivar ambos desactiva al cliente; el modo sigue visible con la sección cerrada. Home/Guest es independiente. Los permisos se aplican en ambos sentidos dentro de la VPN, incluidas conexiones existentes, sin cambiar claves, perfiles, direcciones, DNS ni rutas. Se protegen la conexión actual al panel y el último cliente Home permitido; los enlaces internos IPv4/IPv6 están en Permisos de tráfico VPN.
+
+**IPv6-only puede dejar de resolver nombres:** AmneziaVPN puede usar solo sus campos DNS IPv4 aunque el perfil incluya DNS IPv6. El acceso directo a una dirección IPv6 puede seguir funcionando; activar IPv4 restablece el acceso a DNS IPv4. No hay excepciones DNS, NAT64, WARP ni desvío a una conexión directa. El panel no controla tráfico excluido por el enrutamiento selectivo del cliente; desactive esos filtros para las pruebas básicas. El relay de descubrimiento usa IPv4 y excluye clientes con IPv4 bloqueado.
+
+Actualice con `sudo awg-easy-3 update`, no con `reinstall`: se conservan clientes, claves, contraseña y puertos, y los clientes desactivados no se activan. Volver manualmente a una versión anterior puede desactivar por completo clientes parcialmente restringidos para no reabrir una familia prohibida. Consulte las [notas de la versión](docs/releases/v0.1.3.md).
 
 ## Diagnóstico de conexión
 

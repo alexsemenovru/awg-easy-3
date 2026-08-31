@@ -73,7 +73,12 @@ const renderNftablesPolicy = ({
   if (typeof nat66 !== 'boolean') throw new TypeError('nat66 must be a boolean');
   if (nat66 && !subnet6) throw new TypeError('nat66 requires ipv6Subnet');
 
-  if (normalizedHome4.length === 0) throw new TypeError('At least one home IPv4 peer is required');
+  if (normalizedHome4.length === 0 && (!subnet6 || normalizedHome6.length === 0)) {
+    throw new TypeError('At least one home peer with a permitted IP family is required');
+  }
+  if (!subnet6 && (normalizedHome6.length || normalizedGuest6.length)) {
+    throw new TypeError('IPv6 peers require ipv6Subnet');
+  }
   const overlaps = normalizedHome4.filter((address) => normalizedGuest4.includes(address));
   if (overlaps.length > 0) throw new TypeError(`Peers cannot be both home and guest: ${overlaps.join(', ')}`);
   const overlaps6 = normalizedHome6.filter((address) => normalizedGuest6.includes(address));
@@ -85,6 +90,10 @@ const renderNftablesPolicy = ({
   }
 
   const ipv6Sets = subnet6 ? `
+  set active6 {
+    type ipv6_addr${elementsClause([...normalizedHome6, ...normalizedGuest6])}
+  }
+
   set home6 {
     type ipv6_addr${elementsClause(normalizedHome6)}
   }
@@ -110,8 +119,18 @@ const renderNftablesPolicy = ({
     ? `\n    oifname ${quote(wan)} ip6 saddr ${subnet6} masquerade comment "AWG-Easy 3 IPv6 NAT"`
     : '';
 
+  const ipv6PermissionRules = subnet6 ? `
+    iifname ${quote(awg)} ip6 saddr != @active6 drop comment "IPv6 permission: from VPN client"
+    oifname ${quote(awg)} ip6 daddr != @active6 drop comment "IPv6 permission: to VPN client"` : `
+    iifname ${quote(awg)} meta nfproto ipv6 drop comment "IPv6 unavailable"
+    oifname ${quote(awg)} meta nfproto ipv6 drop comment "IPv6 unavailable"`;
+
   return `# Managed by AWG-Easy 3. Do not append unrelated rules to this table.
 table inet ${TABLE_NAME} {
+  set active4 {
+    type ipv4_addr${elementsClause([...normalizedHome4, ...normalizedGuest4])}
+  }
+
   set home4 {
     type ipv4_addr${elementsClause(normalizedHome4)}
   }
@@ -120,18 +139,30 @@ table inet ${TABLE_NAME} {
     type ipv4_addr${elementsClause(normalizedGuest4)}
   }
 ${ipv6Sets}
+  chain client_permissions {
+    iifname ${quote(awg)} ip saddr != @active4 drop comment "IPv4 permission: from VPN client"
+    oifname ${quote(awg)} ip daddr != @active4 drop comment "IPv4 permission: to VPN client"${ipv6PermissionRules}
+  }
+
   chain input {
     type filter hook input priority -10; policy accept;
+    jump client_permissions
     iifname ${quote(awg)} ip saddr @guest4 ip daddr ${subnet4} drop comment "guest peers cannot access AWG-Easy 3 services"
     iifname ${quote(awg)} ip saddr @home4 tcp dport ${port} accept comment "home peers may access the panel"${ipv6InputRules}
   }
 
   chain forward {
     type filter hook forward priority -10; policy accept;
+    jump client_permissions
     iifname ${quote(awg)} oifname ${quote(awg)} ip saddr @home4 ip daddr @home4 accept comment "home peer traffic"${ipv6HomeForwardRule}
     iifname ${quote(awg)} oifname ${quote(awg)} drop comment "isolate guest peers"
     iifname ${quote(awg)} oifname ${quote(wan)} ip saddr ${subnet4} accept comment "AWG IPv4 to WAN"
     iifname ${quote(wan)} oifname ${quote(awg)} ip daddr ${subnet4} ct state established,related accept comment "return IPv4 traffic"${ipv6ForwardRules}
+  }
+
+  chain output {
+    type filter hook output priority -10; policy accept;
+    jump client_permissions
   }
 
   chain postrouting {

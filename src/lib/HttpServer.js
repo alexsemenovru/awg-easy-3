@@ -115,13 +115,20 @@ class HttpServer {
     if (url.pathname === '/api/v1/diagnostics' && request.method === 'GET') {
       return sendJson(response, 200, await this.api.clientDiagnostics(token));
     }
+    if (url.pathname === '/api/v1/network' && request.method === 'GET') {
+      return sendJson(response, 200, await this.api.networkInfo(token));
+    }
 
     const client = clientRoute(url.pathname);
     if (client && !client.export && request.method === 'PATCH') {
-      return sendJson(response, 200, await this.api.updateClient(token, client.id, await readJson(request)));
+      return sendJson(response, 200, await this.api.updateClient(token, client.id, await readJson(request), {
+        remoteAddress: request.socket.remoteAddress,
+      }));
     }
     if (client && !client.export && request.method === 'DELETE') {
-      return sendJson(response, 200, await this.api.deleteClient(token, client.id));
+      return sendJson(response, 200, await this.api.deleteClient(token, client.id, {
+        remoteAddress: request.socket.remoteAddress,
+      }));
     }
     if (client && client.export && request.method === 'GET') {
       const exported = await this.api.exportClient(token, client.id, url.searchParams.get('format'));
@@ -186,6 +193,8 @@ class HttpServer {
         ?? (error instanceof TypeError || error instanceof RangeError ? 400 : 500);
       return sendJson(response, statusCode, {
         error: statusCode === 500 ? 'Internal server error' : error.message,
+        ...(statusCode !== 500 && ['CURRENT_PANEL_PATH', 'LAST_HOME', 'IPV6_UNAVAILABLE'].includes(error.code)
+          ? { code: error.code } : {}),
       });
     }
   }

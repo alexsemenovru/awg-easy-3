@@ -6,9 +6,10 @@ const { allocateClientAddresses } = require('./AddressAllocator');
 const { buildAwgArtifacts } = require('./AwgArtifacts');
 const { AwgKeyManager } = require('./AwgKeyManager');
 const { assertActiveHomeRemains, normalizeClientPolicy } = require('./ClientPolicy');
+const { changeClientTraffic, assertCurrentPanelPathRemains } = require('./ClientTraffic');
 const { validateState } = require('./StateStore');
 
-const ALLOWED_CHANGES = new Set(['name', 'enabled', 'networkGroup']);
+const ALLOWED_CHANGES = new Set(['name', 'enabled', 'networkGroup', 'ipv4Enabled', 'ipv6Enabled']);
 
 class ClientManager {
   constructor({
@@ -117,7 +118,7 @@ class ClientManager {
     });
   }
 
-  updateClient(clientId, changes) {
+  updateClient(clientId, changes, { remoteAddress } = {}) {
     return this.serialize(async () => {
       if (!changes || typeof changes !== 'object' || Array.isArray(changes)) {
         throw new TypeError('changes must be an object');
@@ -125,22 +126,30 @@ class ClientManager {
       for (const key of Object.keys(changes)) {
         if (!ALLOWED_CHANGES.has(key)) throw new TypeError(`Client field cannot be changed: ${key}`);
       }
-      if ('enabled' in changes && typeof changes.enabled !== 'boolean') {
-        throw new TypeError('enabled must be a boolean');
+      for (const field of ['enabled', 'ipv4Enabled', 'ipv6Enabled']) {
+        if (field in changes && typeof changes[field] !== 'boolean') {
+          throw new TypeError(`${field} must be a boolean`);
+        }
       }
       const state = await this.requireState();
       assertActiveHomeRemains(state.clients, clientId, changes);
-      const clients = state.clients.map((client) => client.id === clientId ? { ...client, ...changes } : client);
+      const target = state.clients.find((client) => client.id === clientId);
+      const nextClient = changeClientTraffic(target, changes, {
+        ipv6Available: Boolean(state.server.address6 && state.server.ipv6Subnet && target.address6),
+      });
+      assertCurrentPanelPathRemains(target, nextClient, remoteAddress);
+      const clients = state.clients.map((client) => client.id === clientId ? nextClient : client);
       const result = await this.applyState(state, { ...state, clients });
       const client = result.state.clients.find((item) => item.id === clientId);
       return Object.freeze({ client, export: result.artifacts.clientArtifacts[clientId] });
     });
   }
 
-  deleteClient(clientId) {
+  deleteClient(clientId, { remoteAddress } = {}) {
     return this.serialize(async () => {
       const state = await this.requireState();
       assertActiveHomeRemains(state.clients, clientId, { deleted: true });
+      assertCurrentPanelPathRemains(state.clients.find((client) => client.id === clientId), null, remoteAddress);
       const result = await this.applyState(state, {
         ...state,
         clients: state.clients.filter((client) => client.id !== clientId),

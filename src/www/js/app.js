@@ -44,10 +44,12 @@
   const guarded = async (action) => {
     try { return await action(); } catch (error) {
       if (error.status === 401) showLogin();
-      showNotice(error.message, true);
+      showNotice(errorMessage(error), true);
       throw error;
     }
   };
+  const errorMessage = (error) => ['CURRENT_PANEL_PATH', 'LAST_HOME', 'IPV6_UNAVAILABLE'].includes(error.code)
+    ? t(error.code) : error.message;
   const showManualLink = (link) => {
     const field = $('#profile-link');
     field.value = link;
@@ -106,10 +108,28 @@
     startDiagnostics();
   });
   const update = async (client, changes, input) => {
-    input.disabled = true;
-    try { await guarded(() => api.updateClient(client.id, changes)); await loadClients(); }
-    catch { input.checked = !input.checked; }
-    finally { input.disabled = false; }
+    const keepFocus = document.activeElement === input;
+    const inputSelector = ['.group-toggle', '.ipv4-toggle', '.ipv6-toggle'].find((selector) => input.matches(selector));
+    const controls = [...clientsNode.querySelectorAll('input, button')];
+    const previousDisabled = controls.map((control) => control.disabled);
+    controls.forEach((control) => { control.disabled = true; });
+    let applied = false;
+    try {
+      const saved = await guarded(() => api.updateClient(client.id, changes));
+      applied = true;
+      clients = clients.map((item) => item.id === saved.id ? saved : item);
+      clientsNode.replaceChildren(...clients.map(renderClient));
+      await loadClients();
+    } catch {
+      // A failed refresh must not pretend that a successful server change was undone.
+      if (!applied) input.checked = !input.checked;
+    } finally {
+      controls.forEach((control, index) => { control.disabled = previousDisabled[index]; });
+      if (keepFocus && inputSelector) {
+        clientsNode.querySelector(`[data-client-id="${CSS.escape(client.id)}"]`)
+          ?.querySelector(inputSelector)?.focus({ preventScroll: true });
+      }
+    }
   };
   const askDelete = (client) => {
     pendingDelete = client;
@@ -118,19 +138,35 @@
   };
   const renderClient = (client) => {
     const node = $('#client-template').content.firstElementChild.cloneNode(true);
+    // Read the live DOM before replacing cards: native toggle events can be deferred.
+    const previous = clientsNode.querySelector(`[data-client-id="${CSS.escape(client.id)}"]`);
+    for (const section of ['.diagnostics', '.access-settings']) {
+      node.querySelector(section).open = previous?.querySelector(section).open ?? false;
+    }
     i18n.translate(node);
     node.dataset.clientId = client.id;
     node.querySelector('.client-name').textContent = client.name;
     node.querySelector('.client-address').textContent = [client.address4, client.address6].filter(Boolean).join(' · ');
     const status = node.querySelector('.status');
-    status.textContent = client.enabled ? (client.networkGroup === 'home' ? 'Home' : 'Guest') : t('disabled');
-    status.className = `status ${client.enabled ? client.networkGroup : 'disabled'}`;
+    // Group and traffic permission are independent, including when both IP families are off.
+    status.textContent = client.networkGroup === 'home' ? 'Home' : 'Guest';
+    status.className = `status ${client.networkGroup}`;
+    const summary = node.querySelector('.ip-summary');
+    const summaryKey = !client.enabled ? 'disabled' : client.ipv4Enabled && client.ipv6Enabled ? 'ipBoth'
+      : client.ipv6Enabled ? 'ip6Only' : 'ip4Only';
+    summary.dataset.i18n = summaryKey;
+    summary.textContent = t(summaryKey);
     const group = node.querySelector('.group-toggle');
     group.checked = client.networkGroup === 'home';
     group.addEventListener('change', () => update(client, { networkGroup: group.checked ? 'home' : 'guest' }, group));
-    const enabled = node.querySelector('.enabled-toggle');
-    enabled.checked = client.enabled;
-    enabled.addEventListener('change', () => update(client, { enabled: enabled.checked }, enabled));
+    for (const family of [4, 6]) {
+      const control = node.querySelector(`.ipv${family}-toggle`);
+      control.checked = client[`ipv${family}Enabled`];
+      control.disabled = family === 6 && !client.ipv6Available;
+      control.addEventListener('change', () => update(client, { [`ipv${family}Enabled`]: control.checked }, control));
+    }
+    node.querySelector('.ipv6-unavailable').classList.toggle('hidden', client.ipv6Available);
+    node.querySelector('.ipv6-only-warning').classList.toggle('hidden', !client.ipv6Enabled || client.ipv4Enabled);
     node.querySelector('.show-profile').addEventListener('click', () => openProfile(client));
     node.querySelector('.delete-client').addEventListener('click', () => askDelete(client));
     return node;
@@ -141,6 +177,16 @@
     clients = await guarded(() => api.clients());
     clientsNode.replaceChildren(...clients.map(renderClient));
     startDiagnostics();
+    // Failure here must not undo a successful client mutation or hide its result.
+    try {
+      const network = await api.network();
+      for (const family of [4, 6]) {
+        const link = $(`#panel-ipv${family}`);
+        const address = network[`panelIpv${family}Url`];
+        link.classList.toggle('hidden', !address);
+        if (address) link.href = address;
+      }
+    } catch { $('#panel-ipv4').classList.add('hidden'); $('#panel-ipv6').classList.add('hidden'); }
   };
   const openProfile = (client) => {
     selectedClient = client;
@@ -184,10 +230,10 @@
     } catch (error) {
       if (error.status === 401) showLogin();
       if (error instanceof TypeError && error.message === 'Failed to fetch') {
-        showNotice(t('deletedConnectionLost'), false, 0);
+        showNotice(t('deletedConnectionLost'), true, 0);
         return;
       }
-      showNotice(error.message, true);
+      showNotice(errorMessage(error), true);
       await loadClients().catch(() => {});
     } finally { pendingDelete = undefined; }
   });

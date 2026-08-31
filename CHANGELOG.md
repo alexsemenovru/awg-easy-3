@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.1.3 — 2026-08-31
+
+- Replace the client enable switch with independent IPv4/IPv6 permissions. Both off removes the peer; profiles, keys, addresses, DNS and routes remain unchanged. Home/Guest stays independent.
+- Put the IPv4/IPv6 switches in a collapsed-by-default Access settings section, separate from read-only Diagnostics. Keep the permission mode and Home/Guest group visible, retain open sections and control focus after updates, and translate the new section into all five languages.
+- Enforce permissions in both directions in the owned nftables table, including existing connections and local server traffic. Do not change foreign interfaces/rules or create direct fallback, WARP, NAT64 or DNS bypass exceptions.
+- Bind the panel to its internal IPv6 address as well as IPv4. Protect the current administration path and the last permitted Home client; translate controls, errors and DNS caveats into all five languages.
+- Read legacy clients without regenerating profiles or enabling disabled peers. Persist conservative legacy `enabled` values so manual downgrade cannot silently reopen a blocked family.
+- Make installation work on minimal Alpine hosts: apply only the owned sysctl file with BusyBox-compatible options, create the management-command directory, and persist TUN loading across OS boots. Uninstall removes only the owned modules-load file and does not unload modules used by other services.
+- Finish the OpenRC one-shot worker without leaving a false crashed-service status; preserve its exit result and avoid clearing a replacement worker's state.
+- Add regression and field coverage: 203 local tests, complete Dockerfile build, legacy migration, real AWG family/peer isolation tests and native OpenRC reboot checks on Alpine. User tests confirmed IPv6 blocking/restoration and direct IPv6 with IPv4 blocked; DNS then failed and recovered when IPv4 was restored. This does not establish universal AmneziaVPN DNS compatibility. Final UI changes were tested locally after the test VPS was deleted. See the [release notes](docs/releases/v0.1.3.md), [field report](docs/VPS_TEST_2026-08-31.ru.md) and [implementation/test plan](docs/IP_FAMILIES.ru.md).
+
 ## v0.1.2 — 2026-08-30
 
 Includes the diagnostics, installer, boot-time stable updates, credits and original Pride branding from rc.1, and the VPS-tested IPv6 Home forwarding fix from rc.2. Existing ports, profiles and state format are preserved on update. Per-client IPv4/IPv6 switches are not part of this release.

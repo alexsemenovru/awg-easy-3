@@ -354,6 +354,7 @@ remove_existing_installation() {
   case "$EXISTING_INSTALL_DIR" in /|'' ) die "refusing to remove data from an unsafe project path" ;; esac
   rm -rf -- "$EXISTING_INSTALL_DIR/data"
   rm -f -- /etc/sysctl.d/99-awg-easy-3.conf
+  rm -f -- /etc/modules-load.d/awg-easy-3.conf
   rm -f -- /usr/local/sbin/awg-easy-3 /etc/awg-easy-3-install-dir
   info "AWG-Easy 3 clients, settings and service were removed"
   printf 'Host forwarding values were left unchanged to avoid disrupting other VPS services.\n'
@@ -362,6 +363,7 @@ remove_existing_installation() {
 install_management_command() {
   printf '%s\n' "$SCRIPT_DIR" > /etc/awg-easy-3-install-dir
   chmod 0644 /etc/awg-easy-3-install-dir
+  install -d -m 0755 /usr/local/sbin
   install -m 0755 "$SCRIPT_DIR/awg-easy-3" /usr/local/sbin/awg-easy-3
 }
 
@@ -541,7 +543,15 @@ net.ipv4.ip_forward=1
 net.ipv6.conf.all.forwarding=1
 EOF
 chmod 0644 /etc/sysctl.d/99-awg-easy-3.conf
-sysctl --system >/dev/null
+# BusyBox (Alpine) has no --system option. Apply only our own settings instead
+# of reloading unrelated services' sysctl configuration on this VPS.
+sysctl -p /etc/sysctl.d/99-awg-easy-3.conf >/dev/null
+
+# Loading TUN once is not enough on minimal hosts: Docker needs the device again
+# after reboot. Both systemd and OpenRC read this owned modules-load.d file.
+install -d -m 0755 /etc/modules-load.d
+printf 'tun\n' > /etc/modules-load.d/awg-easy-3.conf
+chmod 0644 /etc/modules-load.d/awg-easy-3.conf
 
 install -d -m 0700 data
 

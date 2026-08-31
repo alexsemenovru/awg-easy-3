@@ -7,9 +7,11 @@ window.awgApi = (() => {
     });
     if (!response.ok) {
       let message = `Ошибка HTTP ${response.status}`;
-      try { message = (await response.json()).error || message; } catch {}
+      let code;
+      try { const body = await response.json(); message = body.error || message; code = body.code; } catch {}
       const error = new Error(message);
       error.status = response.status;
+      error.code = code;
       throw error;
     }
     return response.headers.get('content-type')?.includes('application/json') ? response.json() : response.text();
@@ -21,6 +23,7 @@ window.awgApi = (() => {
     login: (password) => request('/api/v1/session', json('POST', { password })),
     logout: () => request('/api/v1/session', json('DELETE')),
     clients: () => request('/api/v1/clients'),
+    network: () => request('/api/v1/network'),
     diagnostics: (signal) => request('/api/v1/diagnostics', { signal }),
     createClient: (input) => request('/api/v1/clients', json('POST', input)),
     updateClient: (id, changes) => request(clientPath(id), json('PATCH', changes)),

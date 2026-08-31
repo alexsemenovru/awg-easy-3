@@ -52,6 +52,21 @@ test('ships a self-contained UI with every required control', () => {
   assert.doesNotMatch(html, /РФ напрямую|GeoIP/);
 });
 
+test('keeps the IP mode visible outside collapsed access settings and read-only diagnostics', () => {
+  const html = fs.readFileSync(path.join(www, 'index.html'), 'utf8');
+  const template = html.match(/<template id="client-template">([\s\S]*?)<\/template>/)[1];
+  const access = template.match(/<details class="access-settings">([\s\S]*?)<\/details>/)[1];
+  const diagnostics = template.match(/<details class="diagnostics">([\s\S]*?)<\/details>/)[1];
+  assert.match(access, /<summary data-i18n="accessSettings">/);
+  for (const family of [4, 6]) assert.match(access, new RegExp(`class="ipv${family}-toggle"`));
+  assert.match(access, /class="ipv6-only-warning hidden"/);
+  assert.doesNotMatch(access, /class="ip-summary"/);
+  assert.doesNotMatch(diagnostics, /<input|class="ip-summary"/);
+  assert.match(template, /<p class="ip-summary" aria-live="polite"><\/p>/);
+  assert.ok(template.indexOf('class="ip-summary"') < template.indexOf('<details'));
+  assert.equal((template.match(/class="ipv[46]-toggle"/g) || []).length, 2);
+});
+
 test('ships the approved self-contained brand and standards-compatible icon set', () => {
   const html = fs.readFileSync(path.join(www, 'index.html'), 'utf8');
   const logo = fs.readFileSync(path.join(root, 'assets', 'awg-easy-3-logo.svg'), 'utf8');

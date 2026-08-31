@@ -45,6 +45,21 @@ test('uses RTL only for Persian', () => {
   assert.equal(documentElement.dir, 'rtl');
 });
 
+test('IP permission labels, safety errors and DNS caveats are translated without English fallback', () => {
+  const { i18n } = loadI18n();
+  for (const key of ['accessSettings', 'allowIpv4', 'allowIpv6', 'ipBoth', 'ip4Only', 'ip6Only', 'ipPolicyTitle',
+    'panelIpv4', 'panelIpv6', 'ipPolicyHint', 'ipv6OnlyWarning', 'CURRENT_PANEL_PATH', 'LAST_HOME', 'IPV6_UNAVAILABLE']) {
+    const translations = new Set();
+    for (const language of ['en', 'ru', 'fa', 'es', 'zh-cn']) {
+      i18n.setLanguage(language);
+      const text = i18n.t(key);
+      assert.notEqual(text, key);
+      translations.add(text);
+    }
+    assert.equal(translations.size, 5, `${key} needs all five translations`);
+  }
+});
+
 test('server rate labels and unconfirmed delivery warning have distinct translations in five languages', () => {
   const { i18n } = loadI18n();
   for (const key of ['serverSent', 'serverReceived', 'deliveryUnconfirmed']) {

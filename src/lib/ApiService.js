@@ -1,5 +1,7 @@
 'use strict';
 
+const { clientTraffic } = require('./ClientTraffic');
+
 class ApiError extends Error {
   constructor(statusCode, message) {
     super(message);
@@ -11,7 +13,8 @@ class ApiError extends Error {
 const publicClient = (client) => Object.freeze({
   id: client.id,
   name: client.name,
-  enabled: client.enabled,
+  ...clientTraffic(client),
+  ipv6Available: Boolean(client.address6),
   networkGroup: client.networkGroup,
   address4: client.address4,
   ...(client.address6 ? { address6: client.address6 } : {}),
@@ -84,6 +87,17 @@ class ApiService {
     return this.diagnostics.snapshot();
   }
 
+  async networkInfo(token) {
+    await this.authorize(token);
+    const state = await this.store.load();
+    if (!state) throw new ApiError(503, 'AWG-Easy 3 is not initialized');
+    const { address4, address6, ipv6Subnet, panelPort } = state.server;
+    return Object.freeze({
+      panelIpv4Url: `http://${address4}:${panelPort}/`,
+      panelIpv6Url: address6 && ipv6Subnet ? `http://[${address6}]:${panelPort}/` : null,
+    });
+  }
+
   async createClient(token, input) {
     await this.authorize(token);
     let result;
@@ -96,15 +110,15 @@ class ApiService {
     return Object.freeze({ client: publicClient(result.client) });
   }
 
-  async updateClient(token, clientId, changes) {
+  async updateClient(token, clientId, changes, context) {
     await this.authorize(token);
-    const result = await this.clientManager.updateClient(clientId, changes);
+    const result = await this.clientManager.updateClient(clientId, changes, context);
     return publicClient(result.client);
   }
 
-  async deleteClient(token, clientId) {
+  async deleteClient(token, clientId, context) {
     await this.authorize(token);
-    await this.clientManager.deleteClient(clientId);
+    await this.clientManager.deleteClient(clientId, context);
     return Object.freeze({ success: true });
   }
 

@@ -1,6 +1,7 @@
 'use strict';
 
 const dgram = require('node:dgram');
+const { clientTraffic } = require('./ClientTraffic');
 
 const SERVICES = Object.freeze([
   Object.freeze({ name: 'mdns4', family: 'udp4', group: '224.0.0.251', port: 5353 }),
@@ -36,9 +37,16 @@ class DiscoveryRelay {
   }
 
   refresh(state) {
-    const homes = state.clients.filter((client) => client.enabled && client.networkGroup === 'home');
-    this.home4 = new Set(homes.map((client) => normalizedAddress(client.address4)));
-    this.home6 = new Set(homes.map((client) => client.address6).filter(Boolean).map(normalizedAddress));
+    const homes = state.clients.filter((client) => clientTraffic(client).enabled && client.networkGroup === 'home');
+    this.home4 = new Set(homes.filter((client) => clientTraffic(client).ipv4Enabled)
+      .map((client) => normalizedAddress(client.address4)));
+    this.home6 = new Set(homes.filter((client) => clientTraffic(client).ipv6Enabled)
+      .map((client) => client.address6).filter(Boolean).map(normalizedAddress));
+    // Expire pending unicast replies immediately when permissions are revoked.
+    for (const service of SERVICES) {
+      this.requesters.set(service.name, (this.requesters.get(service.name) ?? [])
+        .filter((item) => this.homes(service).has(item.address)));
+    }
   }
 
   homes(service) {
@@ -51,7 +59,7 @@ class DiscoveryRelay {
     if (!homes.has(source)) return [];
     const now = this.clock();
     const key = service.name;
-    const requesters = (this.requesters.get(key) ?? []).filter((item) => item.expires > now);
+    const requesters = (this.requesters.get(key) ?? []).filter((item) => item.expires > now && homes.has(item.address));
     if (rinfo.port !== service.port) {
       requesters.push({ address: source, port: rinfo.port, expires: now + this.requesterTtlMs });
     }

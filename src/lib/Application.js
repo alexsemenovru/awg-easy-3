@@ -39,6 +39,7 @@ class Application {
     this.store = new StateStore(path.join(this.dataDirectory, 'state.json'));
     this.applier = new RuntimeApplier({ runtimeDirectory: this.runtimeDirectory, runner });
     this.http = null;
+    this.http6 = null;
     this.discovery = null;
     this.state = null;
   }
@@ -117,7 +118,12 @@ class Application {
       const diagnostics = new ClientDiagnostics({ store: this.store, runner: this.runner });
       const api = new ApiService({ store: this.store, passwordManager, sessionManager, clientManager, diagnostics });
       this.http = this.httpFactory({ api, publicDirectory: this.publicDirectory });
-      return await this.http.listen({ host: state.server.address4, port: state.server.panelPort });
+      const listening = await this.http.listen({ host: state.server.address4, port: state.server.panelPort });
+      if (state.server.address6 && state.server.ipv6Subnet) {
+        this.http6 = this.httpFactory({ api, publicDirectory: this.publicDirectory });
+        await this.http6.listen({ host: state.server.address6, port: state.server.panelPort });
+      }
+      return listening;
     } catch (error) {
       try {
         await this.stop();
@@ -133,11 +139,13 @@ class Application {
   async stop() {
     const errors = [];
     if (this.http) await this.http.close().catch((error) => errors.push(error));
+    if (this.http6) await this.http6.close().catch((error) => errors.push(error));
     if (this.discovery) await this.discovery.stop().catch((error) => errors.push(error));
     if (this.state) {
       await this.applier.down({ interfaceName: this.state.server.interfaceName }).catch((error) => errors.push(error));
     }
     this.http = null;
+    this.http6 = null;
     this.discovery = null;
     this.state = null;
     if (errors.length > 0) throw new AggregateError(errors, 'Application shutdown failed');
