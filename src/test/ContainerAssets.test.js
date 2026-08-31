@@ -68,6 +68,15 @@ test('installer applies only its own sysctl file using BusyBox-compatible option
   assert.doesNotMatch(installer, /^sysctl --system/m);
 });
 
+test('installer persists TUN for the next boot and removes only its owned module config', () => {
+  const installer = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
+  assert.match(installer, /install -d -m 0755 \/etc\/modules-load\.d/);
+  assert.ok(installer.includes("printf 'tun\\n' > /etc/modules-load.d/awg-easy-3.conf"));
+  assert.match(installer, /chmod 0644 \/etc\/modules-load\.d\/awg-easy-3\.conf/);
+  assert.match(installer, /rm -f -- \/etc\/modules-load\.d\/awg-easy-3\.conf/);
+  assert.doesNotMatch(installer, /modprobe -r|rmmod|> \/etc\/modules(?:\s|$)/);
+});
+
 test('installer can provision missing runtime dependencies without replacing foreign state', () => {
   const installer = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
   assert.match(installer, /detect_package_manager/);
