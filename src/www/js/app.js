@@ -108,6 +108,8 @@
     startDiagnostics();
   });
   const update = async (client, changes, input) => {
+    const keepFocus = document.activeElement === input;
+    const inputSelector = ['.group-toggle', '.ipv4-toggle', '.ipv6-toggle'].find((selector) => input.matches(selector));
     const controls = [...clientsNode.querySelectorAll('input, button')];
     const previousDisabled = controls.map((control) => control.disabled);
     controls.forEach((control) => { control.disabled = true; });
@@ -121,7 +123,13 @@
     } catch {
       // A failed refresh must not pretend that a successful server change was undone.
       if (!applied) input.checked = !input.checked;
-    } finally { controls.forEach((control, index) => { control.disabled = previousDisabled[index]; }); }
+    } finally {
+      controls.forEach((control, index) => { control.disabled = previousDisabled[index]; });
+      if (keepFocus && inputSelector) {
+        clientsNode.querySelector(`[data-client-id="${CSS.escape(client.id)}"]`)
+          ?.querySelector(inputSelector)?.focus({ preventScroll: true });
+      }
+    }
   };
   const askDelete = (client) => {
     pendingDelete = client;
@@ -130,14 +138,19 @@
   };
   const renderClient = (client) => {
     const node = $('#client-template').content.firstElementChild.cloneNode(true);
+    // Read the live DOM before replacing cards: native toggle events can be deferred.
+    const previous = clientsNode.querySelector(`[data-client-id="${CSS.escape(client.id)}"]`);
+    for (const section of ['.diagnostics', '.access-settings']) {
+      node.querySelector(section).open = previous?.querySelector(section).open ?? false;
+    }
     i18n.translate(node);
     node.dataset.clientId = client.id;
     node.querySelector('.client-name').textContent = client.name;
     node.querySelector('.client-address').textContent = [client.address4, client.address6].filter(Boolean).join(' · ');
     const status = node.querySelector('.status');
-    status.textContent = client.enabled ? (client.networkGroup === 'home' ? 'Home' : 'Guest') : t('disabled');
-    status.className = `status ${client.enabled ? client.networkGroup : 'disabled'}`;
-    if (!client.enabled) status.dataset.i18n = 'disabled';
+    // Group and traffic permission are independent, including when both IP families are off.
+    status.textContent = client.networkGroup === 'home' ? 'Home' : 'Guest';
+    status.className = `status ${client.networkGroup}`;
     const summary = node.querySelector('.ip-summary');
     const summaryKey = !client.enabled ? 'disabled' : client.ipv4Enabled && client.ipv6Enabled ? 'ipBoth'
       : client.ipv6Enabled ? 'ip6Only' : 'ip4Only';

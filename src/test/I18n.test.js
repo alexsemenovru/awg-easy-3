@@ -47,7 +47,7 @@ test('uses RTL only for Persian', () => {
 
 test('IP permission labels, safety errors and DNS caveats are translated without English fallback', () => {
   const { i18n } = loadI18n();
-  for (const key of ['allowIpv4', 'allowIpv6', 'ipBoth', 'ip4Only', 'ip6Only', 'ipPolicyTitle',
+  for (const key of ['accessSettings', 'allowIpv4', 'allowIpv6', 'ipBoth', 'ip4Only', 'ip6Only', 'ipPolicyTitle',
     'panelIpv4', 'panelIpv6', 'ipPolicyHint', 'ipv6OnlyWarning', 'CURRENT_PANEL_PATH', 'LAST_HOME', 'IPV6_UNAVAILABLE']) {
     const translations = new Set();
     for (const language of ['en', 'ru', 'fa', 'es', 'zh-cn']) {

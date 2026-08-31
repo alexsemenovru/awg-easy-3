@@ -3,6 +3,7 @@
 ## Unreleased — per-client IP permissions
 
 - Replace the client enable switch with independent IPv4/IPv6 permissions. Both off removes the peer; profiles, keys, addresses, DNS and routes remain unchanged. Home/Guest stays independent.
+- Put the IPv4/IPv6 switches in a collapsed-by-default Access settings section, separate from read-only Diagnostics. Keep the permission mode and Home/Guest group visible, retain open sections and control focus after updates, and translate the new section into all five languages.
 - Enforce permissions in both directions in the owned nftables table, including existing connections and local server traffic. Do not change foreign interfaces/rules or create direct fallback, WARP, NAT64 or DNS bypass exceptions.
 - Bind the panel to its internal IPv6 address as well as IPv4. Protect the current administration path and the last permitted Home client; translate controls, errors and DNS caveats into all five languages.
 - Read legacy clients without regenerating profiles or enabling disabled peers. Persist conservative legacy `enabled` values so manual downgrade cannot silently reopen a blocked family.
