@@ -120,6 +120,9 @@ test('installer offers owned uninstall and clean reinstall without touching fore
   assert.match(installer, /\/usr\/local\/sbin\/awg-easy-3/);
   assert.match(installer, /\/etc\/awg-easy-3-install-dir/);
   assert.match(installer, /install -m 0755 "\$SCRIPT_DIR\/awg-easy-3"/);
+  assert.match(installer, /install -d -m 0755 \/usr\/local\/sbin/);
+  assert.ok(installer.indexOf('install -d -m 0755 /usr/local/sbin')
+    < installer.indexOf('install -m 0755 "$SCRIPT_DIR/awg-easy-3"'));
   assert.match(installer, /Run sudo awg-easy-3 from any directory/);
   assert.match(installer, /Confirmation input was closed; nothing was removed/);
   assert.match(installer, /Please answer y\/yes \(or д\/да\)/);

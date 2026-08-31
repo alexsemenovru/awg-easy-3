@@ -362,6 +362,7 @@ remove_existing_installation() {
 install_management_command() {
   printf '%s\n' "$SCRIPT_DIR" > /etc/awg-easy-3-install-dir
   chmod 0644 /etc/awg-easy-3-install-dir
+  install -d -m 0755 /usr/local/sbin
   install -m 0755 "$SCRIPT_DIR/awg-easy-3" /usr/local/sbin/awg-easy-3
 }
 
