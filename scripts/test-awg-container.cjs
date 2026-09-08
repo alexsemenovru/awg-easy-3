@@ -18,7 +18,7 @@ const mode = process.argv[2];
 
 async function main() {
   if (mode === 'fixture') {
-    const { state } = await new BootstrapInstaller({
+    const { state, bootstrapPassword } = await new BootstrapInstaller({
       store,
       networkDetector: { detect: async () => ({ endpointCandidate: process.argv[3], wanInterface: 'eth0', ipv6: { available: false } }) },
     }).install({ endpointHost: process.argv[3], listenPort: 54321, ipv6: { serverAddress: 'fd42:8:3::1', firstClientAddress: 'fd42:8:3::2', subnet: 'fd42:8:3::/64', mode: 'routed' } });
@@ -31,6 +31,7 @@ async function main() {
     const saved = await store.save({ ...state, clients });
     const artifacts = buildAwgArtifacts(saved);
     await fs.writeFile('/data/before.json', JSON.stringify(saved), { mode: 0o600 });
+    await fs.writeFile('/data/test-password', bootstrapPassword, { mode: 0o600 });
     await fs.writeFile('/data/artifacts.json', JSON.stringify(artifacts), { mode: 0o600 });
     for (const [id, artifact] of Object.entries(artifacts.clientArtifacts)) {
       await fs.writeFile(`/data/${id}.conf`, artifact.nativeConfig, { mode: 0o600 });
@@ -80,6 +81,38 @@ async function main() {
       if (expected !== 'block' || !['ETIMEDOUT', 'ECONNRESET', 'EHOSTUNREACH', 'ENETUNREACH'].includes(error.code)) throw error;
       console.log(`PASS blocked IPv${host.includes(':') ? 6 : 4} port ${port}`);
     }
+  } else if (mode === 'panel-links') {
+    const password = await fs.readFile('/data/test-password', 'utf8');
+    const request = (url, options = {}) => fetch(url, { ...options, signal: AbortSignal.timeout(12000) });
+    const login = async (url) => {
+      const response = await request(new URL('api/v1/session', url), {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Origin: new URL(url).origin },
+        body: JSON.stringify({ password }),
+      });
+      assert.equal(response.status, 200, 'Panel login failed');
+      const cookie = response.headers.get('set-cookie');
+      assert(cookie && /HttpOnly/.test(cookie), 'Session cookie missing');
+      return cookie.split(';')[0];
+    };
+    const v4 = 'http://10.8.0.1:51821/';
+    const cookie4 = await login(v4);
+    const networkResponse = await request(new URL('api/v1/network', v4), { headers: { Cookie: cookie4 } });
+    assert.equal(networkResponse.status, 200);
+    const network = await networkResponse.json();
+    assert.equal(network.panelIpv4Url, v4);
+    assert.equal(network.panelIpv6Url, 'http://[fd42:8:3::1]:51821/');
+    const v6 = network.panelIpv6Url;
+    const page = await request(v6);
+    assert.equal(page.status, 200, 'IPv6 panel page unavailable');
+    assert((await page.text()).includes('login-form'), 'IPv6 login page missing');
+    // A browser does not transfer an IPv4 host cookie to the IPv6 host.
+    const session = await request(new URL('api/v1/session', v6));
+    assert.equal((await session.json()).authenticated, false);
+    const cookie6 = await login(v6);
+    const clientsResponse = await request(new URL('api/v1/clients', v6), { headers: { Cookie: cookie6 } });
+    assert.equal(clientsResponse.status, 200);
+    assert((await clientsResponse.json()).some(client => client.id === 'probe'));
+    console.log('PASS generated IPv4-to-IPv6 panel link, page, separate login and authenticated client list.');
   } else if (mode === 'permissions') {
     const manager = new ClientManager({ store, applier: new RuntimeApplier({ runtimeDirectory: '/run/awg-easy-3' }) });
     await manager.updateClient('probe', { ipv4Enabled: process.argv[3] === 'on', ipv6Enabled: process.argv[4] === 'on' });

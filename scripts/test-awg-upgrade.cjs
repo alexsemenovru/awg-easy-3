@@ -80,6 +80,7 @@ async function main() {
   const check = (name, host, port, expected, size) => execute(name, 'traffic', host, String(port), expected, String(size || 65536));
   check(probe, '10.8.0.1', 51821, 'allow');
   check(probe, 'fd42:8:3::1', 51821, 'allow');
+  execute(probe, 'panel-links');
   execute(server, 'snapshot');
   // Replace only the server image; clients retain their old engine and profile.
   docker('stop', '-t', '15', server); docker('rm', server);
@@ -87,6 +88,7 @@ async function main() {
   await ready(server, true);
   execute(server, 'snapshot');
   await reconnect(probe);
+  execute(probe, 'panel-links');
   docker('exec', '-d', server, 'node', '/test.cjs', 'echo');
   await wait(1000);
   for (const host of ['10.8.0.1', 'fd42:8:3::1']) {
@@ -96,6 +98,7 @@ async function main() {
   }
   for (const [v4, v6] of [['on', 'off'], ['off', 'on'], ['off', 'off'], ['on', 'on']]) {
     execute(server, 'permissions', v4, v6);
+    if (v4 === 'on' && v6 === 'on') await reconnect(probe);
     for (const [clientHost, serverHost, enabled] of [['10.8.0.3', '10.8.0.1', v4], ['fd42:8:3::3', 'fd42:8:3::1', v6]]) {
       check(probe, serverHost, 8080, enabled === 'on' ? 'allow' : 'block');
       check(server, clientHost, 8080, enabled === 'on' ? 'allow' : 'block');
