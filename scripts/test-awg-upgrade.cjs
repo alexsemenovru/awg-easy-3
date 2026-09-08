@@ -17,6 +17,22 @@ const execute = (name, ...args) => {
   if (result) console.log(result);
 };
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function reconnect(name) {
+  // The running client still holds the previous server's ephemeral session.
+  // Permit normal handshake/key timers, but never restart or reconfigure it.
+  const started = Date.now();
+  for (let attempt = 0; attempt < 14; attempt++) {
+    try {
+      execute(name, 'traffic', '10.8.0.1', '51821', 'allow');
+      console.log(`Existing client reconnected automatically after ${Math.ceil((Date.now() - started) / 1000)} seconds.`);
+      return;
+    } catch (error) {
+      if (!String(error.stderr).includes('test timeout')) throw error;
+      await wait(1000);
+    }
+  }
+  throw new Error('Existing client did not reconnect within three minutes');
+}
 async function ready(name, server = false) {
   for (let attempt = 0; attempt < 35; attempt++) {
     try {
@@ -70,6 +86,7 @@ async function main() {
   start(server, candidate, ['serve'], ['--ip', ip]);
   await ready(server, true);
   execute(server, 'snapshot');
+  await reconnect(probe);
   docker('exec', '-d', server, 'node', '/test.cjs', 'echo');
   await wait(1000);
   for (const host of ['10.8.0.1', 'fd42:8:3::1']) {
@@ -89,6 +106,7 @@ async function main() {
   start(server, previous, ['serve'], ['--ip', ip]);
   await ready(server, true);
   execute(server, 'snapshot');
+  await reconnect(probe);
   check(probe, '10.8.0.1', 51821, 'allow');
   check(probe, 'fd42:8:3::1', 51821, 'allow');
   console.log('PASS old-client interoperability, server image upgrade/rollback, unchanged exports and dual-stack permissions.');

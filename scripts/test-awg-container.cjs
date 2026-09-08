@@ -21,7 +21,7 @@ async function main() {
     const { state } = await new BootstrapInstaller({
       store,
       networkDetector: { detect: async () => ({ endpointCandidate: process.argv[3], wanInterface: 'eth0', ipv6: { available: false } }) },
-    }).install({ endpointHost: process.argv[3], ipv6: { serverAddress: 'fd42:8:3::1', firstClientAddress: 'fd42:8:3::2', subnet: 'fd42:8:3::/64', mode: 'routed' } });
+    }).install({ endpointHost: process.argv[3], listenPort: 54321, ipv6: { serverAddress: 'fd42:8:3::1', firstClientAddress: 'fd42:8:3::2', subnet: 'fd42:8:3::/64', mode: 'routed' } });
     const clients = [...state.clients];
     for (const [id, number, networkGroup, ipv4Enabled, ipv6Enabled] of [
       ['probe', 3, 'home', true, true], ['guest', 4, 'guest', true, true],
@@ -69,7 +69,7 @@ async function main() {
         const req = http.request({ host, port, path: port === 51821 ? '/api/v1/session' : '/', method: port === 51821 ? 'GET' : 'POST' }, res => {
           const chunks = []; res.on('data', c => chunks.push(c)); res.on('end', () => resolve(Buffer.concat(chunks))); res.on('error', reject);
         });
-        const timer = setTimeout(() => req.destroy(new Error('test timeout')), 12000);
+        const timer = setTimeout(() => req.destroy(Object.assign(new Error('test timeout'), { code: 'ETIMEDOUT' })), 12000);
         req.on('close', () => clearTimeout(timer)); req.on('error', reject);
         req.end(port === 51821 ? undefined : payload);
       });
@@ -77,7 +77,7 @@ async function main() {
       if (port !== 51821) assert(received.equals(payload), 'Echo payload changed');
       console.log(`PASS allowed IPv${host.includes(':') ? 6 : 4} port ${port}, ${received.length} bytes`);
     } catch (error) {
-      if (expected !== 'block' || error.code === 'ERR_ASSERTION') throw error;
+      if (expected !== 'block' || !['ETIMEDOUT', 'ECONNRESET', 'EHOSTUNREACH', 'ENETUNREACH'].includes(error.code)) throw error;
       console.log(`PASS blocked IPv${host.includes(':') ? 6 : 4} port ${port}`);
     }
   } else if (mode === 'permissions') {
