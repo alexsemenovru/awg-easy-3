@@ -88,8 +88,9 @@ test('returns exports only through the explicit authenticated endpoint', async (
     contentType: 'text/plain; charset=utf-8', value: 'vpn://share',
   });
   const native = await service.exportClient('signed-token', 'phone', 'native-config');
-  assert.match(native.value, /PrivateKey/);
+  assert.equal(native.value, '[Interface]\nPrivateKey=x');
   assert.equal(native.downloadName, 'Phone.conf');
+  assert.equal(native.contentType, 'application/octet-stream');
   assert.deepEqual(await service.exportClient('signed-token', 'phone', 'qr-svg'), {
     contentType: 'image/svg+xml; charset=utf-8', value: '<svg data-value="vpn://share"/>',
   });
@@ -97,8 +98,19 @@ test('returns exports only through the explicit authenticated endpoint', async (
 });
 
 test('creates safe readable conf filenames', () => {
-  assert.equal(exportFileName(' Алексей: телефон '), 'Алексей- телефон.conf');
-  assert.equal(exportFileName('///'), '---.conf');
+  assert.equal(exportFileName(' Honor 50 '), 'Honor_50.conf');
+  assert.equal(exportFileName('Home admin'), 'Home_admin.conf');
+  assert.equal(exportFileName(' Алексей: телефон '), 'AWG-client.conf');
+  assert.equal(exportFileName('///'), 'AWG-client.conf');
+  assert.equal(exportFileName('a'.repeat(80)), `${'a'.repeat(15)}.conf`);
+  assert.equal(exportFileName(null), 'AWG-client.conf');
+  assert.equal(exportFileName('a\r\nb'), 'a_b.conf');
+  for (const name of ['CON', 'nul', 'LPT1', '..', '...']) {
+    assert.equal(exportFileName(name), 'AWG-client.conf');
+  }
+  assert.equal(exportFileName('Honor 50+'), 'Honor_50+.conf');
+  assert.equal(exportFileName('ＡＷＧ'), 'AWG.conf');
+  assert.equal(exportFileName('phone.'), 'phone.conf');
 });
 
 test('changes the password and clears the now-invalid session', async () => {

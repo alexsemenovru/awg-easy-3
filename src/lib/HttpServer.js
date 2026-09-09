@@ -134,8 +134,10 @@ class HttpServer {
       const exported = await this.api.exportClient(token, client.id, url.searchParams.get('format'));
       response.statusCode = 200;
       response.setHeader('Content-Type', exported.contentType);
+      const fallbackName = /^[a-zA-Z0-9_=+.-]{1,15}\.conf$/.test(exported.downloadName ?? '')
+        ? exported.downloadName : 'AWG-client.conf';
       response.setHeader('Content-Disposition', exported.downloadName
-        ? `attachment; filename="AWG-client.conf"; filename*=UTF-8''${encodeURIComponent(exported.downloadName)}`
+        ? `attachment; filename="${fallbackName}"; filename*=UTF-8''${encodeURIComponent(exported.downloadName)}`
         : 'attachment');
       return response.end(exported.value);
     }
@@ -174,9 +176,11 @@ class HttpServer {
       throw error;
     }
     response.statusCode = 200;
-    response.setHeader('Content-Type', extensionTypes[path.extname(filePath)] ?? 'application/octet-stream');
+    response.setHeader('Content-Type', relative === 'manifest.json'
+      ? 'application/manifest+json; charset=utf-8'
+      : extensionTypes[path.extname(filePath)] ?? 'application/octet-stream');
     response.setHeader('Content-Length', body.length);
-    response.setHeader('Cache-Control', ['.html', '.js', '.css'].includes(path.extname(filePath))
+    response.setHeader('Cache-Control', relative === 'manifest.json' || ['.html', '.js', '.css'].includes(path.extname(filePath))
       ? 'no-cache' : 'public, max-age=3600');
     return response.end(request.method === 'HEAD' ? undefined : body);
   }

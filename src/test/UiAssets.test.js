@@ -39,6 +39,8 @@ test('ships a self-contained UI with every required control', () => {
   assert.match(html, /\/img\/favicon\.svg\?v=[0-9-]+/);
   assert.match(html, /rel="alternate icon"/);
   assert.match(html, /rel="apple-touch-icon"/);
+  assert.match(html, /name="apple-mobile-web-app-capable" content="yes"/);
+  assert.match(html, /name="apple-mobile-web-app-title" content="AWG-Easy 3"/);
   assert.match(html, /rel="manifest" href="\/manifest\.json\?v=[0-9-]+"/);
   assert.match(html, /\/css\/branding\.css\?v=[0-9-]+/);
   assert.doesNotMatch(html, /<img[^>]+class="brand-mark"/);

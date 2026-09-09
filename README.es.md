@@ -6,7 +6,7 @@
 
 Un panel Docker sencillo para **AmneziaWG 3.x**. Es un fork independiente y no comercial de [JohnnyVBut/awg-easy](https://github.com/JohnnyVBut/awg-easy), reconstruido para instalaciones limpias de AWG 3.x.
 
-> Versión actual: **0.1.4**, con el motor AWG **v3.1.20260828**. Los perfiles existentes siguen siendo válidos. Consulte las [notas de la versión](docs/releases/v0.1.4.md).
+> Versión actual: **0.1.5**, con el motor AWG **v3.1.20260828**. Los perfiles existentes siguen siendo válidos. Consulte las [notas de la versión](docs/releases/v0.1.5.md).
 
 ## Funciones principales
 
@@ -24,13 +24,19 @@ cd awg-easy-3
 sudo ./install.sh --host IP_PUBLICA_O_DOMINIO --lang es
 ```
 
-Use **[AmneziaVPN 5.0.0.5 o posterior](https://github.com/amnezia-vpn/amnezia-client/releases)** para importar los perfiles creados por AWG-Easy 3. En Android, instale la versión actual de [AmneziaVPN desde Google Play](https://play.google.com/store/apps/details?id=org.amnezia.vpn). Importe el enlace `vpn://` mostrado por el instalador o el panel; también puede descargar un archivo `.conf` cuando sea necesario.
+Para importar `vpn://`, use **[AmneziaVPN 5.0.0.5 o posterior](https://github.com/amnezia-vpn/amnezia-client/releases)**, también disponible para Android en [Google Play](https://play.google.com/store/apps/details?id=org.amnezia.vpn). Como alternativa, importe el archivo `.conf` descargado en **AmneziaWG 3.1**. La sección de compatibilidad detalla la versión Android probada, el acceso al panel por IPv6 y otros clientes.
 
 El instalador muestra la contraseña del panel y el primer enlace Home `vpn://`. Impórtelo, conecte y abra `http://10.8.0.1:51821` (o la dirección interna indicada por el instalador). Autorice el puerto UDP elegido en el firewall del proveedor. Si perdió el enlace, exporte de nuevo el mismo perfil:
 
 ```bash
 sudo awg-easy-3 export-client "Home admin"
 ```
+
+### Añadir el panel como aplicación
+
+Conecte un perfil VPN Home, abra el panel y use **Instalar aplicación**, **Añadir a la pantalla de inicio** o **Crear acceso directo** en el menú del navegador. El panel incluye un web-app manifest e iconos para una ventana independiente donde se admita. Esto no instala ni inicia la VPN: siguen siendo necesarios la conexión Home y el inicio de sesión. Las direcciones IPv4 e IPv6 son orígenes distintos y pueden crear aplicaciones y sesiones separadas.
+
+La instalación automática de PWA suele requerir **HTTPS**; la dirección HTTP privada predeterminada no cumple ese requisito. Algunos navegadores permiten añadirla como aplicación de sitio o acceso directo; depende del navegador y del sistema. No se añade service worker, caché de perfiles sin conexión ni puerto público. Consulte los [requisitos de instalación](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Guides/Making_PWAs_installable).
 
 ## Actualización y administración
 
@@ -88,7 +94,13 @@ También puede usar `--port`, `--panel-port` y `--lang en|ru|fa|es|zh-cn`. Si el
 
 ## Compatibilidad y pruebas de campo
 
-AWG 3.x no es compatible con AWG 2.x. Los clientes WireGuard convencionales y la aplicación AmneziaWG independiente no admiten actualmente estos perfiles. AWG-Easy 3 es independiente de AmneziaVPN; se menciona únicamente como cliente compatible verificado.
+Estos perfiles requieren un cliente AWG 3.x; WireGuard convencional y clientes AWG antiguos no son compatibles. AWG-Easy 3 es independiente de los proyectos cliente.
+
+- **Android, alternativa verificada:** [AmneziaWG v3.1.20260814](https://github.com/amnezia-vpn/amneziawg-android/releases/tag/v3.1.20260814). La pantalla de información muestra aplicación **3.1.20260813** y motor **3.1.20260814**. El 09-09-2026 el usuario confirmó en Honor 50 la importación de nuestro `.conf`, la conexión y el acceso al panel por IPv4 e IPv6. Importe el archivo, no `vpn://`; **2.0.1 no es compatible**. La descarga usa un nombre ASCII corto, como `Honor_50.conf`, sin cambiar el nombre visible del cliente ni el contenido. Los nombres compuestos solo por caracteres no ASCII usan `AWG-client.conf`.
+- **Escritorio, candidato a evaluación:** [Throne 1.3.0-beta.2](https://github.com/throneproj/Throne/releases/tag/1.3.0-beta.2) implementa los campos AWG 3.x, incluidos `RandomTrailers` y `DisableCookies`. Pruebe la importación `.conf`. Es una beta; **el panel IPv6 y la red Home con AWG-Easy 3 aún no se han probado en condiciones reales**.
+- **Opción avanzada:** [Mihomo 1.19.30](https://github.com/MetaCubeX/mihomo/releases/tag/v1.19.30) implementa AWG 3.0/3.1. Requiere un YAML adecuado con `amnezia-wg-option.version: 3`; no todas las interfaces gráficas incluyen ese motor. Aquí no se han verificado la importación, el panel IPv6 ni la red Home.
+
+**AmneziaVPN 5.0.2.1 en Android:** la prueba comparativa en Honor 50 mostró un tiempo de espera al abrir el panel IPv6, mientras que el mismo perfil funcionó con AmneziaWG. Su [procesamiento de rutas Android](https://github.com/amnezia-vpn/amnezia-client/blob/5.0.2.1/client/android/protocolApi/src/main/kotlin/ProtocolConfig.kt) sustituye `::/0` por `2000::/3`, excluyendo la dirección ULA interna incluso en modo Todos los sitios. Use el panel IPv4 o la alternativa Android verificada. No se generaliza a todas las versiones/plataformas. Internet, DNS, servicios Home y descubrimiento requieren pruebas independientes.
 
 Pruebas de campo anteriores, hasta **0.1.3** inclusive. Añade permisos IPv4/IPv6 por cliente y Ajustes de acceso plegables. Además de Ubuntu/systemd, ya se probaron la instalación, migración y reinicios en un VPS real con Alpine/OpenRC. Los últimos cambios de interfaz se probaron localmente tras eliminar el VPS. Consulte las [notas de la versión](docs/releases/v0.1.3.md) y el [informe de Alpine (en ruso)](docs/VPS_TEST_2026-08-31.ru.md).
 

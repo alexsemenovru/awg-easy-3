@@ -6,6 +6,15 @@ const path = require('node:path');
 const test = require('node:test');
 const root = path.join(__dirname, '..', '..');
 
+test('all five READMEs document alternative client versions and web-app limitations', () => {
+  for (const file of ['README.md', 'README.ru.md', 'README.es.md', 'README.fa.md', 'README.zh-CN.md']) {
+    const text = fs.readFileSync(path.join(root, file), 'utf8');
+    for (const required of ['3.1.20260814', '1.3.0-beta.2', '1.19.30', 'Honor_50.conf', '2000::/3', 'HTTPS', 'manifest']) {
+      assert(text.includes(required), `${file}: missing compatibility detail ${required}`);
+    }
+  }
+});
+
 test('all five READMEs put concise features and first login before technical detail', () => {
   for (const [file, headings] of [
     ['README.md', ['What is AWG-Easy 3?', 'At a glance', 'Installation and first login', 'Update and management', 'Technical features']],

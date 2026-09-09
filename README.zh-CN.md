@@ -6,7 +6,7 @@
 
 一个面向 **AmneziaWG 3.x** 的轻量 Docker 管理面板。本项目是 [JohnnyVBut/awg-easy](https://github.com/JohnnyVBut/awg-easy) 的独立、非商业分支，专为全新安装 AWG 3.x 而重新构建。
 
-> 当前版本：**0.1.4**，使用 AWG **v3.1.20260828** 引擎。现有配置继续有效。请参阅[发行说明](docs/releases/v0.1.4.md)。
+> 当前版本：**0.1.5**，使用 AWG **v3.1.20260828** 引擎。现有配置继续有效。请参阅[发行说明](docs/releases/v0.1.5.md)。
 
 ## 功能概览
 
@@ -24,13 +24,19 @@ cd awg-easy-3
 sudo ./install.sh --host 公网IP或域名 --lang zh-cn
 ```
 
-请使用 **[AmneziaVPN 5.0.0.5 或更高版本](https://github.com/amnezia-vpn/amnezia-client/releases)** 导入 AWG-Easy 3 生成的配置。在 Android 上，请从 [Google Play 安装最新版 AmneziaVPN](https://play.google.com/store/apps/details?id=org.amnezia.vpn)。导入安装程序或面板显示的 `vpn://` 链接；需要时也可下载 `.conf` 文件。
+导入 `vpn://` 链接可使用 **[AmneziaVPN 5.0.0.5 或更高版本](https://github.com/amnezia-vpn/amnezia-client/releases)**，Android 版也可从 [Google Play](https://play.google.com/store/apps/details?id=org.amnezia.vpn) 获取。也可以将下载的 `.conf` 文件导入 **AmneziaWG 3.1**。下方兼容性章节列出了经过测试的 Android 版本、IPv6 面板访问情况及其他客户端。
 
 安装程序会显示面板密码和首个 Home `vpn://` 链接。导入并连接后，打开 `http://10.8.0.1:51821`，或安装程序显示的内部地址。请在提供商防火墙中允许所选 UDP 端口。若未保存链接，可重新导出同一配置：
 
 ```bash
 sudo awg-easy-3 export-client "Home admin"
 ```
+
+### 将面板添加为应用
+
+连接 Home VPN 配置并打开面板，然后在浏览器菜单中选择**安装应用**、**添加到主屏幕**或**创建快捷方式**。面板包含 web-app manifest 和图标，支持时可在独立窗口中打开。这不会安装或启动 VPN；仍需 Home 连接并登录面板。IPv4 和 IPv6 地址属于不同来源，可能创建不同的应用入口和会话。
+
+自动提示安装 PWA 通常要求 **HTTPS**；默认的 VPN 内部 HTTP 地址不满足该条件。部分浏览器仍允许将其添加为网站应用或快捷方式，具体取决于浏览器和操作系统。不会添加 service worker、离线配置缓存或公共端口。参阅[浏览器安装要求](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Guides/Making_PWAs_installable)。
 
 ## 更新与管理
 
@@ -88,7 +94,13 @@ sudo awg-easy-3 export-client "Home admin"
 
 ## 兼容性与实测
 
-AWG 3.x 不向后兼容 AWG 2.x。普通 WireGuard 客户端以及独立的 AmneziaWG 应用目前不支持这些配置。AWG-Easy 3 与 AmneziaVPN 相互独立；此处仅将其列为已经验证的兼容客户端。
+这些配置需要支持 AWG 3.x 的客户端；普通 WireGuard 和旧版 AWG 客户端不兼容。AWG-Easy 3 独立于各客户端项目。
+
+- **Android，已实测的替代客户端：**[AmneziaWG v3.1.20260814](https://github.com/amnezia-vpn/amneziawg-android/releases/tag/v3.1.20260814)。关于页面显示应用版本 **3.1.20260813**、内核版本 **3.1.20260814**。2026-09-09，用户在 Honor 50 上确认我们的 `.conf` 可导入、隧道可连接，面板可通过 IPv4 和 IPv6 打开。请导入文件，不是 `vpn://`；**2.0.1 不兼容**。下载文件采用简短 ASCII 名称，例如 `Honor_50.conf`，不会修改面板中的客户端名称或配置内容。完全由非 ASCII 字符组成的名称使用 `AWG-client.conf`。
+- **桌面端，待测候选：**[Throne 1.3.0-beta.2](https://github.com/throneproj/Throne/releases/tag/1.3.0-beta.2) 已实现 AWG 3.x 字段，包括 `RandomTrailers` 和 `DisableCookies`。可尝试导入 `.conf`。这是测试版；**尚未实测其与 AWG-Easy 3 的 IPv6 面板访问及 Home 网络兼容性**。
+- **高级选项：**[Mihomo 1.19.30](https://github.com/MetaCubeX/mihomo/releases/tag/v1.19.30) 已实现 AWG 3.0/3.1。需要包含 `amnezia-wg-option.version: 3` 的正确 YAML 配置；并非所有图形客户端都内置此内核。这里尚未验证其导入、IPv6 面板及 Home 网络。
+
+**Android 上的 AmneziaVPN 5.0.2.1：**Honor 50 对比测试中，IPv6 面板连接超时，但同一配置在独立 AmneziaWG 应用中正常。[Android 路由处理代码](https://github.com/amnezia-vpn/amnezia-client/blob/5.0.2.1/client/android/protocolApi/src/main/kotlin/ProtocolConfig.kt) 将 `::/0` 替换为 `2000::/3`，即使在“所有网站”模式下也不包含面板的内部 ULA 地址。请使用 IPv4 面板或已实测的 Android 替代客户端。此结论不泛指所有版本或平台。互联网、DNS、Home 客户端服务和服务发现仍需分别测试。
 
 此前截至 **0.1.3** 的实测。新增各客户端独立 IPv4/IPv6 权限及可折叠的“访问设置”。除之前的 Ubuntu/systemd 测试外，现已在真实 VPS 上验证 Alpine/OpenRC 的安装、迁移和重启。最后的界面修改是在 VPS 删除后于本地浏览器中验证的。请参阅[发行说明](docs/releases/v0.1.3.md)和[Alpine 实测报告（俄语）](docs/VPS_TEST_2026-08-31.ru.md)。
 

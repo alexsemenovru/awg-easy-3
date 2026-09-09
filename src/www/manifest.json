@@ -1,9 +1,12 @@
 {
+  "id": "/",
   "name": "AWG-Easy 3",
   "short_name": "AWG-Easy 3",
+  "description": "Private AmneziaWG 3.x management panel. Connect your Home VPN profile before opening.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "prefer_related_applications": false,
   "background_color": "#07111f",
   "theme_color": "#0d1b2c",
   "icons": [

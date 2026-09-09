@@ -46,8 +46,8 @@ const fixture = async (t) => {
     updateClient: async (token, id, input) => ({ id, ...input }),
     deleteClient: async () => ({ success: true }),
     exportClient: async (token, id, format) => ({
-      contentType: 'text/plain; charset=utf-8',
-      ...(format === 'native-config' ? { downloadName: 'Телефон.conf' } : {}),
+      contentType: format === 'native-config' ? 'application/octet-stream' : 'text/plain; charset=utf-8',
+      ...(format === 'native-config' ? { downloadName: 'Honor_50.conf' } : {}),
       value: format === 'native-config' ? '[Interface]' : 'vpn://share',
     }),
     changePassword: async () => ({ cookie: 'awg_easy_3_session=; Max-Age=0' }),
@@ -85,8 +85,33 @@ test('supports policy mutation and explicit export routes', async (t) => {
   const native = await request(port, 'GET', '/api/v1/clients/phone/export?format=native-config', {
     cookie: 'awg_easy_3_session=valid',
   });
-  assert.match(native.headers['content-disposition'], /filename="AWG-client\.conf"/);
-  assert.match(native.headers['content-disposition'], /filename\*=UTF-8''%D0%A2/);
+  assert.match(native.headers['content-disposition'], /filename="Honor_50\.conf"/);
+  assert.match(native.headers['content-disposition'], /filename\*=UTF-8''Honor_50\.conf/);
+  assert.equal(native.headers['content-type'], 'application/octet-stream');
+  assert.equal(native.body, '[Interface]');
+  assert.equal(native.headers['cache-control'], 'no-store');
+  assert.equal(native.headers['x-content-type-options'], 'nosniff');
+  assert.equal(exported.headers['content-type'], 'text/plain; charset=utf-8');
+});
+
+test('serves an origin-relative web-app manifest without caching credentials or embedding a host', async (t) => {
+  const { port } = await fixture(t);
+  const response = await request(port, 'GET', '/manifest.json?v=20260909-1');
+  assert.equal(response.status, 200);
+  assert.equal(response.headers['content-type'], 'application/manifest+json; charset=utf-8');
+  assert.equal(response.headers['cache-control'], 'no-cache');
+  assert.equal(response.headers['set-cookie'], undefined);
+  const manifest = JSON.parse(response.body);
+  assert.equal(manifest.id, '/');
+  assert.equal(manifest.start_url, '/');
+  assert.equal(manifest.scope, '/');
+  assert.equal(manifest.display, 'standalone');
+  assert.equal(manifest.prefer_related_applications, false);
+  for (const icon of manifest.icons) {
+    const asset = await request(port, 'HEAD', `/${icon.src}`);
+    assert.equal(asset.status, 200);
+    assert.equal(asset.headers['content-type'], 'image/png');
+  }
 });
 
 test('rejects cross-site mutations, oversized bodies and legacy endpoints', async (t) => {
