@@ -12,11 +12,11 @@ ARG AWG_TOOLS_COMMIT
 RUN apk add --no-cache build-base git linux-headers
 RUN git clone --filter=blob:none https://github.com/amnezia-vpn/amneziawg-tools.git /src && git -C /src checkout --detach "$AWG_TOOLS_COMMIT" && test "$(git -C /src rev-parse HEAD)" = "$AWG_TOOLS_COMMIT" && make -C /src/src WITH_SYSTEMDUNITS=no WITH_BASHCOMPLETION=no
 RUN install -Dm755 /src/src/wg /out/awg && install -Dm755 /src/src/wg-quick/linux.bash /out/awg-quick
-FROM --platform=linux/amd64 node:22.18.0-alpine3.22@sha256:dbb65b3b08bd9d4d4a85299ad4d668b0e709a0601cecb5969f4dbb1dd89408aa AS node-deps
+FROM --platform=linux/amd64 node:26.3.0-alpine3.22@sha256:c7932b9e5e337b0e733d6e16abc1b0e104759e8b05e59ed56586cce967d26dfe AS node-deps
 WORKDIR /app
 COPY src/package.json src/pnpm-lock.yaml ./
 RUN corepack enable && corepack prepare pnpm@11.19.0 --activate && pnpm install --prod --frozen-lockfile
-FROM --platform=linux/amd64 node:22.18.0-alpine3.22@sha256:dbb65b3b08bd9d4d4a85299ad4d668b0e709a0601cecb5969f4dbb1dd89408aa
+FROM --platform=linux/amd64 node:26.3.0-alpine3.22@sha256:c7932b9e5e337b0e733d6e16abc1b0e104759e8b05e59ed56586cce967d26dfe
 ARG AWG_GO_COMMIT
 ARG AWG_TOOLS_COMMIT
 LABEL org.opencontainers.image.title="AWG-Easy 3" org.opencontainers.image.description="Easy web panel for AmneziaWG 3.x" org.opencontainers.image.source="https://github.com/alexsemenovru/awg-easy-3" org.opencontainers.image.licenses="CC-BY-NC-SA-4.0" org.opencontainers.image.awg-go-revision="$AWG_GO_COMMIT" org.opencontainers.image.awg-tools-revision="$AWG_TOOLS_COMMIT"
