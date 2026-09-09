@@ -25,7 +25,11 @@ const defaultQrGenerator = (value) => require('qrcode').toString(value, {
 });
 
 const exportFileName = (name) => {
-  const normalized = String(name).normalize('NFKC').trim().replace(/[\\/:*?"<>|\u0000-\u001f]/g, '-');
+  // Android AWG uses the file stem as a tunnel name (ASCII, at most 15 characters).
+  // This affects only the download, never the saved/displayed client name.
+  const normalized = String(name ?? '').normalize('NFKC').trim()
+    .replace(/[^a-zA-Z0-9_=+.-]+/g, '_').replace(/^[_.]+|[_.]+$/g, '').slice(0, 15).replace(/\.+$/g, '');
+  if (/^(con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\.|$)/i.test(normalized)) return 'AWG-client.conf';
   return `${normalized || 'AWG-client'}.conf`;
 };
 
@@ -132,7 +136,7 @@ class ApiService {
       const state = await this.store.load();
       const client = state?.clients.find((item) => item.id === clientId);
       return Object.freeze({
-        contentType: 'text/plain; charset=utf-8',
+        contentType: 'application/octet-stream',
         downloadName: exportFileName(client?.name),
         value: artifact.nativeConfig,
       });
