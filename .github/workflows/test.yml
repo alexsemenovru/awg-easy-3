@@ -33,8 +33,12 @@ jobs:
 
   container:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.18.0
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
         with:
@@ -48,3 +52,22 @@ jobs:
           test "$(docker run --rm --network none --entrypoint node awg-easy-3:test -p 'require("/app/package.json").version')" = "$(cat VERSION)"
           docker run --rm --network none --entrypoint awg awg-easy-3:test --version
           docker run --rm --network none --entrypoint nft awg-easy-3:test --version
+      - name: Test real AWG upgrade with previous-release clients
+        run: |
+          sudo modprobe tun
+          node scripts/test-awg-upgrade.cjs awg-easy-3:test
+      - name: Build pinned upstream regression-test environment
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: awg-go
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: awg-easy-3:engine-tests
+      - name: Check upstream padding and disabled-cookie regressions
+        run: |
+          docker run --rm --network none \
+            -v "$PWD/scripts/awg-regression_test.go:/src/device/easy_regression_test.go:ro" \
+            --entrypoint go awg-easy-3:engine-tests \
+            test ./device -run '^TestEasy' -count=5 -timeout=2m

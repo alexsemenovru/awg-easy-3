@@ -12,7 +12,7 @@ test('pins amd64 base images and official AWG source revisions', () => {
   const compose = fs.readFileSync(path.join(root, 'docker-compose.yml'), 'utf8');
   assert.equal((dockerfile.match(/FROM --platform=linux\/amd64/g) || []).length, 4);
   assert.equal((dockerfile.match(/@sha256:[a-f0-9]{64}/g) || []).length, 4);
-  assert.match(dockerfile, /AWG_GO_COMMIT=1b86b2ae0e493e7ea93f8c1a0f0cb6735b1551f1/);
+  assert.match(dockerfile, /AWG_GO_COMMIT=b5928efb6ca19f0153958460c3d141f04abc5c2e/);
   assert.match(dockerfile, /AWG_TOOLS_COMMIT=ee0f0a9aa34ff0a0da4b3433b9512781cfe02843/);
   assert.doesNotMatch(dockerfile, /:latest/);
   assert.match(compose, /network_mode: host/);
