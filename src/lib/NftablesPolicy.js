@@ -1,6 +1,7 @@
 'use strict';
 
 const net = require('node:net');
+const { renderGeoIpPolicy } = require('./GeoIpPolicy');
 
 const TABLE_NAME = 'awg_easy_3';
 
@@ -61,6 +62,8 @@ const renderNftablesPolicy = ({
   home6 = [],
   guest6 = [],
   panelPort = 51821,
+  geoClients = [],
+  geoDatabase = {},
 }) => {
   const awg = validateInterface(interfaceName);
   const wan = validateInterface(wanInterface);
@@ -125,6 +128,9 @@ const renderNftablesPolicy = ({
     iifname ${quote(awg)} meta nfproto ipv6 drop comment "IPv6 unavailable"
     oifname ${quote(awg)} meta nfproto ipv6 drop comment "IPv6 unavailable"`;
 
+  const geo = renderGeoIpPolicy({ clients: geoClients, database: geoDatabase, awg, wan,
+    active4: [...normalizedHome4, ...normalizedGuest4], active6: [...normalizedHome6, ...normalizedGuest6] });
+
   return `# Managed by AWG-Easy 3. Do not append unrelated rules to this table.
 table inet ${TABLE_NAME} {
   set active4 {
@@ -138,7 +144,7 @@ table inet ${TABLE_NAME} {
   set guest4 {
     type ipv4_addr${elementsClause(normalizedGuest4)}
   }
-${ipv6Sets}
+${ipv6Sets}${geo.sets}
   chain client_permissions {
     iifname ${quote(awg)} ip saddr != @active4 drop comment "IPv4 permission: from VPN client"
     oifname ${quote(awg)} ip daddr != @active4 drop comment "IPv4 permission: to VPN client"${ipv6PermissionRules}
@@ -156,7 +162,7 @@ ${ipv6Sets}
     jump client_permissions
     iifname ${quote(awg)} oifname ${quote(awg)} ip saddr @home4 ip daddr @home4 accept comment "home peer traffic"${ipv6HomeForwardRule}
     iifname ${quote(awg)} oifname ${quote(awg)} drop comment "isolate guest peers"
-    iifname ${quote(awg)} oifname ${quote(wan)} ip saddr ${subnet4} accept comment "AWG IPv4 to WAN"
+${geo.rules ? `${geo.rules}\n` : ''}    iifname ${quote(awg)} oifname ${quote(wan)} ip saddr ${subnet4} accept comment "AWG IPv4 to WAN"
     iifname ${quote(wan)} oifname ${quote(awg)} ip daddr ${subnet4} ct state established,related accept comment "return IPv4 traffic"${ipv6ForwardRules}
   }
 

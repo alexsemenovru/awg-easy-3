@@ -10,6 +10,9 @@
   const logout = $('#logout');
   const clientsNode = $('#clients');
   const notice = $('#notice');
+  const connectionView = $('#connection-view');
+  const connectionMessage = $('#connection-message');
+  const retryConnection = $('#retry-connection');
   const createDialog = $('#create-dialog');
   const profileDialog = $('#profile-dialog');
   const deleteDialog = $('#delete-dialog');
@@ -19,7 +22,10 @@
   let selectedClient;
   let pendingDelete;
   let lastDiagnostics = [];
+  let geoCountries = [];
   const { paintRates, createPoller } = window.awgDiagnostics;
+  const geoStatus = window.awgGeoStatus?.({ load: signal => api.geoInfo(signal), createPoller,
+    node: $('#geo-status'), translate: t, onData: status => { geoCountries = status.countries || []; } });
 
   const savedLanguage = localStorage.getItem('awg-easy-language');
   if (supportedLanguages.includes(savedLanguage)) {
@@ -34,11 +40,13 @@
     if (timeout) showNotice.timer = setTimeout(() => notice.classList.add('hidden'), timeout);
   };
   const showLogin = () => {
+    geoStatus?.stop();
     diagnosticsPoller.stop();
     lastDiagnostics = [];
     loginView.classList.remove('hidden'); appView.classList.add('hidden'); logout.classList.add('hidden');
   };
   const showApp = () => {
+    geoStatus?.start();
     loginView.classList.add('hidden'); appView.classList.remove('hidden'); logout.classList.remove('hidden');
   };
   const guarded = async (action) => {
@@ -103,6 +111,8 @@
     if (!appView.classList.contains('hidden') && !document.hidden) diagnosticsPoller.start();
   }
   document.addEventListener('visibilitychange', () => {
+    geoStatus?.stop();
+    if (!document.hidden && !appView.classList.contains('hidden')) geoStatus?.start();
     diagnosticsPoller.stop();
     clearDiagnostics('checking');
     startDiagnostics();
@@ -169,12 +179,24 @@
     node.querySelector('.ipv6-only-warning').classList.toggle('hidden', !client.ipv6Enabled || client.ipv4Enabled);
     node.querySelector('.show-profile').addEventListener('click', () => openProfile(client));
     node.querySelector('.delete-client').addEventListener('click', () => askDelete(client));
+    window.awgGeoClient?.attach({ node, client, codes: () => geoCountries,
+      language: () => languageSelect.value || 'en', t,
+      save: async geoPolicy => {
+        const saved = await guarded(() => api.updateClient(client.id, { geoPolicy }));
+        clients = clients.map(item => item.id === saved.id ? saved : item);
+        clientsNode.replaceChildren(...clients.map(renderClient));
+        lastDiagnostics.forEach(paintDiagnostics);
+      },
+    });
     return node;
   };
   const loadClients = async () => {
     diagnosticsPoller.stop();
     clearDiagnostics('checking');
     clients = await guarded(() => api.clients());
+    if (api.geoInfo) {
+      try { geoCountries = (await api.geoInfo()).countries || []; } catch { geoCountries = []; }
+    }
     clientsNode.replaceChildren(...clients.map(renderClient));
     startDiagnostics();
     // Failure here must not undo a successful client mutation or hide its result.
@@ -212,6 +234,7 @@
     i18n.setLanguage(languageSelect.value);
     localStorage.setItem('awg-easy-language', languageSelect.value);
     lastDiagnostics.forEach(paintDiagnostics);
+    geoStatus?.translate();
   });
   $('#show-create').addEventListener('click', () => createDialog.showModal());
   document.querySelectorAll('.close-dialog').forEach((button) => button.addEventListener('click', () => button.closest('dialog').close()));
@@ -268,13 +291,34 @@
       alert(t('passwordChanged'));
     } catch {}
   });
-  api.session().then(async ({ authenticated, language }) => {
+  const connection = window.awgConnection({
+    load: (signal) => api.session(signal),
+    createPoller,
+    onState: (state) => {
+      connectionView.classList.toggle('hidden', state === 'ready');
+      const key = state === 'unavailable' ? 'panelUnavailable' : 'panelConnecting';
+      connectionMessage.dataset.i18n = key;
+      connectionMessage.textContent = t(key);
+      retryConnection.disabled = state === 'connecting';
+      retryConnection.classList.toggle('hidden', state !== 'unavailable');
+      if (state === 'unavailable') clearDiagnostics();
+    },
+    onSession: ({ authenticated, language }) => {
     const selectedLanguage = supportedLanguages.includes(localStorage.getItem('awg-easy-language'))
       ? localStorage.getItem('awg-easy-language') : language;
     i18n.setLanguage(selectedLanguage);
     languageSelect.value = selectedLanguage;
     if (!authenticated) return showLogin();
     showApp();
-    return loadClients();
-  }).catch((error) => showNotice(error.message, true));
+    loadClients().catch(() => {});
+    },
+  });
+  retryConnection.addEventListener('click', () => connection.retry());
+  window.addEventListener('online', () => connection.retry());
+  window.addEventListener('pageshow', (event) => { if (event.persisted) connection.start(); });
+  window.addEventListener('pagehide', () => { connection.stop(); geoStatus?.stop(); });
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) connection.start(); else connection.stop();
+  });
+  connection.start();
 })();

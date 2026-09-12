@@ -12,7 +12,7 @@ const peerAddresses = (client, serverHasIPv6) => [
   ...(serverHasIPv6 && client.address6 ? [`${client.address6}/128`] : []),
 ];
 
-const buildAwgArtifacts = ({ server, clients }) => {
+const buildAwgArtifacts = ({ server, clients, geoDatabase = {} }) => {
   if (!server || typeof server !== 'object' || Array.isArray(server)) {
     throw new TypeError('server must be an object');
   }
@@ -44,6 +44,12 @@ const buildAwgArtifacts = ({ server, clients }) => {
   });
 
   const nftables = renderNftablesPolicy({
+    geoDatabase,
+    geoClients: enabledClients.map(client => ({
+      policy: client.geoPolicy,
+      address4: clientTraffic(client).ipv4Enabled ? client.address4 : undefined,
+      address6: serverHasIPv6 && clientTraffic(client).ipv6Enabled ? client.address6 : undefined,
+    })),
     interfaceName: server.interfaceName ?? 'awg0',
     wanInterface: server.wanInterface ?? 'eth0',
     ipv4Subnet: server.ipv4Subnet,

@@ -7,8 +7,10 @@ const path = require('node:path');
 const { validateProfile } = require('./Awg3Config');
 const { normalizeClientPolicy } = require('./ClientPolicy');
 const { clientTraffic } = require('./ClientTraffic');
+const { normalizeGeoPolicy } = require('./GeoIpPolicy');
 
 const STATE_VERSION = 1;
+const GEO_STATE_VERSION = 2;
 
 const requiredString = (value, field) => {
   if (typeof value !== 'string' || value.trim() === '' || /[\r\n]/.test(value)) {
@@ -43,8 +45,8 @@ const validateState = (input) => {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     throw new TypeError('State must be a JSON object');
   }
-  if (input.version !== STATE_VERSION) {
-    throw new Error(`Unsupported state version: ${input.version ?? 'missing'}; expected ${STATE_VERSION}`);
+  if (![STATE_VERSION, GEO_STATE_VERSION].includes(input.version)) {
+    throw new Error(`Unsupported state version: ${input.version ?? 'missing'}; expected 1 or 2`);
   }
   if (!input.server || typeof input.server !== 'object' || Array.isArray(input.server)) {
     throw new TypeError('server must be an object');
@@ -112,6 +114,7 @@ const validateState = (input) => {
     }
     return {
       ...inputClient,
+      ...(inputClient.geoPolicy === undefined ? {} : { geoPolicy: normalizeGeoPolicy(inputClient.geoPolicy) }),
       ...policy,
       id: requiredString(inputClient.id, `clients[${index}].id`),
       name: requiredString(inputClient.name, `clients[${index}].name`),
@@ -131,7 +134,12 @@ const validateState = (input) => {
     throw new Error('State must contain at least one enabled home client');
   }
 
-  return deepFreeze({ version: STATE_VERSION, auth, server, clients });
+  // Keep the format upgrade sticky: older panels ignore geoPolicy but reject v2.
+  // Merely updating without enabling GeoIP retains the legacy format.
+  const version = input.version === GEO_STATE_VERSION
+    || clients.some(client => client.geoPolicy && client.geoPolicy.mode !== 'off')
+    ? GEO_STATE_VERSION : STATE_VERSION;
+  return deepFreeze({ version, auth, server, clients });
 };
 
 class StateStore {

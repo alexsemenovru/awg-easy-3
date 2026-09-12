@@ -50,6 +50,7 @@ const fixture = ({ discoveryStart, httpListen } = {}) => {
     close: async () => { calls.push(['http-close']); },
   };
   const application = new Application({
+    geoFactory: () => ({ load: async () => null, start: () => {}, stop: async () => {}, current: null }),
     discoveryFactory: () => discovery,
     httpFactory: () => http,
   });
@@ -61,6 +62,60 @@ const fixture = ({ discoveryStart, httpListen } = {}) => {
   application.interfaceActive = async () => false;
   return { application, calls };
 };
+
+test('GeoIP scheduler starts after panel bind and stops before firewall teardown', async () => {
+  const { application, calls } = fixture();
+  application.geo = { current: null, load: async () => calls.push(['geo-load']),
+    start: () => calls.push(['geo-start']), stop: async () => calls.push(['geo-stop']) };
+  await application.start();
+  await application.stop();
+  const names = calls.map(call => call[0]);
+  assert.ok(names.indexOf('geo-load') < names.indexOf('runtime-apply'));
+  assert.ok(names.indexOf('http-listen') < names.indexOf('geo-start'));
+  assert.ok(names.indexOf('geo-stop') < names.indexOf('runtime-down'));
+  assert.equal(typeof application.geo.install, 'function');
+});
+
+const geoState = () => {
+  const original = stateFixture();
+  return validateState({ ...original, clients: original.clients.map(client => ({
+    ...client, geoPolicy: { mode: 'block', countries: ['RU'] },
+  })) });
+};
+
+test('GeoIP restart uses cached database without network and keeps exported profile identical', async () => {
+  const { application } = fixture();
+  const before = await application.exportClient('home-admin');
+  application.store.load = async () => geoState();
+  application.geo.current = { database: { RU: { ipv4: ['192.0.2.0/24'], ipv6: [] } } };
+  application.geo.refresh = async () => { throw new Error('Network must not be required'); };
+  const applied = [];
+  application.applier.apply = async value => applied.push(value);
+  await application.start();
+  await application.stop();
+  await application.start();
+  assert.equal(applied.length, 2);
+  for (const value of applied) assert.match(value.nftables, /GeoIP outbound/);
+  assert.equal((await application.exportClient('home-admin')).vpnLink, before.vpnLink);
+  await application.stop();
+});
+
+test('GeoIP missing database recovery failure never applies unrestricted rules', async () => {
+  const { application, calls } = fixture();
+  application.store.load = async () => geoState();
+  application.geo.refresh = async () => { throw new Error('Source unavailable'); };
+  await assert.rejects(application.start(), /Source unavailable/);
+  assert.deepEqual(calls, []);
+  assert.equal(application.state, null);
+});
+
+test('GeoIP incomplete cached database refuses startup rather than omitting filter', async () => {
+  const { application, calls } = fixture();
+  application.store.load = async () => geoState();
+  application.geo.current = { database: { CN: { ipv4: ['192.0.2.0/24'], ipv6: [] } } };
+  await assert.rejects(application.start(), /country unavailable/);
+  assert.deepEqual(calls, []);
+});
 
 test('rolls runtime back when discovery startup fails', async () => {
   const { application, calls } = fixture({ discoveryStart: () => { throw new Error('discovery failed'); } });

@@ -6,7 +6,7 @@
 
 An intentionally small Docker web panel for **AmneziaWG 3.x**. This is an independent, non-commercial fork of [JohnnyVBut/awg-easy](https://github.com/JohnnyVBut/awg-easy), rebuilt around clean AWG 3.x installations.
 
-> Current release: **0.1.5**, with AWG engine **v3.1.20260828**. Existing profiles remain valid. See the [release notes](docs/releases/v0.1.5.md).
+> Current release: **0.1.6**, with AWG engine **v3.1.20260828**. Existing profiles remain valid. See the [release notes](docs/releases/v0.1.6.md).
 
 ## At a glance
 
@@ -77,6 +77,16 @@ Common commands include `sudo awg-easy-3 start|stop|restart|status|settings|logs
 Expand **Access settings** on a client card to allow IPv4 and IPv6 independently. Both off disables the client; the current mode remains visible when the section is closed. Home/Guest is independent. Changes apply in both directions inside the VPN, including existing connections; keys, profiles, addresses, DNS and routes remain unchanged. The panel protects the current administration path and the last permitted Home client. Internal IPv4/IPv6 panel links are listed under VPN traffic permissions.
 
 **IPv6-only may lose DNS resolution:** AmneziaVPN may apply only its IPv4 DNS fields even when the profile contains IPv6 DNS. Direct IPv6 can still work; enabling IPv4 restores access to IPv4 DNS. No DNS bypass, NAT64, WARP or direct fallback is added. The panel cannot control traffic excluded by the client's split-tunnelling rules; disable those filters for baseline tests. Discovery relay uses IPv4 and does not include clients whose IPv4 is blocked.
+
+### GeoIP filtering
+
+Each client's Access settings can disable filtering, block selected countries or allow only those countries. Enter country names in the panel language or two-letter codes, separated by commas, then save. No VPN profile reimport is needed.
+
+This is IP-range filtering, not domain filtering: nftables checks IPv4 and IPv6 in both VPN ↔ internet directions, including established connections. Home access to the panel and other Home clients is unchanged. Applications excluded from the VPN are outside its scope; there is no automatic direct fallback. An IP country does not guarantee a service's nationality, accuracy or protection from VPN detection. Requests to an external DNS resolver may also be blocked.
+
+[DB-IP Country Lite](https://db-ip.com/db/download/ip-to-country-lite) is downloaded and updated automatically. Failed updates retain the previous database; without a usable database, an active filter denies internet access. The panel displays database status. See the [implementation and test report](docs/GEOIP_DATABASE.md).
+
+**Downgrade:** first enabling GeoIP promotes saved state to v2, even if filters are later disabled. Version 0.1.5 cannot read it. Keep a protected data backup before enabling this feature; simply reverting the image is not supported afterward.
 
 ### Connection diagnostics
 

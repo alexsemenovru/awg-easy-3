@@ -74,8 +74,27 @@ test('atomically saves and loads state without losing secrets', async (t) => {
 
 test('rejects unsupported versions instead of attempting migration', () => {
   const state = fixture();
-  state.version = 2;
+  state.version = 3;
   assert.throws(() => validateState(state), /Unsupported state version/);
+});
+
+test('GeoIP upgrades persisted format without changing keys and never silently downgrades', async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-geo-state-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const filePath = path.join(directory, 'state.json');
+  const store = new StateStore(filePath);
+  const original = fixture();
+  original.clients[0].geoPolicy = { mode: 'off', countries: [] };
+  assert.equal((await store.save(original)).version, 1);
+  original.clients[0].geoPolicy = { mode: 'block', countries: ['RU'] };
+  const saved = await store.save(original);
+  assert.equal(saved.version, 2);
+  assert.equal(JSON.parse(await fs.readFile(filePath, 'utf8')).version, 2);
+  assert.equal((await store.load()).clients[0].privateKey, original.clients[0].privateKey);
+  const disabled = { ...saved, clients: saved.clients.map(c => ({ ...c, geoPolicy: { mode: 'off', countries: [] } })) };
+  await store.save(disabled);
+  assert.equal((await store.load()).version, 2);
+  assert.equal((await store.load()).server.privateKey, original.server.privateKey);
 });
 
 test('rejects duplicate peers and a state without an active home client', () => {

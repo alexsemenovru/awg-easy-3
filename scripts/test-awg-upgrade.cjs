@@ -6,7 +6,7 @@ const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const candidate = process.argv[2] || 'awg-easy-3:test';
-const previous = 'ghcr.io/alexsemenovru/awg-easy-3@sha256:1d6050e3f3798fd667277a72c5fccc9125ff436741c139ee07e682ac3a1a3a35'; // 0.1.4
+const previous = 'ghcr.io/alexsemenovru/awg-easy-3@sha256:de9ce4771159c0ae94f6aa418f9814a23495b4899f8f0fb6d5447609e57bc86e'; // 0.1.5
 const prefix = `awg-test-${crypto.randomBytes(6).toString('hex')}`;
 const network = `${prefix}-net`, volume = `${prefix}-data`;
 const helper = path.resolve(__dirname, 'test-awg-container.cjs');

@@ -118,6 +118,9 @@ class HttpServer {
     if (url.pathname === '/api/v1/network' && request.method === 'GET') {
       return sendJson(response, 200, await this.api.networkInfo(token));
     }
+    if (url.pathname === '/api/v1/geoip' && request.method === 'GET') {
+      return sendJson(response, 200, await this.api.geoInfo(token));
+    }
 
     const client = clientRoute(url.pathname);
     if (client && !client.export && request.method === 'PATCH') {
@@ -197,7 +200,7 @@ class HttpServer {
         ?? (error instanceof TypeError || error instanceof RangeError ? 400 : 500);
       return sendJson(response, statusCode, {
         error: statusCode === 500 ? 'Internal server error' : error.message,
-        ...(statusCode !== 500 && ['CURRENT_PANEL_PATH', 'LAST_HOME', 'IPV6_UNAVAILABLE'].includes(error.code)
+          ...(statusCode !== 500 && ['CURRENT_PANEL_PATH', 'LAST_HOME', 'IPV6_UNAVAILABLE', 'GEO_UNAVAILABLE'].includes(error.code)
           ? { code: error.code } : {}),
       });
     }

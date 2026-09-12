@@ -13,3 +13,6 @@
 .ip-help p{color:#91a6bf;line-height:1.5;margin-top:12px;font-size:.85rem}
 .switch input:focus-visible+span{outline:2px solid #39aaff;outline-offset:3px}
 .client-address{overflow-wrap:anywhere;direction:ltr;unicode-bidi:isolate}
+.geo-form{display:grid;gap:10px;margin-top:16px;padding-top:16px;border-top:1px solid #21374c}
+.geo-form label{display:grid;gap:6px;min-width:0}.geo-form input,.geo-form select{width:100%;min-width:0;box-sizing:border-box}
+.geo-form p{font-size:.8rem;line-height:1.5;color:#91a6bf;margin:0}.geo-form .geo-message{color:#f3ce88}

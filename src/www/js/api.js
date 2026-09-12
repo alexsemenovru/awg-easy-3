@@ -19,11 +19,12 @@ window.awgApi = (() => {
   const json = (method, body) => ({ method, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   const clientPath = (id) => `/api/v1/clients/${encodeURIComponent(id)}`;
   return Object.freeze({
-    session: () => request('/api/v1/session'),
+    session: (signal) => request('/api/v1/session', { signal, cache: 'no-store' }),
     login: (password) => request('/api/v1/session', json('POST', { password })),
     logout: () => request('/api/v1/session', json('DELETE')),
     clients: () => request('/api/v1/clients'),
     network: () => request('/api/v1/network'),
+    geoInfo: (signal) => request('/api/v1/geoip', { signal, cache: 'no-store' }),
     diagnostics: (signal) => request('/api/v1/diagnostics', { signal }),
     createClient: (input) => request('/api/v1/clients', json('POST', input)),
     updateClient: (id, changes) => request(clientPath(id), json('PATCH', changes)),

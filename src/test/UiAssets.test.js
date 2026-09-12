@@ -23,7 +23,9 @@ test('ships a self-contained UI with every required control', () => {
     assert.match(html, new RegExp(`id="${id}"`));
   }
   const externalUrls = [...html.matchAll(/(?:src|href)="(https?:\/\/[^\"]+)"/g)].map((match) => match[1]);
-  assert.deepEqual(externalUrls, ['https://github.com/alexsemenovru']);
+  assert.deepEqual(externalUrls, ['https://db-ip.com', 'https://github.com/alexsemenovru']);
+  assert.match(html, /IP Geolocation by DB-IP/);
+  assert.ok(html.indexOf('/js/geo-status.js') < html.indexOf('/js/app.js'));
   assert.match(html, /<footer class="credits"><a href="https:\/\/github\.com\/alexsemenovru" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" dir="ltr">alexsemenovru<\/a><\/footer>/);
   assert.match(html, /\/js\/app\.js\?v=[0-9-]+/);
   assert.match(html, /\/js\/i18n\.js\?v=[0-9-]+/);
@@ -39,6 +41,9 @@ test('ships a self-contained UI with every required control', () => {
   assert.match(html, /\/img\/favicon\.svg\?v=[0-9-]+/);
   assert.match(html, /rel="alternate icon"/);
   assert.match(html, /rel="apple-touch-icon"/);
+  assert.match(html, /id="connection-view"[^>]+aria-live="polite"/);
+  assert.match(html, /id="login-view" class="card login-card hidden"/);
+  assert.ok(html.indexOf('/js/connection.js') < html.indexOf('/js/app.js'));
   assert.match(html, /name="apple-mobile-web-app-capable" content="yes"/);
   assert.match(html, /name="apple-mobile-web-app-title" content="AWG-Easy 3"/);
   assert.match(html, /rel="manifest" href="\/manifest\.json\?v=[0-9-]+"/);
@@ -51,7 +56,8 @@ test('ships a self-contained UI with every required control', () => {
   assert.doesNotMatch(html, /backup|restore|expire|wireguard/i);
   assert.match(html, /Home/);
   assert.match(html, /Guest/);
-  assert.doesNotMatch(html, /РФ напрямую|GeoIP/);
+  assert.doesNotMatch(html, /РФ напрямую/);
+  assert.match(html, /id="geo-status"/);
 });
 
 test('keeps the IP mode visible outside collapsed access settings and read-only diagnostics', () => {

@@ -8,8 +8,9 @@ const { AwgKeyManager } = require('./AwgKeyManager');
 const { assertActiveHomeRemains, normalizeClientPolicy } = require('./ClientPolicy');
 const { changeClientTraffic, assertCurrentPanelPathRemains } = require('./ClientTraffic');
 const { validateState } = require('./StateStore');
+const { normalizeGeoPolicy, validatePrefixes } = require('./GeoIpPolicy');
 
-const ALLOWED_CHANGES = new Set(['name', 'enabled', 'networkGroup', 'ipv4Enabled', 'ipv6Enabled']);
+const ALLOWED_CHANGES = new Set(['name', 'enabled', 'networkGroup', 'ipv4Enabled', 'ipv6Enabled', 'geoPolicy']);
 
 class ClientManager {
   constructor({
@@ -19,6 +20,7 @@ class ClientManager {
     artifactBuilder = buildAwgArtifacts,
     idGenerator = crypto.randomUUID,
     onStateChanged = () => {},
+    geoDatabase = () => ({}),
   } = {}) {
     if (!store || typeof store.load !== 'function' || typeof store.save !== 'function') {
       throw new TypeError('store must provide load and save methods');
@@ -37,6 +39,7 @@ class ClientManager {
     this.artifactBuilder = artifactBuilder;
     this.idGenerator = idGenerator;
     this.onStateChanged = onStateChanged;
+    this.geoDatabase = geoDatabase;
     this.queue = Promise.resolve();
   }
 
@@ -56,6 +59,29 @@ class ClientManager {
     return this.artifactBuilder({
       server: state.server,
       clients: state.clients,
+      geoDatabase: this.geoDatabase(),
+    });
+  }
+
+  installGeoSnapshot(snapshot, commit) {
+    return this.serialize(async () => {
+      const state = await this.requireState();
+      const previous = this.build(state);
+      const next = this.artifactBuilder({ server: state.server, clients: state.clients, geoDatabase: snapshot.database });
+      const apply = artifacts => this.applier.apply({
+        serverConfig: artifacts.serverConfig, nftables: artifacts.nftables,
+        interfaceName: state.server.interfaceName, interfaceActive: true,
+      });
+      const changed = previous.nftables !== next.nftables;
+      if (changed) await apply(next);
+      try { await commit(); }
+      catch (error) {
+        if (changed) {
+          try { await apply(previous); }
+          catch (rollbackError) { error.rollbackErrors = Object.freeze([rollbackError]); }
+        }
+        throw error;
+      }
     });
   }
 
@@ -133,6 +159,25 @@ class ClientManager {
       }
       const state = await this.requireState();
       assertActiveHomeRemains(state.clients, clientId, changes);
+      if (Object.hasOwn(changes, 'geoPolicy')) {
+        const policy = normalizeGeoPolicy(changes.geoPolicy);
+        if (policy.mode !== 'off') {
+          const database = this.geoDatabase();
+          const totals = { 4: 0, 6: 0 };
+          for (const country of policy.countries) {
+            if (!Object.hasOwn(database, country)) {
+              throw Object.assign(new TypeError('GeoIP country database is not available'), { code: 'GEO_UNAVAILABLE' });
+            }
+            // Validate even disabled peers/families: do not save a policy that
+            // will only fail later when the client is enabled.
+            for (const family of [4, 6]) {
+              totals[family] += validatePrefixes(database[country][`ipv${family}`], family).length;
+              if (totals[family] > 200000) throw new TypeError('GeoIP selection is too large');
+            }
+          }
+        }
+        changes = { ...changes, geoPolicy: policy };
+      }
       const target = state.clients.find((client) => client.id === clientId);
       const nextClient = changeClientTraffic(target, changes, {
         ipv6Available: Boolean(state.server.address6 && state.server.ipv6Subnet && target.address6),

@@ -6,7 +6,7 @@
 
 Un panel Docker sencillo para **AmneziaWG 3.x**. Es un fork independiente y no comercial de [JohnnyVBut/awg-easy](https://github.com/JohnnyVBut/awg-easy), reconstruido para instalaciones limpias de AWG 3.x.
 
-> Versión actual: **0.1.5**, con el motor AWG **v3.1.20260828**. Los perfiles existentes siguen siendo válidos. Consulte las [notas de la versión](docs/releases/v0.1.5.md).
+> Versión actual: **0.1.6**, con el motor AWG **v3.1.20260828**. Los perfiles existentes siguen siendo válidos. Consulte las [notas de la versión](docs/releases/v0.1.6.md).
 
 ## Funciones principales
 
@@ -81,6 +81,16 @@ También están disponibles `start`, `stop`, `restart`, `settings`, `logs`, `dia
 Abra **Ajustes de acceso** para permitir IPv4 e IPv6 por separado. Desactivar ambos desactiva al cliente; el modo sigue visible con la sección cerrada. Home/Guest es independiente. Los permisos se aplican en ambos sentidos dentro de la VPN, incluidas conexiones existentes, sin cambiar claves, perfiles, direcciones, DNS ni rutas. Se protegen la conexión actual al panel y el último cliente Home permitido; los enlaces internos IPv4/IPv6 están en Permisos de tráfico VPN.
 
 **IPv6-only puede dejar de resolver nombres:** AmneziaVPN puede usar solo sus campos DNS IPv4 aunque el perfil incluya DNS IPv6. El acceso directo a una dirección IPv6 puede seguir funcionando; activar IPv4 restablece el acceso a DNS IPv4. No hay excepciones DNS, NAT64, WARP ni desvío a una conexión directa. El panel no controla tráfico excluido por el enrutamiento selectivo del cliente; desactive esos filtros para las pruebas básicas. El relay de descubrimiento usa IPv4 y excluye clientes con IPv4 bloqueado.
+
+### Filtrado GeoIP
+
+Los ajustes de acceso de cada cliente permiten desactivar el filtro, bloquear países seleccionados o permitir solo esos países. Introduzca nombres en el idioma del panel o códigos de dos letras, separados por comas, y guarde. No hace falta volver a importar el perfil VPN.
+
+Se filtran rangos IP, no dominios: nftables comprueba IPv4 e IPv6 en ambas direcciones VPN ↔ internet, incluidas las conexiones establecidas. El acceso Home al panel y a otros clientes Home no cambia. Las aplicaciones excluidas de la VPN quedan fuera del filtro; no hay cambio automático a conexión directa. El país de una IP no garantiza la nacionalidad del servicio, la precisión ni evitar la detección de VPN. Las consultas a un DNS externo también pueden bloquearse.
+
+[DB-IP Country Lite](https://db-ip.com/db/download/ip-to-country-lite) se descarga y actualiza automáticamente. Si falla la actualización, se conserva la base anterior; sin una base utilizable, un filtro activo deniega el acceso a internet. El panel muestra su estado. Véase el [informe técnico y de pruebas](docs/GEOIP_DATABASE.md).
+
+**Volver a una versión anterior:** activar GeoIP por primera vez cambia los datos al formato v2, aunque después se desactive. La versión 0.1.5 no puede leerlo. Conserve una copia protegida de los datos antes de activarlo; después no basta con restaurar la imagen anterior.
 
 ### Diagnóstico de conexión
 
