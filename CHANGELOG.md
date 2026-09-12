@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Add per-client GeoIP off/block/allow policies for IPv4 and IPv6 internet traffic, including established connections in both directions, without changing VPN profiles or Home access. Country names and errors are localized in all five panel languages. This is IP filtering, not domain filtering or direct routing.
+- Download DB-IP Country Lite automatically, cache validated snapshots atomically and retain the last usable database on update failure. Show database status and attribution in the panel. Active filters fail closed when no usable database is available.
+- First enabling GeoIP promotes persistent state to v2. It stays v2 when filters are disabled; v0.1.5 refuses that state rather than silently dropping restrictions. Back up data before enabling GeoIP; an image-only downgrade is not supported afterward.
+- Add a startup/retry screen explaining that the panel needs a Home VPN connection. This does not add HTTPS, a service worker or guaranteed offline availability.
+- Extend regression coverage with isolated Linux packet checks in CI. Field results and remaining release gates are recorded in docs/GEOIP_DATABASE.md and docs/GEOIP_CHECKPOINT.ru.md; a published release is still pending.
+
 ## v0.1.3 — 2026-08-31
 
 - Replace the client enable switch with independent IPv4/IPv6 permissions. Both off removes the peer; profiles, keys, addresses, DNS and routes remain unchanged. Home/Guest stays independent.

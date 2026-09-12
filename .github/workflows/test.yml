@@ -56,6 +56,15 @@ jobs:
         run: |
           sudo modprobe tun
           node scripts/test-awg-upgrade.cjs awg-easy-3:test
+      - name: Verify GeoIP and IP-family packet policies in an isolated namespace
+        shell: bash
+        run: |
+          set -o pipefail
+          sudo apt-get update
+          sudo apt-get install -y nftables
+          docker run --rm --network none --entrypoint node awg-easy-3:test \
+            /app/test/helpers/ip-family-policies.js | \
+            sudo unshare --net python3 src/test/helpers/verify-ip-families-linux.py
       - name: Build pinned upstream regression-test environment
         uses: docker/build-push-action@v6
         with:

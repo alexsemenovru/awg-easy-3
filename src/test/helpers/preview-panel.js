@@ -33,6 +33,7 @@ const server = new HttpServer({ api: {
   logout: () => { authenticated = false; return { cookie: 'preview=; Max-Age=0; Path=/' }; },
   login: async () => { authenticated = true; return { cookie: 'preview=1; Path=/' }; },
   listClients: async () => clients.map(publicClient),
+  geoInfo: async () => ({ state: 'ready', release: '2026-09', countries: ['RU', 'CN', 'IR', 'ES', 'US', 'DE', 'FR'] }),
   networkInfo: async () => ({ panelIpv4Url: 'http://10.8.0.1:51821/', panelIpv6Url: 'http://[fd00:1234::1]:51821/' }),
   updateClient: async (_token, id, changes) => {
     if (!authenticated) throw new ApiError(401, 'Preview session ended');

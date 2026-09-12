@@ -78,6 +78,16 @@ Expand **Access settings** on a client card to allow IPv4 and IPv6 independently
 
 **IPv6-only may lose DNS resolution:** AmneziaVPN may apply only its IPv4 DNS fields even when the profile contains IPv6 DNS. Direct IPv6 can still work; enabling IPv4 restores access to IPv4 DNS. No DNS bypass, NAT64, WARP or direct fallback is added. The panel cannot control traffic excluded by the client's split-tunnelling rules; disable those filters for baseline tests. Discovery relay uses IPv4 and does not include clients whose IPv4 is blocked.
 
+### GeoIP filtering — in development, after 0.1.5
+
+Each client's Access settings can disable filtering, block selected countries or allow only those countries. Enter country names in the panel language or two-letter codes, separated by commas, then save. No VPN profile reimport is needed.
+
+This is IP-range filtering, not domain filtering: nftables checks IPv4 and IPv6 in both VPN ↔ internet directions, including established connections. Home access to the panel and other Home clients is unchanged. Applications excluded from the VPN are outside its scope; there is no automatic direct fallback. An IP country does not guarantee a service's nationality, accuracy or protection from VPN detection. Requests to an external DNS resolver may also be blocked.
+
+[DB-IP Country Lite](https://db-ip.com/db/download/ip-to-country-lite) is downloaded and updated automatically. Failed updates retain the previous database; without a usable database, an active filter denies internet access. The panel displays database status. See the [implementation and test report](docs/GEOIP_DATABASE.md).
+
+**Downgrade:** first enabling GeoIP promotes saved state to v2, even if filters are later disabled. Version 0.1.5 cannot read it. Keep a protected data backup before enabling this feature; simply reverting the image is not supported afterward.
+
 ### Connection diagnostics
 
 “Recent connection” means a handshake within the last 150 seconds, not a guarantee that the device is still connected. Rates are interval averages in bits/s: ↓ sent to the client, ↑ received from it. Server counters may include control traffic; sending does not prove delivery. The first sample shows “Measuring…”, and a failed or timed-out read shows “Data unavailable” instead of stale rates. Expand the diagnostic details to see the actual sampling interval.

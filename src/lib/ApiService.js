@@ -17,6 +17,7 @@ const publicClient = (client) => Object.freeze({
   ipv6Available: Boolean(client.address6),
   networkGroup: client.networkGroup,
   address4: client.address4,
+  ...(client.geoPolicy ? { geoPolicy: client.geoPolicy } : {}),
   ...(client.address6 ? { address6: client.address6 } : {}),
 });
 
@@ -34,7 +35,7 @@ const exportFileName = (name) => {
 };
 
 class ApiService {
-  constructor({ store, passwordManager, sessionManager, clientManager, diagnostics, qrGenerator = defaultQrGenerator } = {}) {
+  constructor({ store, passwordManager, sessionManager, clientManager, diagnostics, geoStatus = () => ({}), qrGenerator = defaultQrGenerator } = {}) {
     if (!store || typeof store.load !== 'function') throw new TypeError('store must provide load');
     if (!passwordManager || typeof passwordManager.verify !== 'function'
       || typeof passwordManager.changePassword !== 'function') {
@@ -55,6 +56,7 @@ class ApiService {
     this.clientManager = clientManager;
     this.qrGenerator = qrGenerator;
     this.diagnostics = diagnostics;
+    this.geoStatus = geoStatus;
   }
 
   async login(password, { secureCookie = false } = {}) {
@@ -99,6 +101,17 @@ class ApiService {
     return Object.freeze({
       panelIpv4Url: `http://${address4}:${panelPort}/`,
       panelIpv6Url: address6 && ipv6Subnet ? `http://[${address6}]:${panelPort}/` : null,
+    });
+  }
+
+  async geoInfo(token) {
+    await this.authorize(token);
+    const status = this.geoStatus();
+    return Object.freeze({
+      state: ['ready', 'updating', 'stale', 'unavailable'].includes(status.state) ? status.state : 'unavailable',
+      source: 'DB-IP Lite', sourceUrl: 'https://db-ip.com',
+      release: status.release ?? null, checkedAt: status.checkedAt ?? null,
+      countries: Array.isArray(status.countries) ? status.countries.filter(code => /^[A-Z]{2}$/.test(code)).sort() : [],
     });
   }
 

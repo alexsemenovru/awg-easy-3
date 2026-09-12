@@ -77,7 +77,9 @@ const setup = async () => {
     },
   };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../www/js/app.js'), 'utf8'), {
-    window: { awgApi: api, awgI18n: { t: (key) => key, translate: () => {}, setLanguage: () => {} },
+    window: { addEventListener: () => {},
+      awgConnection: ({ load, onSession }) => ({ start: () => load().then(onSession), retry() {}, stop() {} }),
+      awgApi: api, awgI18n: { t: (key) => key, translate: () => {}, setLanguage: () => {} },
       awgDiagnostics: { paintRates: () => {}, createPoller: () => ({ stop() {}, start() {} }) } },
     document, CSS: { escape: (id) => id }, localStorage: { getItem: () => null },
     setTimeout: () => 0, clearTimeout: () => {},

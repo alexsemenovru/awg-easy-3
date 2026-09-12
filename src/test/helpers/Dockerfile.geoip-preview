@@ -1,0 +1,3 @@
+# Test-only overlay: protocol binaries and dependencies are unchanged from v0.1.5.
+FROM ghcr.io/alexsemenovru/awg-easy-3:0.1.5@sha256:de9ce4771159c0ae94f6aa418f9814a23495b4899f8f0fb6d5447609e57bc86e
+COPY src/ /app/

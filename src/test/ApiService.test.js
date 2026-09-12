@@ -48,6 +48,15 @@ const fixture = () => {
   return { clientCalls, getPasswordChanged: () => passwordChanged, service };
 };
 
+test('GeoIP status is authenticated and excludes raw database and internal errors', async () => {
+  const { service } = fixture();
+  service.geoStatus = () => ({ state: 'ready', release: '2026-09', checkedAt: '2026-09-10T00:00:00Z',
+    error: 'private path', database: { internal: true } });
+  await assert.rejects(service.geoInfo('wrong'), error => error.statusCode === 401);
+  assert.deepEqual(await service.geoInfo('signed-token'), { state: 'ready', release: '2026-09',
+    checkedAt: '2026-09-10T00:00:00Z', source: 'DB-IP Lite', sourceUrl: 'https://db-ip.com', countries: [] });
+});
+
 test('logs in with a generic failure and an HTTP-only cookie', async () => {
   const { service } = fixture();
   assert.deepEqual(await service.login('correct-password'), {

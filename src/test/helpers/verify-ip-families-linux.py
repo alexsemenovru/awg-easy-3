@@ -164,4 +164,45 @@ received(wan, b'empty4', False, 'empty IPv4 allow set blocks all IPv4')
 policy('no6')
 os.write(awg, packet('fd42:8::2', 'fd42:9::2', b'no6'))
 received(wan, b'no6', False, 'IPv4-only server blocks IPv6')
+for name, matched, other in [('geoBlock', False, True), ('geoAllow', True, False),
+                              ('geoEmptyAllow', False, False), ('geoEmptyBlock', True, True)]:
+    for version in [4, 6]:
+        family = socket.AF_INET if version == 4 else socket.AF_INET6
+        client, home, local_server = (('10.8.0.2', '10.8.0.3', '10.8.0.1') if version == 4 else
+                                      ('fd42:8::2', 'fd42:8::3', 'fd42:8::1'))
+        for suffix, permitted in [(2, matched), (3, other)]:
+            remote = f'198.51.100.{suffix}' if version == 4 else f'fd42:9::{suffix}'
+            policy('both')
+            marker = f'{name}-{version}-{suffix}'.encode()
+            os.write(awg, packet(client, remote, marker))
+            outgoing = received(wan, marker, True, 'seed GeoIP flow')
+            offset, source_slice = (20, slice(12, 16)) if version == 4 else (40, slice(8, 24))
+            translated = socket.inet_ntop(family, outgoing[source_slice])
+            port = struct.unpack('!H', outgoing[offset:offset + 2])[0]
+            reply = packet(remote, translated, marker + b'-reply', sport=55555, dport=port)
+            os.write(wan, reply)
+            received(awg, marker + b'-reply', True, 'seed established return')
+            policy(name)
+            os.write(awg, packet(client, remote, marker))
+            received(wan, marker, permitted, 'GeoIP established outbound')
+            os.write(wan, reply)
+            received(awg, marker + b'-reply', permitted, 'GeoIP established inbound')
+            # A second Home peer and foreign interface remain unfiltered.
+            os.write(awg, packet(home, remote, marker + b'-home'))
+            received(wan, marker + b'-home', True, 'unselected peer')
+            outside = '192.0.2.2' if version == 4 else 'fd42:a::2'
+            os.write(foreign, packet(outside, remote, marker + b'-foreign'))
+            received(wan, marker + b'-foreign', True, 'foreign forwarding')
+            checks += 6
+        for source, destination in [(client, home), (home, client)]:
+            os.write(awg, packet(source, destination, b'geo-home'))
+            received(awg, b'geo-home', True, 'GeoIP preserves Home access')
+            checks += 1
+        with socket.socket(family, socket.SOCK_DGRAM) as local:
+            local.bind((local_server, 55555))
+            local.settimeout(0.7)
+            os.write(awg, packet(client, local_server, b'geo-local'))
+            assert local.recv(4096) == b'geo-local', 'GeoIP preserves local service access'
+            checks += 1
+    print(f'PASS {name}: both families, existing connections, Home and unrelated traffic', flush=True)
 print(f'PASS {checks + 2} packet assertions; foreign table unchanged; namespace exits without host changes')
