@@ -97,14 +97,14 @@ the filter. This exceptional startup path may therefore require network access.
 - The kernel test exposed nftables rejecting single-address ranges. The compiler
   now converts these to /32 or /128 host prefixes, with a regression test.
 
-## Still required before release
+## Release gates (updated 2026-09-12)
 
-- A real mobile-browser check (desktop synthetic 390 px and RTL checks passed).
-- Production updater download/persistence verification (full archive offline parse
-  and rule application passed on the temporary VPS; see below).
-- Full-database nftables application/resource checks (packet tests above use
-  synthetic ranges, not the full upstream edition).
-- Upgrade/rollback compatibility and resource measurements on a small VPS.
+The mobile checks, production updater, full-database set loading and ordinary v1
+upgrade/rollback checks listed in the original plan have now passed; details follow.
+The temporary VPS has been destroyed. A full Dockerfile build and GitHub CI still
+need to pass before publication. The test-only overlay image is not a release build.
+An old-image rejection of v2 was tested, but a complete old/new replacement cycle
+with v2 was not. Downgrading v2 to v0.1.5 is unsupported, not a promised recovery path.
 
 ### Temporary VPS: full edition check
 
