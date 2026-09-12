@@ -6,7 +6,7 @@
 
 一个面向 **AmneziaWG 3.x** 的轻量 Docker 管理面板。本项目是 [JohnnyVBut/awg-easy](https://github.com/JohnnyVBut/awg-easy) 的独立、非商业分支，专为全新安装 AWG 3.x 而重新构建。
 
-> 当前版本：**0.1.5**，使用 AWG **v3.1.20260828** 引擎。现有配置继续有效。请参阅[发行说明](docs/releases/v0.1.5.md)。
+> 当前版本：**0.1.6**，使用 AWG **v3.1.20260828** 引擎。现有配置继续有效。请参阅[发行说明](docs/releases/v0.1.6.md)。
 
 ## 功能概览
 
@@ -82,7 +82,7 @@ sudo awg-easy-3 export-client "Home admin"
 
 **仅 IPv6 模式可能无法解析域名：**即使配置包含 IPv6 DNS，AmneziaVPN 也可能只应用其 IPv4 DNS 字段。直接访问 IPv6 地址仍可能正常；开启 IPv4 会恢复对 IPv4 DNS 的访问。本项目不添加 DNS 例外、NAT64、WARP 或直连回退。面板不能控制客户端分流规则排除在 VPN 外的流量；基础测试时请关闭这些过滤规则。服务发现转发使用 IPv4，不包含禁止 IPv4 的客户端。
 
-### GeoIP 过滤——开发中，计划在 0.1.5 之后提供
+### GeoIP 过滤
 
 在每个客户端的访问设置中，可以关闭过滤、阻止所选国家或仅允许所选国家。输入面板语言的国家名称或两字母代码，以逗号分隔，然后保存。无需重新导入 VPN 配置。
 

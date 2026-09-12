@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.6 — 2026-09-12
 
 - Add per-client GeoIP off/block/allow policies for IPv4 and IPv6 internet traffic, including established connections in both directions, without changing VPN profiles or Home access. Country names and errors are localized in all five panel languages. This is IP filtering, not domain filtering or direct routing.
 - Download DB-IP Country Lite automatically, cache validated snapshots atomically and retain the last usable database on update failure. Show database status and attribution in the panel. Active filters fail closed when no usable database is available.

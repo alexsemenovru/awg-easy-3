@@ -6,7 +6,7 @@
 
 An intentionally small Docker web panel for **AmneziaWG 3.x**. This is an independent, non-commercial fork of [JohnnyVBut/awg-easy](https://github.com/JohnnyVBut/awg-easy), rebuilt around clean AWG 3.x installations.
 
-> Current release: **0.1.5**, with AWG engine **v3.1.20260828**. Existing profiles remain valid. See the [release notes](docs/releases/v0.1.5.md).
+> Current release: **0.1.6**, with AWG engine **v3.1.20260828**. Existing profiles remain valid. See the [release notes](docs/releases/v0.1.6.md).
 
 ## At a glance
 
@@ -78,7 +78,7 @@ Expand **Access settings** on a client card to allow IPv4 and IPv6 independently
 
 **IPv6-only may lose DNS resolution:** AmneziaVPN may apply only its IPv4 DNS fields even when the profile contains IPv6 DNS. Direct IPv6 can still work; enabling IPv4 restores access to IPv4 DNS. No DNS bypass, NAT64, WARP or direct fallback is added. The panel cannot control traffic excluded by the client's split-tunnelling rules; disable those filters for baseline tests. Discovery relay uses IPv4 and does not include clients whose IPv4 is blocked.
 
-### GeoIP filtering — in development, after 0.1.5
+### GeoIP filtering
 
 Each client's Access settings can disable filtering, block selected countries or allow only those countries. Enter country names in the panel language or two-letter codes, separated by commas, then save. No VPN profile reimport is needed.
 
