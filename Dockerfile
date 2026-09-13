@@ -7,7 +7,7 @@ RUN apk add --no-cache build-base git
 RUN git clone --filter=blob:none https://github.com/amnezia-vpn/amneziawg-go.git /src && git -C /src checkout --detach "$AWG_GO_COMMIT" && test "$(git -C /src rev-parse HEAD)" = "$AWG_GO_COMMIT"
 WORKDIR /src
 RUN go mod download && go mod verify && CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-linkmode external -extldflags "-static" -s -w' -o /out/amneziawg-go .
-FROM --platform=linux/amd64 alpine:3.23@sha256:1beb0dc0a51de7ff38e3b5274078a2e0b81113ba5c7535e1a03d5913a5edbda3 AS awg-tools
+FROM --platform=linux/amd64 alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS awg-tools
 ARG AWG_TOOLS_COMMIT
 RUN apk add --no-cache build-base git linux-headers
 RUN git clone --filter=blob:none https://github.com/amnezia-vpn/amneziawg-tools.git /src && git -C /src checkout --detach "$AWG_TOOLS_COMMIT" && test "$(git -C /src rev-parse HEAD)" = "$AWG_TOOLS_COMMIT" && make -C /src/src WITH_SYSTEMDUNITS=no WITH_BASHCOMPLETION=no
