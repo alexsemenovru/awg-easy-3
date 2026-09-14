@@ -4,12 +4,13 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { verifySettings } = require('./CellSettings');
+const { validateCellSettings } = require('./CellSettingsSchema');
 const queues = new Map();
 
 // apply must be idempotent, transactional for VPN/firewall, and reject failures.
 // validate must check the complete supported settings schema before ANY disk change.
 class CellSettingsReceiver {
-  constructor(filePath, { controllerKey, cellKey, validate, apply }) {
+  constructor(filePath, { controllerKey, cellKey, validate = validateCellSettings, apply }) {
     if (typeof validate !== 'function' || typeof apply !== 'function') throw new TypeError('Settings adapters required');
     this.filePath = path.resolve(filePath);
     this.trust = Object.freeze({ controllerKey, cellKey });
@@ -71,7 +72,7 @@ class CellSettingsReceiver {
     const envelope = structuredClone(input);
     return this.exclusive(async () => {
       const { settings, hash } = verifySettings(envelope, this.trust);
-      await this.validate(settings);
+      const validated = await this.validate(settings);
       const state = await this.load();
       if (state) {
         if (envelope.revision < state.received.revision) throw new Error('Stale settings revision');
@@ -83,7 +84,7 @@ class CellSettingsReceiver {
       }
       const next = { version: 1, received: envelope, applied: state?.applied || null };
       await this.save(next);
-      await this.apply(settings);
+      await this.apply(validated === undefined ? settings : validated);
       await this.save({ ...next, applied: envelope });
       return { received: envelope.revision, applied: envelope.revision };
     });
@@ -95,8 +96,8 @@ class CellSettingsReceiver {
       const state = await this.load();
       if (!state?.applied) return { applied: null };
       const { settings } = verifySettings(state.applied, this.trust);
-      await this.validate(settings);
-      await this.apply(settings);
+      const validated = await this.validate(settings);
+      await this.apply(validated === undefined ? settings : validated);
       return { applied: state.applied.revision };
     });
   }

@@ -53,3 +53,21 @@ test('failure keeps applied settings; revisions persist and startup restores las
   await assert.rejects(reopened.receive(sign(3, { wrong: true })), /schema/);
   assert.equal((await reopened.load()).received.revision, 2);
 });
+
+test('default receiver enforces assignment schema before saving or applying', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-settings-schema-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const controller = identity();
+  const cellKey = identity().publicKey;
+  const file = path.join(dir, 'settings.json');
+  const applied = [];
+  const receiver = new CellSettingsReceiver(file, { controllerKey: controller.publicKey, cellKey,
+    apply: async value => applied.push(value) });
+  await assert.rejects(receiver.receive(signSettings({ cellKey, revision: 1,
+    settings: { shell: 'anything' } }, controller.privateKey)), /Unsupported/);
+  assert.equal(await receiver.load(), null);
+  assert.equal(applied.length, 0);
+  await receiver.receive(signSettings({ cellKey, revision: 1,
+    settings: { schema: 1, clients: [] } }, controller.privateKey));
+  assert.deepEqual(applied, [{ schema: 1, clients: [] }]);
+});

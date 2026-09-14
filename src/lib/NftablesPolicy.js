@@ -64,7 +64,9 @@ const renderNftablesPolicy = ({
   panelPort = 51821,
   geoClients = [],
   geoDatabase = {},
+  headlessCell = false,
 }) => {
+  if (typeof headlessCell !== 'boolean') throw new TypeError('headlessCell must be boolean');
   const awg = validateInterface(interfaceName);
   const wan = validateInterface(wanInterface);
   const subnet4 = validateCidr(ipv4Subnet, 4, 'ipv4Subnet');
@@ -76,7 +78,7 @@ const renderNftablesPolicy = ({
   if (typeof nat66 !== 'boolean') throw new TypeError('nat66 must be a boolean');
   if (nat66 && !subnet6) throw new TypeError('nat66 requires ipv6Subnet');
 
-  if (normalizedHome4.length === 0 && (!subnet6 || normalizedHome6.length === 0)) {
+  if (!headlessCell && normalizedHome4.length === 0 && (!subnet6 || normalizedHome6.length === 0)) {
     throw new TypeError('At least one home peer with a permitted IP family is required');
   }
   if (!subnet6 && (normalizedHome6.length || normalizedGuest6.length)) {
@@ -107,7 +109,7 @@ const renderNftablesPolicy = ({
 
 ` : '';
 
-  const ipv6InputRules = subnet6 ? `
+  const ipv6InputRules = subnet6 && !headlessCell ? `
     iifname ${quote(awg)} ip6 saddr @guest6 ip6 daddr ${subnet6} drop comment "guest peers cannot access AWG-Easy 3 services"
     iifname ${quote(awg)} ip6 saddr @home6 tcp dport ${port} accept comment "home peers may access the panel"` : '';
 
@@ -154,7 +156,7 @@ ${ipv6Sets}${geo.sets}
     type filter hook input priority -10; policy accept;
     jump client_permissions
     iifname ${quote(awg)} ip saddr @guest4 ip daddr ${subnet4} drop comment "guest peers cannot access AWG-Easy 3 services"
-    iifname ${quote(awg)} ip saddr @home4 tcp dport ${port} accept comment "home peers may access the panel"${ipv6InputRules}
+${headlessCell ? `    iifname ${quote(awg)} drop comment "headless cell has no client-facing services"` : `    iifname ${quote(awg)} ip saddr @home4 tcp dport ${port} accept comment "home peers may access the panel"${ipv6InputRules}`}
   }
 
   chain forward {
