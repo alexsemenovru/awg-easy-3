@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const { identity, signRegistration, verifyRegistration } = require('../lib/CellRegistration');
+const { identity, signRegistration, verifyRegistration, signReceipt, verifyReceipt } = require('../lib/CellRegistration');
 const { createInvitation, decodeInvitation } = require('../lib/CellInvitation');
 const { CellEnrollmentStore } = require('../lib/CellEnrollmentStore');
 
@@ -36,12 +36,26 @@ test('tampering with every signed field fails even with claimed validity flag', 
 
 test('expired, future, malformed and noncanonical proofs fail', () => {
   const { request, controller } = fixture();
-  for (const now of [1000, 301001, NaN]) {
+  for (const now of [-29000, 301001, NaN]) {
     assert.throws(() => verifyRegistration(request, controller.publicKey, now));
   }
   for (const patch of [{ signature: request.signature + '=' }, { cellKey: 'bad' }, { secret: null }]) {
     assert.throws(() => verifyRegistration({ ...request, ...patch }, controller.publicKey, 1002));
   }
+});
+
+test('registration and receipt tolerate bounded clock skew in either direction', () => {
+  const { invitation, controller, cell } = fixture();
+  const request = signRegistration(invitation, cell.privateKey, 100000);
+  assert.doesNotThrow(() => verifyRegistration(request, controller.publicKey, 70000));
+  assert.throws(() => verifyRegistration(request, controller.publicKey, 69999));
+  for (const time of [70000, 99993, 100007, 130000]) {
+    const receipt = signReceipt(request, controller.privateKey, time);
+    assert.doesNotThrow(() => verifyReceipt(receipt, request, controller.publicKey, 100000));
+  }
+  const tooFuture = signReceipt(request, controller.privateKey, 130001);
+  assert.throws(() => verifyReceipt(tooFuture, request, controller.publicKey, 100000));
+  assert.throws(() => verifyRegistration(request, controller.publicKey, 400000));
 });
 
 test('verified registration persists once and rejects a different signed request', async t => {

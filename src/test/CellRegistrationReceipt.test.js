@@ -36,7 +36,7 @@ test('receipt is bound to every field and the exact signed request', () => {
     assert.throws(() => verifyReceipt({ ...receipt, ...patch }, request, controller.publicKey, 1003));
   }
   assert.throws(() => verifyReceipt(receipt, signRegistration(invitation, cell.privateKey, 1001), controller.publicKey, 1003));
-  for (const clock of [1001, 301001, NaN]) {
+  for (const clock of [-29000, 301001, NaN]) {
     assert.throws(() => verifyReceipt(receipt, request, controller.publicKey, clock));
   }
 });

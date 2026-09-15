@@ -6,6 +6,14 @@ const { signControl, verifyControl } = require('../lib/CellControlProtocol');
 const { CellControlService } = require('../lib/CellControlService');
 const bytes = value => Buffer.from(JSON.stringify(value));
 
+test('control requests tolerate bounded skew but still reject expired timestamps', () => {
+  const controllerKey = identity().publicKey;
+  const request = signControl({ controllerKey, action: 'poll' }, identity().privateKey, 100000);
+  assert.doesNotThrow(() => verifyControl(bytes(request), controllerKey, 70000));
+  assert.doesNotThrow(() => verifyControl(bytes(request), controllerKey, 399999));
+  for (const now of [69999, 400000, NaN]) assert.throws(() => verifyControl(bytes(request), controllerKey, now));
+});
+
 test('control rate budget bounds malformed requests and refills', async () => {
   let now = 0;
   let loads = 0;

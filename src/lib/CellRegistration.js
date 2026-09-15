@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const { MAX_CLOCK_SKEW_MS } = require('./CellClock');
 
 const MAX_AGE_MS = 5 * 60 * 1000;
 const fail = () => { throw new Error('Invalid cell registration proof'); };
@@ -39,7 +40,7 @@ function signRegistration(invitation, privateKey, now = Date.now()) {
 function verifyRegistration(request, controllerKey, now = Date.now()) {
   const bytes = message(request);
   if (!encoded(request.signature, 64) || request.controllerKey !== controllerKey
-    || !Number.isSafeInteger(now) || now < request.issuedAt
+    || !Number.isSafeInteger(now) || request.issuedAt - now > MAX_CLOCK_SKEW_MS
     || now - request.issuedAt >= MAX_AGE_MS) fail();
   const key = crypto.createPublicKey({ format: 'jwk', key: {
     kty: 'OKP', crv: 'Ed25519', x: request.cellKey,
@@ -79,8 +80,8 @@ function verifyReceipt(receipt, request, controllerKey, now = Date.now()) {
   const bytes = receiptMessage(receipt);
   if (receipt.controllerKey !== controllerKey || receipt.invitationId !== request.invitationId
     || receipt.requestId !== request.requestId || receipt.cellKey !== request.cellKey
-    || receipt.requestHash !== requestHash(request) || receipt.issuedAt < request.issuedAt
-    || receipt.issuedAt > now || !encoded(receipt.signature, 64)) fail();
+    || receipt.requestHash !== requestHash(request) || request.issuedAt - receipt.issuedAt > MAX_CLOCK_SKEW_MS
+    || receipt.issuedAt - now > MAX_CLOCK_SKEW_MS || !encoded(receipt.signature, 64)) fail();
   const key = crypto.createPublicKey({ format: 'jwk', key: { kty: 'OKP', crv: 'Ed25519', x: controllerKey } });
   if (!crypto.verify(null, bytes, key, Buffer.from(receipt.signature, 'base64url'))) fail();
   return { controllerKey, cellKey: receipt.cellKey, invitationId: receipt.invitationId, status: 'registered' };
