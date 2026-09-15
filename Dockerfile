@@ -20,7 +20,7 @@ FROM --platform=linux/amd64 node:22.18.0-alpine3.22@sha256:dbb65b3b08bd9d4d4a852
 ARG AWG_GO_COMMIT
 ARG AWG_TOOLS_COMMIT
 LABEL org.opencontainers.image.title="AWG-Easy 3" org.opencontainers.image.description="Easy web panel for AmneziaWG 3.x" org.opencontainers.image.source="https://github.com/alexsemenovru/awg-easy-3" org.opencontainers.image.licenses="CC-BY-NC-SA-4.0" org.opencontainers.image.awg-go-revision="$AWG_GO_COMMIT" org.opencontainers.image.awg-tools-revision="$AWG_TOOLS_COMMIT"
-RUN apk add --no-cache bash ca-certificates dumb-init iproute2 nftables
+RUN apk add --no-cache bash ca-certificates dumb-init iproute2 nftables openssl
 COPY --from=awg-go /out/amneziawg-go /usr/local/bin/amneziawg-go
 COPY --from=awg-tools /out/awg /usr/local/bin/awg
 COPY --from=awg-tools /out/awg-quick /usr/local/bin/awg-quick

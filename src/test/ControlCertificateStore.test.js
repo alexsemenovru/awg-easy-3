@@ -17,6 +17,9 @@ const { prepareRegistrationEndpoint } = require('../lib/CellRegistrationEndpoint
 const { registerOverTls } = require('../lib/CellRegistrationTransport');
 const { decodeInvitation } = require('../lib/CellInvitation');
 const { identity: createIdentity, signRegistration } = require('../lib/CellRegistration');
+const { CellSettingsPublisher } = require('../lib/CellSettingsPublisher');
+const { CellSettingsReceiver } = require('../lib/CellSettingsReceiver');
+const { prepareControlEndpoint, syncCellSettings } = require('../lib/CellControlService');
 const openssl = process.env.AWG_TEST_OPENSSL || (process.platform === 'win32'
   ? 'C:/Program Files/Git/usr/bin/openssl.exe' : 'openssl');
 
@@ -101,4 +104,42 @@ test('prepared endpoint completes real registration with persistent stores and g
   assert.deepEqual(await connection.resume(), { status: 'registered' });
   assert.equal((await enrollmentStore.read()).invitations.length, 2);
   assert.deepEqual(await new CellConnectionStore(connection.filePath, cellIdentities).resume(), { status: 'registered' });
+});
+
+test('registered cell polls signed settings over TLS and confirms only successful application', async t => {
+  const { identities, identity, file, directory } = await fixture(t);
+  const enrollmentStore = new CellEnrollmentStore(path.join(directory, 'enrollment.json'));
+  const certificateStore = new ControlCertificateStore(file, identities, { openssl });
+  const registration = await prepareRegistrationEndpoint({ identityStore: identities, enrollmentStore, certificateStore });
+  await new Promise(resolve => registration.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => registration.close(resolve)));
+  const cellIdentity = new ControlIdentityStore(path.join(directory, 'cell.json'));
+  const cell = await cellIdentity.create('cell');
+  const connectionStore = new CellConnectionStore(path.join(directory, 'connection.json'), cellIdentity);
+  await connectionStore.begin(await enrollmentStore.create({ host: '127.0.0.1', port: registration.address().port,
+    controllerKey: identity.publicKey }));
+  await connectionStore.resume();
+  const publisher = new CellSettingsPublisher(path.join(directory, 'desired.json'), identities, cell.publicKey);
+  const control = await prepareControlEndpoint({ identityStore: identities, enrollmentStore, certificateStore,
+    publisherForCell: key => { assert.equal(key, cell.publicKey); return publisher; } });
+  await new Promise(resolve => control.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => control.close(resolve)));
+  let failed = false;
+  let applies = 0;
+  const receiver = new CellSettingsReceiver(path.join(directory, 'received.json'), {
+    controllerKey: identity.publicKey, cellKey: cell.publicKey,
+    apply: async () => { if (failed) throw new Error('runtime failure'); applies++; },
+  });
+  const options = { connectionStore, identityStore: cellIdentity, receiver, host: '127.0.0.1', port: control.address().port };
+  assert.equal((await syncCellSettings(options)).status, 'no-settings');
+  await publisher.publish({ schema: 1, clients: [] });
+  assert.deepEqual(await syncCellSettings(options), { status: 'applied', revision: 1 });
+  await syncCellSettings(options);
+  assert.equal(applies, 1);
+  await publisher.publish({ schema: 1, clients: [] });
+  failed = true;
+  await assert.rejects(syncCellSettings(options), /runtime failure/);
+  assert.equal((await publisher.load()).ack, null);
+  failed = false;
+  assert.deepEqual(await syncCellSettings(options), { status: 'applied', revision: 2 });
 });

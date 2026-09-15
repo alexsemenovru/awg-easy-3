@@ -21,11 +21,11 @@ function readFrame(socket, limit, receive) {
 }
 
 // Does not listen automatically. Certificate must use the controller identity key.
-function createRegistrationServer({ key, cert, handler, timeoutMs = 10000, maxConnections = 16 }) {
+function createRegistrationServer({ key, cert, handler, timeoutMs = 10000, maxConnections = 16, protocol = ALPN }) {
   const server = tls.createServer({ key, cert, minVersion: 'TLSv1.3',
-    ALPNProtocols: [ALPN], handshakeTimeout: timeoutMs }, socket => {
+    ALPNProtocols: [protocol], handshakeTimeout: timeoutMs }, socket => {
     socket.on('error', () => {});
-    if (socket.alpnProtocol !== ALPN) return socket.destroy();
+    if (socket.alpnProtocol !== protocol) return socket.destroy();
     readFrame(socket, MAX_BYTES, async bytes => {
       try {
         const response = await handler.handle(bytes);
@@ -44,7 +44,8 @@ function createRegistrationServer({ key, cert, handler, timeoutMs = 10000, maxCo
   return server;
 }
 
-function registerOverTls({ host, port, controllerKey, request, timeoutMs = 10000 }) {
+function exchangeOverTls({ host, port, controllerKey, request, timeoutMs = 10000,
+  protocol = ALPN, responseLimit = 2048, verifyResponse }) {
   const bytes = Buffer.from(JSON.stringify(request) + '\n');
   if (bytes.length > MAX_BYTES + 1) return Promise.reject(new Error('Registration request too large'));
   return new Promise((resolve, reject) => {
@@ -52,7 +53,7 @@ function registerOverTls({ host, port, controllerKey, request, timeoutMs = 10000
     // Trust is the invitation's Ed25519 key, not a public CA or hostname.
     // No application bytes are written before secureConnect + explicit pin check.
     const socket = tls.connect({ host, port, minVersion: 'TLSv1.3', rejectUnauthorized: false,
-      ALPNProtocols: [ALPN] });
+      ALPNProtocols: [protocol] });
     const finish = (error, value) => {
       if (settled) return;
       settled = true;
@@ -67,13 +68,13 @@ function registerOverTls({ host, port, controllerKey, request, timeoutMs = 10000
       try {
         const certificate = new crypto.X509Certificate(socket.getPeerCertificate().raw);
         const peer = certificate.publicKey;
-        if (socket.alpnProtocol !== ALPN || peer.asymmetricKeyType !== 'ed25519'
+        if (socket.alpnProtocol !== protocol || peer.asymmetricKeyType !== 'ed25519'
           || peer.export({ format: 'jwk' }).x !== controllerKey) throw new Error('pin');
-        readFrame(socket, 2048, frame => {
+        readFrame(socket, responseLimit, frame => {
           try {
             const response = JSON.parse(frame.toString('utf8'));
             if (response.ok !== true) throw new Error('rejected');
-            finish(null, verifyReceipt(response.receipt, request, controllerKey));
+            finish(null, verifyResponse(response));
           } catch { finish(new Error('Registration confirmation rejected')); }
         });
         socket.write(bytes);
@@ -82,4 +83,9 @@ function registerOverTls({ host, port, controllerKey, request, timeoutMs = 10000
   });
 }
 
-module.exports = { createRegistrationServer, registerOverTls };
+function registerOverTls(options) {
+  return exchangeOverTls({ ...options,
+    verifyResponse: response => verifyReceipt(response.receipt, options.request, options.controllerKey) });
+}
+
+module.exports = { createRegistrationServer, registerOverTls, exchangeOverTls };
