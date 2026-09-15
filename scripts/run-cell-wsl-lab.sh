@@ -33,6 +33,11 @@ mount --bind /dev/net/tun "$lab_root/dev/net/tun" 2>/dev/null || {
 export WG_QUICK_USERSPACE_IMPLEMENTATION=amneziawg-go
 export AWG_CELL_ISOLATED_TEST=1
 export NODE_PATH=/app/node_modules
-chroot "$lab_root" /usr/local/bin/node /workspace/scripts/test-cell-runtime.cjs
+case "${3:-runtime}" in
+  runtime) test_script=test-cell-runtime.cjs ;;
+  routing) test_script=test-cell-routing.cjs ;;
+  *) echo 'Unknown isolated test suite' >&2; exit 1 ;;
+esac
+chroot "$lab_root" /usr/local/bin/node "/workspace/scripts/$test_script"
 # PID namespace exit kills remaining test processes; mounts disappear automatically.
 # Rootfs retained for diagnosis, exact path printed above. No broad recursive cleanup.
