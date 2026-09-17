@@ -114,6 +114,21 @@ async function main() {
   topology.clients[0].assignment.geoPolicy = { mode: 'block', countries: ['RU'] }; install(); internet(false);
   topology.clients[0].assignment.geoPolicy = { mode: 'off', countries: [] }; install(); internet(true);
   console.log('PASS family permissions and GeoIP across the remote exit');
+  // Real VPS kernels can delete interface routes on administrative link-down.
+  // Bringing the interface back up alone is not a topology reconciliation.
+  ip('entry', ['link', 'set', 'transitE', 'down']); internet(false);
+  ip('entry', ['link', 'set', 'transitE', 'up']);
+  const recovery = compileCellRouting({ topology, nodeId: 'entry', context: context('exit'), geoDatabase });
+  for (const command of recovery.commands.filter(c => c.args[1] === 'route')) {
+    try { ns('entry', command.file, command.args); }
+    catch (error) {
+      // This namespace is owned wholly by this test. Production must additionally
+      // compare ownership and exact route values; it must not ignore conflicts.
+      if (!String(error.stderr).includes('File exists')) throw error;
+    }
+  }
+  internet(true);
+  console.log('PASS link-down blocks traffic; explicit owned-route recovery restores the selected exit');
   ip('entry', ['link', 'del', 'transitE']); internet(false);
   // Even deleting the policy selector cannot leak into the working local WAN.
   for (const family of [4, 6]) ip('entry', [`-${family}`, 'rule', 'del', 'pref', '20000']);
