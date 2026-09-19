@@ -36,6 +36,7 @@ export NODE_PATH=/app/node_modules
 case "${3:-runtime}" in
   runtime) test_script=test-cell-runtime.cjs ;;
   routing) test_script=test-cell-routing.cjs ;;
+  nft) test_script=test-cell-nft.cjs ;;
   *) echo 'Unknown isolated test suite' >&2; exit 1 ;;
 esac
 chroot "$lab_root" /usr/local/bin/node "/workspace/scripts/$test_script"
