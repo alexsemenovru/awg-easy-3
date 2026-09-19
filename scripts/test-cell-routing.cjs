@@ -6,6 +6,7 @@ const { execFileSync, spawn } = require('node:child_process');
 const { compileCellRouting } = require('../src/lib/CellRoutingPolicy');
 const { CellRouteTransaction } = require('../src/lib/CellRouteTransaction');
 const { CellRoutingGuard } = require('../src/lib/CellRoutingGuard');
+const { CellNftTransaction } = require('../src/lib/CellNftTransaction');
 const { generateOfficialProfile, renderInterfaceFields } = require('../src/lib/Awg3Config');
 const run = (file, args, input) => execFileSync(file, args, { input, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
 const ns = (name, file, args, input) => run('ip', ['netns', 'exec', name, file, ...args], input);
@@ -72,6 +73,7 @@ async function main() {
     ns(name, 'sysctl', ['-w', `net.ipv4.conf.${dev}.rp_filter=2`]);
   }
   const transactions = new Map();
+  const policies = new Map();
   const injectedFailures = new Map();
   const guards = new Map();
   const guardOptions = name => ({ journalPath: `/tmp/${name}-guard.json`,
@@ -82,7 +84,8 @@ async function main() {
     // This fixture controls the entire namespace. The product coordinator must
     // verify the complete AWG/routes/nft desired state, not use this shortcut.
     return guard.release(async () => {
-      ns(name, 'nft', ['list', 'table', 'inet', 'awg_easy_3_routes']);
+      const policy = policies.get(name), savedPolicy = await policy.load();
+      if (savedPolicy.pending || (await policy.plan([savedPolicy.committed], savedPolicy.committed)).changed) return false;
       const tx = transactions.get(name), saved = await tx.load();
       const changes = await tx.reconcile(saved.committed, saved.committed);
       return !changes.added && !changes.removed;
@@ -90,6 +93,8 @@ async function main() {
   }
   for (const name of ['entry', 'exit']) {
     guards.set(name, new CellRoutingGuard(guardOptions(name)));
+    policies.set(name, new CellNftTransaction({ journalPath: `/tmp/${name}-policy.json`,
+      runner: guardOptions(name).runner, activateGuard: async () => changeGuard(name, true) }));
     transactions.set(name, new CellRouteTransaction({ journalPath: `/tmp/${name}-routes.json`,
       runner: async (file, args) => {
         if (args[1] === 'route' && args[2] === 'del' && injectedFailures.has(name)) {
@@ -101,16 +106,15 @@ async function main() {
       },
       activateGuard: async () => changeGuard(name, true) }));
   }
-  const install = async (initial = false) => {
+  const install = async () => {
     for (const [name, peer] of [['entry', 'exit'], ['exit', 'entry']]) {
       const built = compileCellRouting({ topology, nodeId: name, context: context(peer), geoDatabase });
-      const policy = (initial ? '' : `delete table inet ${built.table}\n`) + built.nftables;
-      ns(name, 'nft', ['-c', '-f', '-'], policy); ns(name, 'nft', ['-f', '-'], policy);
+      await policies.get(name).apply(built.nftSnapshot);
       await transactions.get(name).apply(built.commands);
       await changeGuard(name, false);
     }
   };
-  await install(true);
+  await install();
   console.log('PASS real nft syntax and route installation for two nodes');
   function ping(family, target, allowed) {
     let success = false;
@@ -180,6 +184,17 @@ async function main() {
   await changeGuard('entry', false); internet(true);
   console.log('PASS durable guard restart cancels interrupted release and blocks until explicit verification');
   console.log('PASS foreign route preserved, conflict fails closed, explicit conflict resolution recovers');
+  await changeGuard('entry', true);
+  const oldPolicy = policies.get('entry'), savedPolicy = await oldPolicy.load();
+  const interruptedPolicy = structuredClone(savedPolicy.committed);
+  interruptedPolicy.nftables.find(x => x.rule).rule.comment = 'interrupted fixture update';
+  const policyIntent = { ...savedPolicy, pending: { desired: interruptedPolicy } };
+  await oldPolicy.save(policyIntent);
+  await oldPolicy.reconcile(oldPolicy.candidates(policyIntent), interruptedPolicy);
+  policies.set('entry', new CellNftTransaction({ journalPath: oldPolicy.file, runner: oldPolicy.runner, activateGuard: oldPolicy.activateGuard }));
+  await policies.get('entry').recover(); internet(false);
+  await changeGuard('entry', false); internet(true);
+  console.log('PASS nft pending update rolled back from durable journal; guard retained until verification');
   ip('entry', ['link', 'del', 'transitE']); internet(false);
   // Even deleting the policy selector cannot leak into the working local WAN.
   for (const family of [4, 6]) ip('entry', [`-${family}`, 'rule', 'del', 'pref', '20000']);
