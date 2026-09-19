@@ -48,4 +48,21 @@ function planNftReplacement({ table, current, owned, desired }) {
   if (next) for (const item of next.nftables) nftables.push({ add: item });
   return { batch: { nftables }, changed: true, desired: next };
 }
-module.exports = { normalizeNftSnapshot, nftFingerprint, planNftReplacement };
+function routingGuardSnapshot(interfaces) {
+  if (!Array.isArray(interfaces) || interfaces.length < 1 || interfaces.length > 256
+    || interfaces.some(name => typeof name !== 'string' || !/^[a-zA-Z0-9_.-]{1,15}$/.test(name))
+    || new Set(interfaces).size !== interfaces.length) throw new TypeError('Invalid routing guard interfaces');
+  const table = 'awg_easy_3_routing_guard';
+  const nftables = [{ table: { family: 'inet', name: table } }];
+  for (const [hook, directions] of [['input', ['iifname']], ['output', ['oifname']], ['forward', ['iifname', 'oifname']]]) {
+    nftables.push({ chain: { family: 'inet', table, name: hook, type: 'filter', hook, prio: -25, policy: 'accept' } });
+    for (const name of [...interfaces].sort()) for (const key of directions) {
+      nftables.push({ rule: { family: 'inet', table, chain: hook,
+        expr: [{ match: { op: '==', left: { meta: { key } }, right: name } }, { drop: null }] } });
+    }
+  }
+  // Kernel list output emits chain definitions before their rules. Preserve
+  // rule order exactly; only construct the declarative sections in that order.
+  return normalizeNftSnapshot({ nftables: [...nftables.filter(x => !x.rule), ...nftables.filter(x => x.rule)] }, table);
+}
+module.exports = { normalizeNftSnapshot, nftFingerprint, planNftReplacement, routingGuardSnapshot };

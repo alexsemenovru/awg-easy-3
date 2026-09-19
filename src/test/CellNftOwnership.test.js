@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { normalizeNftSnapshot, nftFingerprint, planNftReplacement } = require('../lib/CellNftOwnership');
+const { normalizeNftSnapshot, nftFingerprint, planNftReplacement, routingGuardSnapshot } = require('../lib/CellNftOwnership');
 const table = 'awg_easy_3_routes';
 const snapshot = () => ({ nftables: [{ table: { family: 'inet', name: table, handle: 2 } },
   { chain: { family: 'inet', table, name: 'forward', type: 'filter', hook: 'forward', prio: -15, policy: 'accept', handle: 3 } },
@@ -42,4 +42,13 @@ test('missing owned table may be restored, deletion is scoped, inputs not mutate
   assert.ok(planNftReplacement({ table, current: null, owned: a, desired: a }).changed);
   assert.equal(planNftReplacement({ table, current: a, owned: a, desired: null }).batch.nftables.length, 1);
   assert.deepEqual(a, copy);
+});
+test('guard JSON is deterministic, blocks all managed directions and no unrelated interfaces', () => {
+  const a = routingGuardSnapshot(['transit', 'clients']);
+  assert.deepEqual(a, routingGuardSnapshot(['clients', 'transit']));
+  assert.equal(a.nftables.filter(x => x.chain).length, 3);
+  assert.equal(a.nftables.filter(x => x.rule).length, 8);
+  assert.ok(a.nftables.filter(x => x.rule).every(x => Object.hasOwn(x.rule.expr.at(-1), 'drop')));
+  assert.ok(!JSON.stringify(a).includes('eth0'));
+  for (const input of [[], ['bad name'], ['same', 'same'], ['a\nflush ruleset']]) assert.throws(() => routingGuardSnapshot(input));
 });
