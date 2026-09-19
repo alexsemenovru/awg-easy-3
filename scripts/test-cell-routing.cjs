@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const { execFileSync, spawn } = require('node:child_process');
 const { compileCellRouting } = require('../src/lib/CellRoutingPolicy');
+const { CellRouteTransaction } = require('../src/lib/CellRouteTransaction');
 const { generateOfficialProfile, renderInterfaceFields } = require('../src/lib/Awg3Config');
 const run = (file, args, input) => execFileSync(file, args, { input, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
 const ns = (name, file, args, input) => run('ip', ['netns', 'exec', name, file, ...args], input);
@@ -69,15 +70,38 @@ async function main() {
     ip(name, ['link', 'set', dev, 'mtu', '1280', 'up']);
     ns(name, 'sysctl', ['-w', `net.ipv4.conf.${dev}.rp_filter=2`]);
   }
-  const install = (initial = false) => {
+  const transactions = new Map();
+  const injectedFailures = new Map();
+  for (const name of ['entry', 'exit']) {
+    transactions.set(name, new CellRouteTransaction({ journalPath: `/tmp/${name}-routes.json`,
+      runner: async (file, args) => {
+        if (args[1] === 'route' && args[2] === 'del' && injectedFailures.has(name)) {
+          const remaining = injectedFailures.get(name);
+          if (remaining === 0) { injectedFailures.delete(name); throw new Error('injected route mutation failure'); }
+          injectedFailures.set(name, remaining - 1);
+        }
+        return { stdout: ns(name, file, args) };
+      },
+      activateGuard: async () => {
+        let exists = false;
+        try { ns(name, 'nft', ['list', 'table', 'inet', 'route_tx_guard']); exists = true; } catch {}
+        if (!exists) ns(name, 'nft', ['-f', '-'], `table inet route_tx_guard {
+          chain f { type filter hook forward priority -25; policy accept; iifname { "clients", "transitE", "transitX" } drop; oifname { "clients", "transitE", "transitX" } drop; }
+          chain i { type filter hook input priority -25; policy accept; iifname { "clients", "transitE", "transitX" } drop; }
+          chain o { type filter hook output priority -25; policy accept; oifname { "clients", "transitE", "transitX" } drop; }
+        }\n`);
+      } }));
+  }
+  const install = async (initial = false) => {
     for (const [name, peer] of [['entry', 'exit'], ['exit', 'entry']]) {
       const built = compileCellRouting({ topology, nodeId: name, context: context(peer), geoDatabase });
       const policy = (initial ? '' : `delete table inet ${built.table}\n`) + built.nftables;
       ns(name, 'nft', ['-c', '-f', '-'], policy); ns(name, 'nft', ['-f', '-'], policy);
-      if (initial) for (const command of built.commands) ns(name, command.file, command.args);
+      await transactions.get(name).apply(built.commands);
+      ns(name, 'nft', ['delete', 'table', 'inet', 'route_tx_guard']);
     }
   };
-  install(true);
+  await install(true);
   console.log('PASS real nft syntax and route installation for two nodes');
   function ping(family, target, allowed) {
     let success = false;
@@ -102,33 +126,43 @@ async function main() {
     assert.equal(success, allowed, 'Panel access ' + host);
   };
   http('10.88.0.1', true); http('[fd88::1]', true);
-  topology.clients[0].assignment.networkGroup = 'guest'; install();
+  topology.clients[0].assignment.networkGroup = 'guest'; await install();
   ping(4, '10.88.0.3', false); ping(6, 'fd88::3', false); http('10.88.0.1', false); http('[fd88::1]', false); internet(true);
   console.log('PASS Home panel access and Guest isolation without blocking Guest internet');
-  topology.clients[0].assignment.ipv4Enabled = false; install();
+  topology.clients[0].assignment.ipv4Enabled = false; await install();
   ping(4, '198.51.100.10', false); ping(6, 'fd99::10', true);
   topology.clients[0].assignment.ipv4Enabled = true;
-  topology.clients[0].assignment.ipv6Enabled = false; install();
+  topology.clients[0].assignment.ipv6Enabled = false; await install();
   ping(4, '198.51.100.10', true); ping(6, 'fd99::10', false);
   topology.clients[0].assignment.ipv6Enabled = true;
-  topology.clients[0].assignment.geoPolicy = { mode: 'block', countries: ['RU'] }; install(); internet(false);
-  topology.clients[0].assignment.geoPolicy = { mode: 'off', countries: [] }; install(); internet(true);
+  topology.clients[0].assignment.geoPolicy = { mode: 'block', countries: ['RU'] }; await install(); internet(false);
+  topology.clients[0].assignment.geoPolicy = { mode: 'off', countries: [] }; await install(); internet(true);
   console.log('PASS family permissions and GeoIP across the remote exit');
   // Real VPS kernels can delete interface routes on administrative link-down.
   // Bringing the interface back up alone is not a topology reconciliation.
   ip('entry', ['link', 'set', 'transitE', 'down']); internet(false);
   ip('entry', ['link', 'set', 'transitE', 'up']);
-  const recovery = compileCellRouting({ topology, nodeId: 'entry', context: context('exit'), geoDatabase });
-  for (const command of recovery.commands.filter(c => c.args[1] === 'route')) {
-    try { ns('entry', command.file, command.args); }
-    catch (error) {
-      // This namespace is owned wholly by this test. Production must additionally
-      // compare ownership and exact route values; it must not ignore conflicts.
-      if (!String(error.stderr).includes('File exists')) throw error;
-    }
-  }
+  await transactions.get('entry').recover();
+  ns('entry', 'nft', ['delete', 'table', 'inet', 'route_tx_guard']);
   internet(true);
   console.log('PASS link-down blocks traffic; explicit owned-route recovery restores the selected exit');
+  injectedFailures.set('entry', 1);
+  await assert.rejects(transactions.get('entry').apply([]), /injected route mutation failure/);
+  internet(false); // Rollback success alone never removes the topology guard.
+  const oldTransaction = transactions.get('entry');
+  transactions.set('entry', new CellRouteTransaction({ journalPath: oldTransaction.file,
+    runner: oldTransaction.runner, activateGuard: oldTransaction.activateGuard }));
+  await transactions.get('entry').recover();
+  ns('entry', 'nft', ['delete', 'table', 'inet', 'route_tx_guard']); internet(true);
+  console.log('PASS real partial route rollback, retained guard and restart from durable journal');
+  ip('entry', ['route', 'add', '198.18.0.1/32', 'table', '52000', 'dev', 'transitE', 'proto', 'static']);
+  await assert.rejects(transactions.get('entry').recover(), /Cell route ownership/);
+  internet(false);
+  assert.match(ip('entry', ['route', 'show', 'table', '52000', '198.18.0.1/32']), /proto static/);
+  ip('entry', ['route', 'del', '198.18.0.1/32', 'table', '52000', 'dev', 'transitE', 'proto', 'static']);
+  await transactions.get('entry').recover();
+  ns('entry', 'nft', ['delete', 'table', 'inet', 'route_tx_guard']); internet(true);
+  console.log('PASS foreign route preserved, conflict fails closed, explicit conflict resolution recovers');
   ip('entry', ['link', 'del', 'transitE']); internet(false);
   // Even deleting the policy selector cannot leak into the working local WAN.
   for (const family of [4, 6]) ip('entry', [`-${family}`, 'rule', 'del', 'pref', '20000']);
@@ -137,4 +171,8 @@ async function main() {
   console.log('PASS tunnel loss and missing policy rule fail closed; ordinary VPS WAN still works');
   panel.kill();
 }
-main().catch(e => { console.error(e.message); process.exit(1); });
+main().catch(e => {
+  console.error(e.message);
+  for (const cause of e.errors || []) console.error(cause.message);
+  process.exit(1);
+});
