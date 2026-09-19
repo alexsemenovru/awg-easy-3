@@ -46,6 +46,7 @@ const renderGeoIpPolicy = ({ clients = [], database = {}, awg, wan, active4, act
   }
   if (!Array.isArray(clients) || clients.length > 1000) throw new TypeError('Invalid GeoIP clients');
   const sets = new Map();
+  const setDefinitions = [];
   const rules = [];
   const seen = new Set();
   for (const client of clients) {
@@ -68,6 +69,7 @@ const renderGeoIpPolicy = ({ clients = [], database = {}, awg, wan, active4, act
           for (const entry of entries) prefixes.push(entry);
         }
         const elements = [...new Set(prefixes)].sort();
+        setDefinitions.push({ name, family, elements });
         sets.set(name, `  set ${name} {\n    type ipv${family}_addr\n    flags interval\n    auto-merge\n${elements.length ? `    elements = { ${elements.join(', ')} }\n` : ''}  }\n`);
       }
       const ip = family === 4 ? 'ip' : 'ip6';
@@ -76,7 +78,7 @@ const renderGeoIpPolicy = ({ clients = [], database = {}, awg, wan, active4, act
       rules.push(`    iifname "${wan}" oifname "${awg}" ${ip} daddr ${address} ${ip} saddr ${operator}@${name} drop comment "GeoIP inbound"`);
     }
   }
-  return { sets: [...sets.values()].join('\n'), rules: rules.join('\n') };
+  return { sets: [...sets.values()].join('\n'), rules: rules.join('\n'), setDefinitions };
 };
 
 module.exports = { normalizeGeoPolicy, validatePrefixes, renderGeoIpPolicy };

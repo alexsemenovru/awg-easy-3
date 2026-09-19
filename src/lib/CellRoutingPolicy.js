@@ -3,6 +3,7 @@ const net = require('node:net');
 const { planCellTopology } = require('./CellTopology');
 const { renderGeoIpPolicy } = require('./GeoIpPolicy');
 const { ipNumber } = require('./GeoIpAddress');
+const { routingPolicySnapshot } = require('./CellNftPolicyJson');
 const TABLE = 'awg_easy_3_routes';
 const iface = value => {
   if (typeof value !== 'string' || !/^[a-zA-Z0-9_.-]{1,15}$/.test(value)) throw new TypeError('Invalid routing interface');
@@ -41,6 +42,7 @@ function compileCellRouting({ topology, nodeId, context, geoDatabase = {} }) {
   const pathTo = (id, family) => id === nodeId ? client : links.get(id)?.[`ipv${family}`] ? links.get(id).interfaceName : null;
   const home = plan.routes.filter(r => r.group === 'home');
   const input = [], forward = [], output = [], nat = [], geoRules = [], geoSets = new Map();
+  const geoDefinitions = new Map();
   const commands = [], rules = [], routeKeys = new Set();
   const route = (family, table, destination, dev, metric) => {
     const args = [`-${family}`, 'route', 'add', ...(destination === 'unreachable' ? ['unreachable', 'default'] : [destination]),
@@ -109,6 +111,7 @@ function compileCellRouting({ topology, nodeId, context, geoDatabase = {} }) {
       const geo = renderGeoIpPolicy({ clients: [{ policy: r.geoPolicy, [`address${family}`]: source }],
         database: geoDatabase, awg: from, wan: to, active4: family === 4 ? [source] : [], active6: family === 6 ? [source] : [] });
       if (geo.sets) geoSets.set(geo.sets.match(/set (\w+)/)[1], geo.sets);
+      for (const definition of geo.setDefinitions) geoDefinitions.set(definition.name, definition);
       if (geo.rules) geoRules.push(geo.rules);
       // Inserted after GeoIP below, not before filtering.
       rules.push(`iifname "${from}" oifname "${to}" ${ip} saddr ${source} accept`);
@@ -124,7 +127,11 @@ function compileCellRouting({ topology, nodeId, context, geoDatabase = {} }) {
     }
   }
   const render = lines => lines.map(line => `    ${line}`).join('\n');
+  const nftSnapshot = routingPolicySnapshot({ input: [...input, `iifname ${managed} drop`],
+    forward: [...forward, ...geoRules.flatMap(r => r.split('\n')), ...rules, `iifname ${managed} drop`, `oifname ${managed} drop`],
+    output: [...output, `oifname ${managed} drop`], nat, sets: [...geoDefinitions.values()] });
   return { plan, commands, table: TABLE,
+    nftSnapshot,
     nftables: `# Managed by AWG-Easy 3 routing prototype\ntable inet ${TABLE} {\n${[...geoSets.values()].join('\n')}
   chain input { type filter hook input priority -15; policy accept;
 ${render(input)}
