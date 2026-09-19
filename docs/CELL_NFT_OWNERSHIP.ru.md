@@ -27,7 +27,8 @@
 - Защитная таблица теперь строится как ожидаемый JSON до применения; её
   fingerprint совпадает с реальным kernel readback. Проверены удаление только
   собственной таблицы и использование этого guard в полном AWG routing lab.
-  В стенде ownership guard пока хранится в памяти, не в продуктовом журнале.
+  Далее добавлен отдельный durable CellRoutingGuard и подключён к routing lab;
+  см. CELL_ROUTING_GUARD.ru.md. Продуктовый координатор пока не подключён.
 - Полный JS-набор: 333 теста, 330 passed, 3 skipped, 0 failed.
 
 `scripts/run-cell-wsl-lab.sh ... nft` запускает отдельный тест только в

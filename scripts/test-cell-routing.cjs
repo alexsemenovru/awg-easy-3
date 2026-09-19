@@ -5,7 +5,7 @@ const fs = require('node:fs/promises');
 const { execFileSync, spawn } = require('node:child_process');
 const { compileCellRouting } = require('../src/lib/CellRoutingPolicy');
 const { CellRouteTransaction } = require('../src/lib/CellRouteTransaction');
-const { routingGuardSnapshot, planNftReplacement } = require('../src/lib/CellNftOwnership');
+const { CellRoutingGuard } = require('../src/lib/CellRoutingGuard');
 const { generateOfficialProfile, renderInterfaceFields } = require('../src/lib/Awg3Config');
 const run = (file, args, input) => execFileSync(file, args, { input, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
 const ns = (name, file, args, input) => run('ip', ['netns', 'exec', name, file, ...args], input);
@@ -73,22 +73,23 @@ async function main() {
   }
   const transactions = new Map();
   const injectedFailures = new Map();
-  const guardTable = 'awg_easy_3_routing_guard';
-  const guardOwners = new Map(); // Lab coordinator state, not product persistence.
-  function changeGuard(name, enabled) {
-    const tables = JSON.parse(ns(name, 'nft', ['-j', 'list', 'tables']));
-    const present = tables.nftables.some(x => x.table?.name === guardTable && x.table.family === 'inet');
-    const current = present ? JSON.parse(ns(name, 'nft', ['-j', 'list', 'table', 'inet', guardTable])) : null;
-    const desired = enabled ? routingGuardSnapshot(['clients', name === 'entry' ? 'transitE' : 'transitX']) : null;
-    const plan = planNftReplacement({ table: guardTable, current, owned: guardOwners.get(name) || null, desired });
-    if (plan.changed) {
-      const input = JSON.stringify(plan.batch);
-      ns(name, 'nft', ['-c', '-j', '-f', '-'], input);
-      ns(name, 'nft', ['-j', '-f', '-'], input);
-    }
-    guardOwners.set(name, desired);
+  const guards = new Map();
+  const guardOptions = name => ({ journalPath: `/tmp/${name}-guard.json`,
+    runner: async (file, args, options) => ({ stdout: ns(name, file, args, options?.input) }) });
+  async function changeGuard(name, enabled) {
+    const guard = guards.get(name);
+    if (enabled) return guard.protect(['clients', name === 'entry' ? 'transitE' : 'transitX']);
+    // This fixture controls the entire namespace. The product coordinator must
+    // verify the complete AWG/routes/nft desired state, not use this shortcut.
+    return guard.release(async () => {
+      ns(name, 'nft', ['list', 'table', 'inet', 'awg_easy_3_routes']);
+      const tx = transactions.get(name), saved = await tx.load();
+      const changes = await tx.reconcile(saved.committed, saved.committed);
+      return !changes.added && !changes.removed;
+    });
   }
   for (const name of ['entry', 'exit']) {
+    guards.set(name, new CellRoutingGuard(guardOptions(name)));
     transactions.set(name, new CellRouteTransaction({ journalPath: `/tmp/${name}-routes.json`,
       runner: async (file, args) => {
         if (args[1] === 'route' && args[2] === 'del' && injectedFailures.has(name)) {
@@ -106,7 +107,7 @@ async function main() {
       const policy = (initial ? '' : `delete table inet ${built.table}\n`) + built.nftables;
       ns(name, 'nft', ['-c', '-f', '-'], policy); ns(name, 'nft', ['-f', '-'], policy);
       await transactions.get(name).apply(built.commands);
-      changeGuard(name, false);
+      await changeGuard(name, false);
     }
   };
   await install(true);
@@ -151,7 +152,7 @@ async function main() {
   ip('entry', ['link', 'set', 'transitE', 'down']); internet(false);
   ip('entry', ['link', 'set', 'transitE', 'up']);
   await transactions.get('entry').recover();
-  changeGuard('entry', false);
+  await changeGuard('entry', false);
   internet(true);
   console.log('PASS link-down blocks traffic; explicit owned-route recovery restores the selected exit');
   injectedFailures.set('entry', 1);
@@ -161,7 +162,7 @@ async function main() {
   transactions.set('entry', new CellRouteTransaction({ journalPath: oldTransaction.file,
     runner: oldTransaction.runner, activateGuard: oldTransaction.activateGuard }));
   await transactions.get('entry').recover();
-  changeGuard('entry', false); internet(true);
+  await changeGuard('entry', false); internet(true);
   console.log('PASS real partial route rollback, retained guard and restart from durable journal');
   ip('entry', ['route', 'add', '198.18.0.1/32', 'table', '52000', 'dev', 'transitE', 'proto', 'static']);
   await assert.rejects(transactions.get('entry').recover(), /Cell route ownership/);
@@ -169,7 +170,15 @@ async function main() {
   assert.match(ip('entry', ['route', 'show', 'table', '52000', '198.18.0.1/32']), /proto static/);
   ip('entry', ['route', 'del', '198.18.0.1/32', 'table', '52000', 'dev', 'transitE', 'proto', 'static']);
   await transactions.get('entry').recover();
-  changeGuard('entry', false); internet(true);
+  await changeGuard('entry', false); internet(true);
+  await changeGuard('entry', true);
+  const guardState = await guards.get('entry').load();
+  await guards.get('entry').save({ ...guardState, pending: { kind: 'release' } });
+  ns('entry', 'nft', ['delete', 'table', 'inet', 'awg_easy_3_routing_guard']);
+  guards.set('entry', new CellRoutingGuard(guardOptions('entry')));
+  await guards.get('entry').recover(); internet(false);
+  await changeGuard('entry', false); internet(true);
+  console.log('PASS durable guard restart cancels interrupted release and blocks until explicit verification');
   console.log('PASS foreign route preserved, conflict fails closed, explicit conflict resolution recovers');
   ip('entry', ['link', 'del', 'transitE']); internet(false);
   // Even deleting the policy selector cannot leak into the working local WAN.

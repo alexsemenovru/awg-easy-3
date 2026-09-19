@@ -46,3 +46,5 @@ assert.equal(nftFingerprint(liveGuard, guardTable), nftFingerprint(guard, guardT
 const removeGuard = planNftReplacement({ table: guardTable, current: liveGuard, owned: guard, desired: null });
 nft(['-j', '-f', '-'], JSON.stringify(removeGuard.batch));
 console.log('PASS precomputed guard JSON matches kernel readback and can be removed only as owned');
+// Also run the durable guard journal cases on Linux, including file permissions.
+execFileSync(process.execPath, ['--test', require.resolve('../src/test/CellRoutingGuard.test.js')], { stdio: 'inherit' });
