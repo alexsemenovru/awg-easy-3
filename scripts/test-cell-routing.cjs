@@ -7,6 +7,7 @@ const { compileCellRouting } = require('../src/lib/CellRoutingPolicy');
 const { CellRouteTransaction } = require('../src/lib/CellRouteTransaction');
 const { CellRoutingGuard } = require('../src/lib/CellRoutingGuard');
 const { CellNftTransaction } = require('../src/lib/CellNftTransaction');
+const { CellRoutingCoordinator } = require('../src/lib/CellRoutingCoordinator');
 const { generateOfficialProfile, renderInterfaceFields } = require('../src/lib/Awg3Config');
 const run = (file, args, input) => execFileSync(file, args, { input, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
 const ns = (name, file, args, input) => run('ip', ['netns', 'exec', name, file, ...args], input);
@@ -74,9 +75,10 @@ async function main() {
   }
   const transactions = new Map();
   const policies = new Map();
+  const coordinators = new Map();
   const injectedFailures = new Map();
   const guards = new Map();
-  const guardOptions = name => ({ journalPath: `/tmp/${name}-guard.json`,
+  const guardOptions = name => ({ journalPath: `/tmp/${name}-coordinator/guard.json`,
     runner: async (file, args, options) => ({ stdout: ns(name, file, args, options?.input) }) });
   async function changeGuard(name, enabled) {
     const guard = guards.get(name);
@@ -92,26 +94,32 @@ async function main() {
     });
   }
   for (const name of ['entry', 'exit']) {
-    guards.set(name, new CellRoutingGuard(guardOptions(name)));
-    policies.set(name, new CellNftTransaction({ journalPath: `/tmp/${name}-policy.json`,
-      runner: guardOptions(name).runner, activateGuard: async () => changeGuard(name, true) }));
-    transactions.set(name, new CellRouteTransaction({ journalPath: `/tmp/${name}-routes.json`,
-      runner: async (file, args) => {
-        if (args[1] === 'route' && args[2] === 'del' && injectedFailures.has(name)) {
+    const dev = name === 'entry' ? 'transitE' : 'transitX';
+    const expectedPublicKey = run('awg', ['pubkey'], keys[name] + '\n');
+    const coordinator = new CellRoutingCoordinator({ directory: `/tmp/${name}-coordinator`,
+      verifyInterfaces: async interfaces => {
+        // Fixture owns this entire disposable namespace. Production needs a
+        // persisted interface/configuration ownership manifest as well.
+        for (const interfaceName of interfaces) ip(name, ['link', 'show', 'dev', interfaceName]);
+        return ns(name, 'awg', ['show', dev, 'public-key']) === expectedPublicKey;
+      },
+      runner: async (file, args, options) => {
+        if (file === 'ip' && args[1] === 'route' && args[2] === 'del' && injectedFailures.has(name)) {
           const remaining = injectedFailures.get(name);
           if (remaining === 0) { injectedFailures.delete(name); throw new Error('injected route mutation failure'); }
           injectedFailures.set(name, remaining - 1);
         }
-        return { stdout: ns(name, file, args) };
+        return { stdout: ns(name, file, args, options?.input) };
       },
-      activateGuard: async () => changeGuard(name, true) }));
+    });
+    coordinators.set(name, coordinator);
+    guards.set(name, coordinator.guard); policies.set(name, coordinator.policy); transactions.set(name, coordinator.routes);
   }
   const install = async () => {
     for (const [name, peer] of [['entry', 'exit'], ['exit', 'entry']]) {
       const built = compileCellRouting({ topology, nodeId: name, context: context(peer), geoDatabase });
-      await policies.get(name).apply(built.nftSnapshot);
-      await transactions.get(name).apply(built.commands);
-      await changeGuard(name, false);
+      await coordinators.get(name).apply({ version: 1, interfaces: ['clients', name === 'entry' ? 'transitE' : 'transitX'],
+        commands: built.commands, nftSnapshot: built.nftSnapshot });
     }
   };
   await install();
@@ -155,21 +163,23 @@ async function main() {
   // Bringing the interface back up alone is not a topology reconciliation.
   ip('entry', ['link', 'set', 'transitE', 'down']); internet(false);
   ip('entry', ['link', 'set', 'transitE', 'up']);
-  await transactions.get('entry').recover();
+  await coordinators.get('entry').recover();
   await changeGuard('entry', false);
   internet(true);
   console.log('PASS link-down blocks traffic; explicit owned-route recovery restores the selected exit');
   injectedFailures.set('entry', 1);
+  await changeGuard('entry', true);
   await assert.rejects(transactions.get('entry').apply([]), /injected route mutation failure/);
   internet(false); // Rollback success alone never removes the topology guard.
   const oldTransaction = transactions.get('entry');
   transactions.set('entry', new CellRouteTransaction({ journalPath: oldTransaction.file,
     runner: oldTransaction.runner, activateGuard: oldTransaction.activateGuard }));
+  coordinators.get('entry').routes = transactions.get('entry');
   await transactions.get('entry').recover();
   await changeGuard('entry', false); internet(true);
   console.log('PASS real partial route rollback, retained guard and restart from durable journal');
   ip('entry', ['route', 'add', '198.18.0.1/32', 'table', '52000', 'dev', 'transitE', 'proto', 'static']);
-  await assert.rejects(transactions.get('entry').recover(), /Cell route ownership/);
+  await assert.rejects(coordinators.get('entry').recover(), /Cell route ownership/);
   internet(false);
   assert.match(ip('entry', ['route', 'show', 'table', '52000', '198.18.0.1/32']), /proto static/);
   ip('entry', ['route', 'del', '198.18.0.1/32', 'table', '52000', 'dev', 'transitE', 'proto', 'static']);
@@ -180,6 +190,7 @@ async function main() {
   await guards.get('entry').save({ ...guardState, pending: { kind: 'release' } });
   ns('entry', 'nft', ['delete', 'table', 'inet', 'awg_easy_3_routing_guard']);
   guards.set('entry', new CellRoutingGuard(guardOptions('entry')));
+  coordinators.get('entry').guard = guards.get('entry');
   await guards.get('entry').recover(); internet(false);
   await changeGuard('entry', false); internet(true);
   console.log('PASS durable guard restart cancels interrupted release and blocks until explicit verification');
@@ -192,9 +203,22 @@ async function main() {
   await oldPolicy.save(policyIntent);
   await oldPolicy.reconcile(oldPolicy.candidates(policyIntent), interruptedPolicy);
   policies.set('entry', new CellNftTransaction({ journalPath: oldPolicy.file, runner: oldPolicy.runner, activateGuard: oldPolicy.activateGuard }));
+  coordinators.get('entry').policy = policies.get('entry');
   await policies.get('entry').recover(); internet(false);
   await changeGuard('entry', false); internet(true);
   console.log('PASS nft pending update rolled back from durable journal; guard retained until verification');
+  const coordinator = coordinators.get('entry'), confirmed = await coordinator.load();
+  const next = structuredClone(confirmed.committed);
+  next.nftSnapshot.nftables.find(x => x.rule).rule.comment = 'partial parent update';
+  await changeGuard('entry', true);
+  await coordinator.save({ ...confirmed, pending: { desired: next } });
+  await coordinator.policy.apply(next.nftSnapshot); // crash boundary: only one child committed
+  const restarted = new CellRoutingCoordinator({ directory: coordinator.directory,
+    verifyInterfaces: coordinator.verifyInterfaces, runner: oldTransaction.runner });
+  // oldTransaction runner handles both nft stdin and route argv in this lab.
+  await restarted.recover(); internet(false);
+  await restarted.apply(confirmed.committed); internet(true);
+  console.log('PASS coordinator restart restores consistent parent routes/policy after partial child commit');
   ip('entry', ['link', 'del', 'transitE']); internet(false);
   // Even deleting the policy selector cannot leak into the working local WAN.
   for (const family of [4, 6]) ip('entry', [`-${family}`, 'rule', 'del', 'pref', '20000']);
