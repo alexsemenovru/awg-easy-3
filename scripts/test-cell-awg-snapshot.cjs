@@ -63,3 +63,36 @@ assert.equal(field('apply').guarded, false);
 assert.throws(() => run('flock', ['-n', `${stateDir}/runtime.lock`, process.execPath, fieldScript, 'apply', stateDir, bundleFile]));
 assert.equal(field('apply').applied, true);
 console.log('PASS locked field CLI apply/status/recover across fresh processes; competing owner refused');
+
+async function transactionTest() {
+  const { CellAwgTransaction } = require('../src/lib/CellAwgTransaction');
+  const { CellRoutingGuard } = require('../src/lib/CellRoutingGuard');
+  const guard = new CellRoutingGuard({ journalPath: `${stateDir}/guard.json` });
+  const txOptions = { journalPath: `${stateDir}/awg.json`, activateGuard: names => guard.protect(names) };
+  const tx = new CellAwgTransaction(txOptions);
+  await tx.initialize(manifest);
+  const next = { ...manifest, config: options.replace(`Jc = ${profile.jc}`, `Jc = ${profile.jc + 1}`) };
+  await tx.apply(next);
+  assert.equal(matchesAwgConfig(next.config, run('awg', ['showconf', 'snapshot0'])), true);
+  assert.ok(await guard.current());
+  // Simulate kernel-after / journal-before completion; new instance restores
+  // the last confirmed config, not an unconfirmed pending update.
+  await tx.save({ version: 1, committed: manifest, pending: { desired: next } });
+  await new CellAwgTransaction(txOptions).recover();
+  assert.equal(inspect().verified, true); assert.ok(await guard.current());
+  await tx.save({ version: 1, committed: manifest, pending: { desired: next } });
+  const drift = options.replace(`Jc = ${profile.jc}`, `Jc = ${profile.jc + 2}`);
+  fs.writeFileSync(file, drift, { mode: 0o600 }); run('awg', ['setconf', 'snapshot0', file]);
+  await assert.rejects(new CellAwgTransaction(txOptions).recover(), /changed/);
+  assert.equal(matchesAwgConfig(drift, run('awg', ['showconf', 'snapshot0'])), true);
+  assert.ok((await tx.load()).pending); assert.ok(await guard.current());
+  // Explicit fixture repair, not automatic adoption of the unexpected state.
+  fs.writeFileSync(file, options, { mode: 0o600 }); run('awg', ['setconf', 'snapshot0', file]);
+  await new CellAwgTransaction(txOptions).recover();
+  await guard.release(async () => inspect().verified);
+  assert.equal(await guard.current(), null);
+  console.log('PASS real AWG transaction update, durable recovery and refusal of unexplained drift under guard');
+}
+transactionTest().catch(() => {
+  console.error('AWG transaction lab failed; private configuration withheld'); process.exitCode = 1;
+});

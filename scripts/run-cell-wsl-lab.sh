@@ -39,6 +39,7 @@ case "${3:-runtime}" in
   nft) test_script=test-cell-nft.cjs ;;
   policy-json) test_script=test-cell-policy-json.cjs ;;
   awg-snapshot) test_script=test-cell-awg-snapshot.cjs ;;
+  awg-lifecycle) test_script=test-cell-awg-lifecycle.cjs ;;
   *) echo 'Unknown isolated test suite' >&2; exit 1 ;;
 esac
 chroot "$lab_root" /usr/local/bin/node "/workspace/scripts/$test_script"
