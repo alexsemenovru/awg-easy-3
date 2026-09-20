@@ -274,6 +274,29 @@ async function main() {
   internet(false);
   ns('entry', 'ping', ['-c', '1', '-W', '2', '198.51.100.10']);
   console.log('PASS tunnel loss and missing policy rule fail closed; ordinary VPS WAN still works');
+  // Reconstruct both owned devices with the locked v2 lifecycle harness. No
+  // adoption: the fixture deliberately removes its old client device first.
+  ip('entry', ['link', 'del', 'clientsE']);
+  await new Promise(resolve => setTimeout(resolve, 250));
+  const managedBundle = { version: 2, nodeId: 'entry', topology, context: context('exit'), geoDatabase,
+    devices: [
+      { version: 1, owner: JSON.parse(await fs.readFile('/tmp/entry-owner.json', 'utf8')), addresses: [] },
+      { version: 1, owner: JSON.parse(await fs.readFile('/tmp/entry-client-owner.json', 'utf8')), addresses: ['10.88.0.254/24', 'fd88::fe/64'] },
+    ] };
+  await fs.writeFile(bundleFile, JSON.stringify(managedBundle), { mode: 0o600 });
+  assert.equal(field('recover').guarded, true); internet(false);
+  assert.equal(field('apply').applied, true);
+  // The phone still has an established session for the lost server process.
+  // Simulate reconnect without modifying its saved profile or endpoint.
+  const phoneConf = await fs.readFile('/tmp/phoneVPN.conf', 'utf8');
+  const phonePeer = phoneConf.match(/^PublicKey = (.+)$/m)[1];
+  ns('phone', 'awg', ['set', 'phoneVPN', 'peer', phonePeer, 'remove']);
+  ns('phone', 'awg', ['setconf', 'phoneVPN', '/tmp/phoneVPN.conf']);
+  internet(true);
+  assert.equal(field('status').verified, true);
+  assert.equal(ns('entry', 'sysctl', ['-n', 'net.ipv4.conf.all.rp_filter']), '1');
+  ns('entry', 'ping', ['-c', '1', '-W', '2', '198.51.100.10']);
+  console.log('PASS full client/transit lifecycle reconstruction restores IPv4/IPv6 exit without changing global reverse-path settings');
   panel.kill();
 }
 main().catch(e => {

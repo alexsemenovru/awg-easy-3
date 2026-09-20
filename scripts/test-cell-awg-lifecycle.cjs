@@ -41,5 +41,27 @@ async function main() {
   assert.equal(await life.link('life0'), null); assert.ok(await guard.current());
   assert.equal(run('awg', ['showconf', 'foreign0']), foreign);
   console.log('PASS owned device removal preserves other VPN and does not release guard');
+  const fieldDirectory = '/tmp/lifecycle-field', bundleFile = '/tmp/lifecycle-field.json';
+  const fieldDevice = { ...spec, owner: createAwgOwnership({ interfaceName: 'field0', config: spec.owner.config }) };
+  const bundle = { version: 2, nodeId: 'main', devices: [fieldDevice],
+    topology: { version: 1, nodes: [{ id: 'main', role: 'controller', ipv4: true, ipv6: true }], links: [], clients: [] },
+    context: { clientInterface: 'field0', wanInterface: 'wan', links: {}, nat66: true,
+      panel: { address4: '10.88.0.1', address6: 'fd88::1', port: 51821 } }, geoDatabase: {} };
+  fs.writeFileSync(bundleFile, JSON.stringify(bundle), { mode: 0o600 });
+  // Release only the earlier fixture's guard, after confirming its device is gone.
+  await guard.release(async () => await life.link('life0') === null);
+  process.env.AWG_CELL_FIELD_TEST = '1';
+  const field = action => JSON.parse(run(process.execPath, [require.resolve('./cell-routing-field.cjs'), action, fieldDirectory, bundleFile]));
+  assert.equal(field('apply').applied, true); assert.equal(field('status').verified, true);
+  assert.equal(field('recover').guarded, true); assert.equal(field('status').guardPresent, true);
+  assert.equal(field('apply').guarded, false);
+  run('ip', ['link', 'set', 'dev', 'field0', 'down']);
+  assert.equal(field('recover').guarded, true); assert.equal(field('apply').applied, true);
+  bundle.devices[0].addresses = ['10.88.0.2/24', 'fd88::1/64'];
+  fs.writeFileSync(bundleFile, JSON.stringify(bundle)); assert.throws(() => field('apply'));
+  bundle.devices[0].addresses = spec.addresses;
+  fs.writeFileSync(bundleFile, JSON.stringify(bundle)); assert.equal(field('status').verified, true);
+  assert.equal(run('awg', ['showconf', 'foreign0']), foreign);
+  console.log('PASS locked field CLI creates devices, recovers across processes and refuses device-set revision');
 }
 main().catch(error => { console.error(`AWG lifecycle lab failed: ${error.message}`); process.exitCode = 1; });

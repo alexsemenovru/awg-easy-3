@@ -15,11 +15,12 @@ function address(text) {
   const [host, prefix, extra] = text.split('/'), family = net.isIP(host);
   if (!family || host.includes('%') || extra !== undefined || !/^\d+$/.test(prefix)
     || Number(prefix) > (family === 4 ? 32 : 128)) throw new TypeError('Invalid AWG device address');
+  if (family === 6 && (ipNumber(host) >> 118n) === 0x3fan) throw new TypeError('Managed IPv6 link-local address is unsupported');
   return `${family === 6 ? formatIPv6(ipNumber(host)) : host}/${Number(prefix)}`;
 }
 function specification(value) {
   if (!value || Object.keys(value).sort().join(',') !== 'addresses,owner,version' || value.version !== 1
-    || !Array.isArray(value.addresses) || !value.addresses.length || value.addresses.length > 8) throw new TypeError('Invalid AWG lifecycle specification');
+    || !Array.isArray(value.addresses) || value.addresses.length > 8) throw new TypeError('Invalid AWG lifecycle specification');
   const addresses = value.addresses.map(address).sort();
   if (new Set(addresses).size !== addresses.length) throw new TypeError('Duplicate AWG device address');
   return { version: 1, owner: validateAwgOwnership(value.owner), addresses };
@@ -38,7 +39,7 @@ function validate(value) {
 const empty = () => ({ version: 1, phase: 'empty', spec: null, blankHash: null });
 // One userspace AWG device. The caller supplies an EXCLUSIVE runtime lock and
 // durable guard and coordinates routes/nft/config changes. No fallback backend,
-// no WAN/sysctl modification, no guard release, no same-name adoption.
+// no WAN/global sysctl modification, no guard release, no same-name adoption.
 class CellAwgLifecycle {
   constructor({ journalPath, activateGuard, runner = runProcess }) {
     if (typeof journalPath !== 'string' || !journalPath || typeof activateGuard !== 'function') throw new TypeError('AWG lifecycle journal and guard required');
@@ -118,6 +119,9 @@ class CellAwgLifecycle {
     if (!state.verified) throw new Error('Missing owned AWG device');
     const actual = await this.addresses(spec);
     if (!allowIncomplete && actual.length !== spec.addresses.length) throw new Error('Missing owned AWG addresses');
+    if (!allowIncomplete && (await this.run('sysctl', ['-n', `net/ipv4/conf/${spec.owner.interfaceName}/rp_filter`])).stdout.trim() !== '2') {
+      throw new Error('Unexpected owned AWG reverse-path setting');
+    }
     return state;
   }
   async configure(spec) {
@@ -154,6 +158,9 @@ class CellAwgLifecycle {
       await this.configure(spec);
     }
     await this.verify(spec, true);
+    // Loose reverse-path validation is required for policy-routed remote exits.
+    // Only our proven device is changed; all/default/WAN remain untouched.
+    await this.run('sysctl', ['-w', `net/ipv4/conf/${name}/rp_filter=2`]);
     const actual = await this.addresses(spec);
     for (const cidr of spec.addresses.filter(a => !actual.includes(a))) {
       await this.run('ip', ['address', 'add', cidr, 'dev', name]);
@@ -217,4 +224,4 @@ class CellAwgLifecycle {
     });
   }
 }
-module.exports = { CellAwgLifecycle };
+module.exports = { CellAwgLifecycle, specification };
