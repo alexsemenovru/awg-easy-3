@@ -27,6 +27,8 @@ async function fixture(t) {
   const devices = new Map(before.devices.map(spec => [spec.owner.interfaceName,
     { state: { version: 1, phase: 'ready', spec: structuredClone(spec), blankHash: null }, actual: structuredClone(spec.owner), fail: false,
       async load() { return structuredClone(this.state); },
+      async link() { return this.actual ? { ifname: this.state.spec.owner.interfaceName } : null; },
+      async recover() { assert.equal(guard.active, true); if (!this.actual) this.actual = structuredClone(this.state.spec.owner); this.state.phase = 'ready'; },
       async verify(candidate) { if (!equal(candidate.owner, this.actual)) throw new Error('Device drift'); return { up: true }; },
       async save(value) { assert.equal(guard.active, true); this.state = structuredClone(value); },
     }]));
@@ -59,6 +61,13 @@ test('network commits every AWG/lifecycle/routing snapshot before releasing guar
   assert.deepEqual((await tx.load()).committed, after);
   for (const d of after.devices) assert.deepEqual(devices.get(d.owner.interfaceName).state.spec, d);
 });
+
+test('initialization does not place a guard on unproven devices', async t => {
+  const { tx, before, devices, guard } = await fixture(t);
+  devices.get('clients').actual.config += 'Jmin = 99\n';
+  await assert.rejects(tx.initialize(before), /Device drift/);
+  assert.equal(guard.active, false); assert.equal((await tx.load()).committed, null);
+});
 test('AWG failure after mutation restores previous whole network, keeping protection', async t => {
   const { tx, before, after, devices, guard } = await fixture(t);
   await tx.initialize(before); devices.get('transit').fail = true;
@@ -89,6 +98,22 @@ test('unknown actual AWG config is never overwritten and intent remains', async 
   await assert.rejects(fresh().recover(), /Unexplained drift/);
   assert.ok((await tx.load()).pending); assert.equal(guard.active, true);
   assert.ok(devices.get('clients').actual.config.includes('Jmin = 99'));
+});
+
+test('missing device with a newer lifecycle snapshot reconstructs then returns to parent version', async t => {
+  const { tx, fresh, before, after, devices, guard } = await fixture(t);
+  await tx.initialize(before); await tx.save({ version: 1, committed: before, pending: { desired: after } });
+  devices.get('clients').state.spec = structuredClone(after.devices[0]);
+  devices.get('clients').actual = null;
+  await fresh().recover(); assert.equal(await tx.verify(before), true); assert.equal(guard.active, true);
+});
+
+test('journaled interrupted creation is resumed but a removing device is not adopted', async t => {
+  const { tx, fresh, before, devices } = await fixture(t); await tx.initialize(before);
+  devices.get('clients').state.phase = 'creating'; devices.get('clients').actual = null;
+  await fresh().recover(); assert.equal(await tx.verify(before), true);
+  devices.get('clients').state.phase = 'removing';
+  await assert.rejects(fresh().recover(), /Unrelated lifecycle/);
 });
 test('identity, addresses and membership cannot change through config-only transaction', async t => {
   const { tx, before, after } = await fixture(t); await tx.initialize(before);

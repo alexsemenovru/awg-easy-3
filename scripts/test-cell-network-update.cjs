@@ -46,5 +46,17 @@ async function main() {
   assert.equal(field('apply').guarded, false);
   assert.equal(field('status').verified, true);
   console.log('PASS locked field v3 recovery; legacy controller cannot bypass network journal');
+  const run = (file, args) => execFileSync(file, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  // Lose only this fixture's volatile objects. Never flush host tables/rules.
+  for (const d of before.devices) run('ip', ['link', 'delete', 'dev', d.owner.interfaceName]);
+  run('nft', ['delete', 'table', 'inet', 'awg_easy_3_routes']);
+  for (const command of before.routing.commands.filter(c => c.args[1] === 'rule')) {
+    const args = [...command.args]; assert.equal(args[2], 'add'); args[2] = 'del'; run(command.file, args);
+  }
+  await new Promise(resolve => setTimeout(resolve, 250));
+  assert.equal(field('recover').guarded, true);
+  assert.equal(field('status').verified, true); assert.equal(field('status').guardPresent, true);
+  assert.equal(field('apply').guarded, false);
+  console.log('PASS private journals reconstruct lost devices, nft policy and owned selectors under guard');
 }
 main().catch(() => { console.error('Network update lab failed; private details withheld'); process.exitCode = 1; });

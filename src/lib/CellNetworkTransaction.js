@@ -33,7 +33,8 @@ function validate(value) {
 }
 // Coordinates configuration changes on an EXISTING fixed device set. Provision
 // with lifecycle first. Caller holds an external process lock. No device rekey,
-// membership/address changes or automatic recovery of missing devices here.
+// membership/address changes. Recovery may reconstruct missing owned devices
+// from the parent's authorized lifecycle snapshots while the guard is active.
 class CellNetworkTransaction {
   constructor({ directory, runner, components }) {
     this.directory = path.resolve(directory); this.file = path.join(this.directory, 'network.json');
@@ -45,7 +46,10 @@ class CellNetworkTransaction {
   }
   device(name) { return this.components?.device(name) || new CellAwgLifecycle({
     journalPath: path.join(this.directory, `device-${name}.json`), runner: this.runner,
-    activateGuard: () => { throw new Error('Use network guard'); },
+    activateGuard: () => {
+      if (!this.expected) throw new Error('Network recovery specification required');
+      return this.protect(this.expected);
+    },
   }); }
   awg(name) { return this.components?.awg(name) || new CellAwgTransaction({
     journalPath: path.join(this.directory, `unused-awg-${name}.json`), runner: this.runner,
@@ -103,25 +107,35 @@ class CellNetworkTransaction {
     return !child.pending && equal(child.committed, spec.routing)
       && await this.verifyDevices(spec) && await this.routing.verify(spec.routing);
   }
-  async checkChildren(candidates) {
+  async checkChildren(candidates, recovering = false) {
     const routing = await this.routing.load();
     if (!candidates.some(s => equal(s.routing, routing.committed))
       || (routing.pending && !candidates.some(s => equal(s.routing, routing.pending.desired)))) throw new Error('Unrelated routing journal');
     for (let index = 0; index < candidates[0].devices.length; index++) {
       const choices = candidates.map(s => s.devices[index]);
       const saved = await this.device(choices[0].owner.interfaceName).load();
-      if (saved.phase !== 'ready' || !choices.some(d => equal(d, saved.spec))) throw new Error('Unrelated lifecycle journal');
+      if (!['ready', ...(recovering ? ['creating'] : [])].includes(saved.phase)
+        || !choices.some(d => equal(d, saved.spec))) throw new Error('Unrelated lifecycle journal');
     }
   }
   async reconcile(candidates, desired, recovering) {
-    await this.checkChildren(candidates);
+    await this.checkChildren(candidates, recovering);
+    this.expected = desired;
     for (let index = 0; index < desired.devices.length; index++) {
       const device = desired.devices[index], life = this.device(device.owner.interfaceName);
+      if (recovering && ((await life.load()).phase === 'creating' || !await life.link(device.owner.interfaceName))) {
+        // Resume only a journaled creation or reconstruct a genuinely missing
+        // device. Existing same-name foreign/untagged devices remain refused.
+        await life.recover();
+      }
       // The parent intent is durable before any setconf. Only its exact before/
       // after snapshots authorize a change; unrelated drift remains blocked.
       await this.awg(device.owner.interfaceName).reconcile(candidates.map(s => s.devices[index].owner), device.owner);
-      if (!(await life.verify(device)).up) throw new Error('Network device not ready');
+      const state = await life.verify(device, recovering);
+      if (!recovering && !state.up) throw new Error('Network device not ready');
       await life.save({ version: 1, phase: 'ready', spec: device, blankHash: null });
+      if (recovering) await life.recover();
+      if (!(await life.verify(device)).up) throw new Error('Recovered network device not ready');
     }
     this.expected = desired;
     if (recovering) await this.routing.recover();
@@ -133,6 +147,7 @@ class CellNetworkTransaction {
     return this.exclusive(async () => {
       const saved = await this.load();
       if (saved.committed || saved.pending) throw new Error('Network already initialized');
+      if (!await this.verify(desired)) throw new Error('Provisioned network not verified');
       await this.protect(desired);
       if (!await this.verify(desired)) throw new Error('Provisioned network not verified');
       await this.save({ version: 1, committed: desired, pending: null });

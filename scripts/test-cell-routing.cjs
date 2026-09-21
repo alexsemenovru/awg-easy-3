@@ -298,6 +298,8 @@ async function main() {
   ns('entry', 'ping', ['-c', '1', '-W', '2', '198.51.100.10']);
   console.log('PASS full client/transit lifecycle reconstruction restores IPv4/IPv6 exit without changing global reverse-path settings');
   console.log(ns('entry', process.execPath, [require.resolve('./test-cell-network-update.cjs'), restarted.directory, bundleFile]));
+  ns('phone', 'awg', ['set', 'phoneVPN', 'peer', phonePeer, 'remove']);
+  ns('phone', 'awg', ['setconf', 'phoneVPN', '/tmp/phoneVPN.conf']);
   internet(true);
   console.log('PASS client traffic survives committed network update and explicit recovery');
   panel.kill();
