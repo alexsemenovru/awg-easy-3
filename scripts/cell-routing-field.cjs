@@ -12,6 +12,7 @@ const { compileCellRouting } = require('../src/lib/CellRoutingPolicy');
 const { CellRoutingCoordinator } = require('../src/lib/CellRoutingCoordinator');
 const { validateAwgOwnership, inspectAwgOwnership } = require('../src/lib/CellAwgOwnership');
 const { CellAwgLifecycle, specification: deviceSpec } = require('../src/lib/CellAwgLifecycle');
+const { CellNetworkTransaction } = require('../src/lib/CellNetworkTransaction');
 async function privateFile(file, maxBytes) {
   const stat = await fs.lstat(file);
   if (!stat.isFile() || stat.nlink !== 1 || stat.uid !== process.getuid() || (stat.mode & 0o077) || stat.size > maxBytes) throw new Error('Private field file required');
@@ -41,8 +42,8 @@ async function main() {
   // --locked-child is a trusted local implementation detail, not a security
   // boundary against root. All documented invocations go through flock above.
   const bundle = JSON.parse(await privateFile(bundleFile, 32 * 1024 * 1024));
-  const managed = bundle?.version === 2;
-  if (!bundle || ![1, 2].includes(bundle.version) || Object.keys(bundle).sort().join(',') !==
+  const managed = bundle?.version >= 2;
+  if (!bundle || ![1, 2, 3].includes(bundle.version) || Object.keys(bundle).sort().join(',') !==
     (managed ? 'context,devices,geoDatabase,nodeId,topology,version' : 'context,geoDatabase,nodeId,owners,topology,version')
     || !Array.isArray(managed ? bundle.devices : bundle.owners)) throw new Error('Invalid field bundle');
   const devices = managed ? bundle.devices.map(deviceSpec).sort((a, b) => a.owner.interfaceName.localeCompare(b.owner.interfaceName)) : [];
@@ -55,6 +56,27 @@ async function main() {
     owners.set(owner.interfaceName, owner);
   }
   if (owners.size !== interfaces.length) throw new Error('Incomplete field ownership');
+  if (bundle.version === 3) {
+    const network = new CellNetworkTransaction({ directory });
+    const desired = { version: 1, devices, routing: { version: 1, interfaces, commands: built.commands, nftSnapshot: built.nftSnapshot } };
+    const saved = await network.load();
+    let result;
+    if (action === 'status') result = { committed: saved.committed !== null, pending: saved.pending !== null,
+      verified: saved.committed !== null && !saved.pending && await network.verify(saved.committed),
+      guardPresent: await network.guard.current() !== null };
+    else if (action === 'recover') result = await network.recover();
+    else {
+      // Explicit handoff from a provisioned v2 device set; initialization checks
+      // exact lifecycle + routing commitments before establishing its parent.
+      if (!saved.committed) await network.initialize(desired);
+      result = await network.apply(desired);
+    }
+    console.log(JSON.stringify(result)); return;
+  }
+  try {
+    await fs.lstat(path.join(directory, 'network.json'));
+    throw new Error('Network-owned runtime requires field v3');
+  } catch (error) { if (error.code !== 'ENOENT') throw error; }
   const lifecycles = new Map();
   const coordinator = new CellRoutingCoordinator({ directory, verifyInterfaces: async names => {
     for (const name of names) {

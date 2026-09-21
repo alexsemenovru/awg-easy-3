@@ -119,7 +119,8 @@ class CellRoutingCoordinator {
     // the confirmed specification is required before enabling traffic again.
     return { restored: saved.committed !== null, guarded: true };
   }
-  apply(value) {
+  apply(value, { retainGuard = false } = {}) {
+    if (typeof retainGuard !== 'boolean') throw new TypeError('Invalid guard retention option');
     const desired = specification(value);
     return this.exclusive(async () => {
       const saved = await this.load();
@@ -141,8 +142,8 @@ class CellRoutingCoordinator {
       }
       // Parent commitment precedes release. A release error must not roll back
       // the committed parent state, and guard.release handles its own recovery.
-      await this.guard.release(() => this.verify(desired));
-      return { applied: true, guarded: false };
+      if (!retainGuard) await this.guard.release(() => this.verify(desired));
+      return { applied: true, guarded: retainGuard };
     });
   }
   recover() {

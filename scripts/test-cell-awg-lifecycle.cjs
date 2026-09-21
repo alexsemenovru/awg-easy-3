@@ -17,6 +17,9 @@ async function main() {
     addresses: ['10.88.0.1/24', 'fd88::1/64'] };
   // A coexisting VPN must survive every operation byte-for-byte.
   run('amneziawg-go', ['foreign0']);
+  const foreignFile = `${directory}/foreign.conf`;
+  fs.writeFileSync(foreignFile, `[Interface]\nPrivateKey = ${run('awg', ['genkey'])}\nListenPort = 54325\n`, { mode: 0o600 });
+  run('awg', ['setconf', 'foreign0', foreignFile]);
   const foreign = run('awg', ['showconf', 'foreign0']);
   let life = new CellAwgLifecycle(options);
   await life.create(spec);
@@ -63,5 +66,6 @@ async function main() {
   fs.writeFileSync(bundleFile, JSON.stringify(bundle)); assert.equal(field('status').verified, true);
   assert.equal(run('awg', ['showconf', 'foreign0']), foreign);
   console.log('PASS locked field CLI creates devices, recovers across processes and refuses device-set revision');
+  console.log(run(process.execPath, [require.resolve('./test-cell-network-update.cjs'), fieldDirectory, bundleFile]));
 }
 main().catch(error => { console.error(`AWG lifecycle lab failed: ${error.message}`); process.exitCode = 1; });

@@ -297,6 +297,9 @@ async function main() {
   assert.equal(ns('entry', 'sysctl', ['-n', 'net.ipv4.conf.all.rp_filter']), '1');
   ns('entry', 'ping', ['-c', '1', '-W', '2', '198.51.100.10']);
   console.log('PASS full client/transit lifecycle reconstruction restores IPv4/IPv6 exit without changing global reverse-path settings');
+  console.log(ns('entry', process.execPath, [require.resolve('./test-cell-network-update.cjs'), restarted.directory, bundleFile]));
+  internet(true);
+  console.log('PASS client traffic survives committed network update and explicit recovery');
   panel.kill();
 }
 main().catch(e => {

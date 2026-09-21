@@ -47,6 +47,13 @@ test('coordinator commits matching policy/routes before releasing guard', async 
   assert.deepEqual(policy.state.committed, spec(1).nftSnapshot);
   assert.deepEqual((await coordinator.load()).committed, spec(1));
 });
+
+test('parent AWG transaction can retain protection after routing commitment', async t => {
+  const { coordinator, guard } = await fixture(t);
+  assert.deepEqual(await coordinator.apply(spec(0), { retainGuard: true }), { applied: true, guarded: true });
+  assert.equal(guard.active, true); assert.equal(await coordinator.verify(spec(0)), true);
+  assert.throws(() => coordinator.apply(spec(1), { retainGuard: 'yes' }), /retention/);
+});
 test('route failure after new policy restores both old components, guard retained', async t => {
   const { coordinator, guard, routes, policy } = await fixture(t);
   await coordinator.apply(spec(0)); routes.fail = true;
