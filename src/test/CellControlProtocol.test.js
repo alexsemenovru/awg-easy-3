@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { identity } = require('../lib/CellRegistration');
-const { signControl, verifyControl } = require('../lib/CellControlProtocol');
+const { signControl, verifyControl, signControlReply, verifyControlReply } = require('../lib/CellControlProtocol');
 const { CellControlService } = require('../lib/CellControlService');
 const bytes = value => Buffer.from(JSON.stringify(value));
 
@@ -49,4 +49,22 @@ test('a valid signature from an unenrolled cell cannot fetch settings', async ()
   const request = signControl({ controllerKey: controller.publicKey, action: 'poll' }, identity().privateKey);
   assert.deepEqual(await service.handle(bytes(request)), { ok: false, error: 'control_unavailable' });
   assert.equal(accessed, false);
+});
+
+test('control replies are signed by the controller and bound to the request', () => {
+  const controller = identity();
+  const requestId = 'a'.repeat(32);
+  const poll = signControlReply({ ok: true, requestId, settings: { revision: 1 } }, controller.privateKey);
+  assert.deepEqual(verifyControlReply(poll, controller.publicKey, requestId), poll);
+  for (const patch of [{ settings: { revision: 2 } }, { requestId: 'b'.repeat(32) },
+    { applied: 1 }, { extra: true }, { signature: poll.signature.slice(1) }]) {
+    assert.throws(() => verifyControlReply({ ...poll, ...patch }, controller.publicKey, requestId));
+  }
+  assert.throws(() => verifyControlReply(poll, identity().publicKey, requestId));
+  assert.throws(() => verifyControlReply(poll, controller.publicKey, 'b'.repeat(32)));
+  const empty = signControlReply({ ok: true, requestId, settings: null }, controller.privateKey);
+  assert.equal(verifyControlReply(empty, controller.publicKey, requestId).settings, null);
+  const ack = signControlReply({ ok: true, requestId, applied: 3 }, controller.privateKey);
+  assert.equal(verifyControlReply(ack, controller.publicKey, requestId).applied, 3);
+  assert.throws(() => signControlReply({ ok: true, requestId, applied: 0 }, controller.privateKey));
 });

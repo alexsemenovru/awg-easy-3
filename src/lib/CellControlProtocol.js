@@ -42,4 +42,43 @@ function verifyControl(bytes, controllerKey, now = Date.now()) {
   return { ...request, payload };
 }
 
-module.exports = { signControl, verifyControl };
+function replyBody(reply) {
+  if (!reply || typeof reply !== 'object' || Array.isArray(reply)
+    || reply.ok !== true || !/^[a-f0-9]{32}$/.test(reply.requestId)
+    || (Object.hasOwn(reply, 'settings') === Object.hasOwn(reply, 'applied'))
+    || (Object.hasOwn(reply, 'settings') && reply.settings !== null
+      && (typeof reply.settings !== 'object' || Array.isArray(reply.settings)))
+    || (Object.hasOwn(reply, 'applied') && (!Number.isSafeInteger(reply.applied) || reply.applied < 1))) {
+    throw new Error('Invalid control reply');
+  }
+  const fields = Object.hasOwn(reply, 'settings')
+    ? ['ok', 'requestId', 'settings', 'signature'] : ['ok', 'requestId', 'applied', 'signature'];
+  if (Object.keys(reply).some(key => !fields.includes(key))) throw new Error('Invalid control reply');
+  return Buffer.from(JSON.stringify(['awg-easy-3/control-reply/v1', reply.requestId,
+    Object.hasOwn(reply, 'settings') ? 'settings' : 'applied',
+    Object.hasOwn(reply, 'settings') ? reply.settings : reply.applied]));
+}
+
+function signControlReply(reply, privateKey) {
+  const key = crypto.createPrivateKey(privateKey);
+  if (key.asymmetricKeyType !== 'ed25519') throw new Error('Invalid controller identity');
+  return { ...reply, signature: crypto.sign(null, replyBody(reply), key).toString('base64url') };
+}
+
+function verifyControlReply(reply, controllerKey, requestId) {
+  const data = replyBody(reply);
+  if (reply.requestId !== requestId || typeof reply.signature !== 'string'
+    || !/^[A-Za-z0-9_-]{86}$/.test(reply.signature)
+    || Buffer.from(reply.signature, 'base64url').toString('base64url') !== reply.signature
+    || !/^[A-Za-z0-9_-]{43}$/.test(controllerKey)
+    || Buffer.from(controllerKey, 'base64url').toString('base64url') !== controllerKey) {
+    throw new Error('Invalid control reply proof');
+  }
+  const key = crypto.createPublicKey({ format: 'jwk', key: { kty: 'OKP', crv: 'Ed25519', x: controllerKey } });
+  if (!crypto.verify(null, data, key, Buffer.from(reply.signature, 'base64url'))) {
+    throw new Error('Invalid control reply signature');
+  }
+  return reply;
+}
+
+module.exports = { signControl, verifyControl, signControlReply, verifyControlReply };

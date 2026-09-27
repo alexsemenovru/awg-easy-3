@@ -1,5 +1,5 @@
 'use strict';
-const { verifyControl, signControl } = require('./CellControlProtocol');
+const { verifyControl, signControl, signControlReply, verifyControlReply } = require('./CellControlProtocol');
 const { exchangeOverTls, createRegistrationServer } = require('./CellRegistrationTransport');
 const { verifySettings } = require('./CellSettings');
 const { acknowledgeApplied } = require('./CellSettingsAck');
@@ -34,10 +34,12 @@ class CellControlService {
       const publisher = this.publisherForCell(request.cellKey);
       if (request.action === 'ack') {
         const result = await publisher.acknowledge(request.payload);
-        return { ok: true, requestId: request.requestId, applied: result.revision };
+        return signControlReply({ ok: true, requestId: request.requestId,
+          applied: result.revision }, controller.privateKey);
       }
       const state = await publisher.load();
-      return { ok: true, requestId: request.requestId, settings: state?.desired || null };
+      return signControlReply({ ok: true, requestId: request.requestId,
+        settings: state?.desired || null }, controller.privateKey);
     } catch { return { ok: false, error: 'control_unavailable' }; }
     finally { this.inFlight--; }
   }
@@ -61,8 +63,7 @@ async function syncCellSettings({ connectionStore, identityStore, receiver, host
     const request = signControl({ controllerKey: connection.controllerKey, action, payload }, identity.privateKey);
     return exchangeOverTls({ host, port, request, controllerKey: connection.controllerKey,
       protocol: PROTOCOL, responseLimit: 2 * 1024 * 1024, verifyResponse: response => {
-        if (response.requestId !== request.requestId) throw new Error('Control response mismatch');
-        return response;
+        return verifyControlReply(response, connection.controllerKey, request.requestId);
       } });
   };
   const reply = await exchange('poll');
