@@ -1,6 +1,7 @@
 'use strict';
 const { verifyControl, signControl, signControlReply, verifyControlReply } = require('./CellControlProtocol');
 const { exchangeOverTls, createRegistrationServer } = require('./CellRegistrationTransport');
+const { exchangeOverTunnel, listenControlOnTunnel } = require('./CellTunnelControlTransport');
 const { verifySettings } = require('./CellSettings');
 const { acknowledgeApplied } = require('./CellSettingsAck');
 const PROTOCOL = 'awg-easy-3-control/1';
@@ -52,15 +53,29 @@ async function prepareControlEndpoint({ identityStore, certificateStore, enrollm
     handler: new CellControlService({ identityStore, enrollmentStore, publisherForCell }) });
 }
 
+// Explicitly opt-in only after the owned inter-server AWG interface is up.
+// The transport rejects public bind addresses; runtime integration must also
+// verify interface ownership before opening the listener.
+function listenTunnelControlEndpoint({ address, port, identityStore, enrollmentStore, publisherForCell }) {
+  return listenControlOnTunnel({ address, port,
+    handler: new CellControlService({ identityStore, enrollmentStore, publisherForCell }) });
+}
+
 // One explicit sync, not a daemon. Control address supplied locally until installer
 // assigns the service port; the key must remain the registered controller's key.
-async function syncCellSettings({ connectionStore, identityStore, receiver, host, port }) {
+async function syncCellSettings({ connectionStore, identityStore, receiver, host, port,
+  transport = 'tls' }) {
   const connection = await connectionStore.read();
   if (connection?.status !== 'registered') throw new Error('Cell is not registered');
   const identity = await identityStore.load('cell');
   if (identity.publicKey !== connection.cellKey) throw new Error('Cell identity changed');
   const exchange = async (action, payload = null) => {
     const request = signControl({ controllerKey: connection.controllerKey, action, payload }, identity.privateKey);
+    if (transport === 'tunnel') {
+      return exchangeOverTunnel({ address: host, port, request,
+        controllerKey: connection.controllerKey });
+    }
+    if (transport !== 'tls') throw new TypeError('Unknown cell control transport');
     return exchangeOverTls({ host, port, request, controllerKey: connection.controllerKey,
       protocol: PROTOCOL, responseLimit: 2 * 1024 * 1024, verifyResponse: response => {
         return verifyControlReply(response, connection.controllerKey, request.requestId);
@@ -76,4 +91,5 @@ async function syncCellSettings({ connectionStore, identityStore, receiver, host
   return { status: 'applied', revision: ack.revision };
 }
 
-module.exports = { CellControlService, prepareControlEndpoint, syncCellSettings };
+module.exports = { CellControlService, prepareControlEndpoint,
+  listenTunnelControlEndpoint, syncCellSettings };

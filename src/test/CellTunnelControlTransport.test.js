@@ -1,0 +1,92 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
+const { identity } = require('../lib/CellRegistration');
+const { signControl, signControlReply } = require('../lib/CellControlProtocol');
+const { listenControlOnTunnel, exchangeOverTunnel, privateAddress } = require('../lib/CellTunnelControlTransport');
+const { ControlIdentityStore } = require('../lib/ControlIdentityStore');
+const { CellSettingsPublisher } = require('../lib/CellSettingsPublisher');
+const { CellSettingsReceiver } = require('../lib/CellSettingsReceiver');
+const { listenTunnelControlEndpoint, syncCellSettings } = require('../lib/CellControlService');
+
+test('tunnel control transport refuses public addresses and never auto-listens', async () => {
+  for (const address of ['0.0.0.0', '216.57.108.77', '::', '2001:db8::1', 'localhost']) {
+    assert.equal(privateAddress(address), false);
+    await assert.rejects(listenControlOnTunnel({ address, port: 0, handler: { handle() {} } }),
+      /private/);
+  }
+  for (const address of ['127.0.0.1', '10.88.0.1', '172.16.0.1', '192.168.1.1', '::1', 'fd35:e03:5563::1']) {
+    assert.equal(privateAddress(address), true);
+  }
+  assert.equal(privateAddress('172.32.0.1'), false);
+});
+
+test('tunnel exchange verifies a signed control reply without TLS', async t => {
+  const controller = identity();
+  const cell = identity();
+  const request = signControl({ controllerKey: controller.publicKey, action: 'poll' }, cell.privateKey);
+  const server = await listenControlOnTunnel({ address: '127.0.0.1', port: 0,
+    handler: { handle: async bytes => {
+      assert.equal(JSON.parse(bytes).requestId, request.requestId);
+      return signControlReply({ ok: true, requestId: request.requestId,
+        settings: { revision: 1 } }, controller.privateKey);
+    } } });
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const reply = await exchangeOverTunnel({ address: '127.0.0.1', port: server.address().port,
+    request, controllerKey: controller.publicKey });
+  assert.equal(reply.settings.revision, 1);
+  await assert.rejects(exchangeOverTunnel({ address: '127.0.0.1', port: server.address().port,
+    request, controllerKey: identity().publicKey }), /Control reply rejected/);
+  assert.throws(() => exchangeOverTunnel({ address: '216.57.108.77', port: server.address().port,
+    request, controllerKey: controller.publicKey }), /private/);
+});
+
+test('tunnel exchange rejects an altered or mismatched reply', async t => {
+  const controller = identity();
+  const cell = identity();
+  const request = signControl({ controllerKey: controller.publicKey, action: 'poll' }, cell.privateKey);
+  let mutation = reply => ({ ...reply, settings: { revision: 2 } });
+  const server = await listenControlOnTunnel({ address: '127.0.0.1', port: 0,
+    handler: { handle: async () => mutation(signControlReply({ ok: true,
+      requestId: request.requestId, settings: { revision: 1 } }, controller.privateKey)) } });
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const options = { address: '127.0.0.1', port: server.address().port,
+    request, controllerKey: controller.publicKey };
+  await assert.rejects(exchangeOverTunnel(options), /Control reply rejected/);
+  mutation = reply => ({ ...reply, requestId: 'b'.repeat(32) });
+  await assert.rejects(exchangeOverTunnel(options), /Control reply rejected/);
+});
+
+test('registered cell polls and acknowledges settings over the tunnel transport', async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-tunnel-control-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const identities = new ControlIdentityStore(path.join(directory, 'controller.json'));
+  const controller = await identities.create('controller');
+  const cellIdentities = new ControlIdentityStore(path.join(directory, 'cell.json'));
+  const cell = await cellIdentities.create('cell');
+  const publisher = new CellSettingsPublisher(path.join(directory, 'desired.json'), identities, cell.publicKey);
+  const server = await listenTunnelControlEndpoint({ address: '127.0.0.1', port: 0,
+    identityStore: identities,
+    enrollmentStore: { read: async () => ({ invitations: [{ status: 'consumed', cellKey: cell.publicKey }] }) },
+    publisherForCell: key => { assert.equal(key, cell.publicKey); return publisher; } });
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  let applies = 0;
+  const receiver = new CellSettingsReceiver(path.join(directory, 'received.json'), {
+    controllerKey: controller.publicKey, cellKey: cell.publicKey,
+    apply: async () => { applies++; },
+  });
+  const options = { connectionStore: { read: async () => ({ status: 'registered',
+    controllerKey: controller.publicKey, cellKey: cell.publicKey }) },
+  identityStore: cellIdentities, receiver, host: '127.0.0.1', port: server.address().port,
+  transport: 'tunnel' };
+  assert.equal((await syncCellSettings(options)).status, 'no-settings');
+  await publisher.publish({ schema: 1, clients: [] });
+  assert.deepEqual(await syncCellSettings(options), { status: 'applied', revision: 1 });
+  assert.equal((await publisher.load()).ack.revision, 1);
+  await syncCellSettings(options);
+  assert.equal(applies, 1);
+});
