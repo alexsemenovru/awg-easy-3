@@ -16,10 +16,28 @@ function specification(value) {
   if (new Set(names).size !== names.length || !equal([...names].sort(), routing.interfaces)) throw new TypeError('Network interface mismatch');
   return { version: 1, devices, routing };
 }
+function membershipPlan(before, after) {
+  before = specification(before); after = specification(after);
+  const oldDevices = new Map(before.devices.map(device => [device.owner.interfaceName, device]));
+  const newDevices = new Map(after.devices.map(device => [device.owner.interfaceName, device]));
+  const identity = device => ({ ...device, owner: { ...device.owner,
+    config: normalizeAwgConfig(device.owner.config).interface.privatekey } });
+  const added = [], removed = [], retained = [];
+  for (const [name, device] of newDevices) {
+    const previous = oldDevices.get(name);
+    if (!previous) added.push(name);
+    else {
+      if (!equal(identity(previous), identity(device))) throw new Error('Network device identity/address changes require lifecycle transition');
+      retained.push(name);
+    }
+  }
+  for (const name of oldDevices.keys()) if (!newDevices.has(name)) removed.push(name);
+  return Object.freeze({ added: Object.freeze(added), removed: Object.freeze(removed), retained: Object.freeze(retained),
+    protectedInterfaces: Object.freeze([...new Set([...oldDevices.keys(), ...newDevices.keys()])].sort()) });
+}
 function compatible(before, after) {
-  const identity = spec => spec.devices.map(d => ({ ...d, owner: { ...d.owner,
-    config: normalizeAwgConfig(d.owner.config).interface.privatekey } }));
-  if (!equal(identity(before), identity(after))) throw new Error('Network device identity/address changes require lifecycle transition');
+  const plan = membershipPlan(before, after);
+  if (plan.added.length || plan.removed.length) throw new Error('Network device membership changes require lifecycle transition');
 }
 function validate(value) {
   if (!value || value.version !== 1 || Object.keys(value).sort().join(',') !== 'committed,pending,version') throw new Error('Invalid network journal');
@@ -187,4 +205,4 @@ class CellNetworkTransaction {
     });
   }
 }
-module.exports = { CellNetworkTransaction, specification };
+module.exports = { CellNetworkTransaction, specification, membershipPlan };

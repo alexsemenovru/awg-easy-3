@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const { CellNetworkTransaction, specification } = require('../lib/CellNetworkTransaction');
+const { CellNetworkTransaction, specification, membershipPlan } = require('../lib/CellNetworkTransaction');
 const { createAwgOwnership } = require('../lib/CellAwgOwnership');
 const { routingPolicySnapshot } = require('../lib/CellNftPolicyJson');
 const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -122,6 +122,28 @@ test('identity, addresses and membership cannot change through config-only trans
     s => { s.devices[0].owner.config = s.devices[0].owner.config.replace(Buffer.alloc(32, 8).toString('base64'), Buffer.alloc(32, 9).toString('base64')); }]) {
     const bad = structuredClone(after); mutate(bad); await assert.rejects(tx.apply(bad), /lifecycle transition/);
   }
+});
+test('membership preflight identifies exact added, removed and retained interfaces without changing runtime', async t => {
+  const { tx, before, guard } = await fixture(t);
+  const changed = structuredClone(before);
+  changed.devices = changed.devices.filter(device => device.owner.interfaceName !== 'transit');
+  changed.devices.push({ version: 1, owner: createAwgOwnership({ interfaceName: 'relay',
+    config: `[Interface]\nPrivateKey = ${Buffer.alloc(32, 9).toString('base64')}\nJc = 3\n` }), addresses: [] });
+  changed.routing.interfaces = ['clients', 'relay'];
+  const plan = membershipPlan(before, changed);
+  assert.deepEqual(plan, { added: ['relay'], removed: ['transit'], retained: ['clients'],
+    protectedInterfaces: ['clients', 'relay', 'transit'] });
+  await tx.initialize(before);
+  await assert.rejects(tx.apply(changed), /membership changes require lifecycle transition/);
+  assert.equal(guard.active, true);
+  assert.deepEqual((await tx.load()).committed, before);
+});
+test('membership preflight rejects a same-name replacement with a different key', async t => {
+  const { before } = await fixture(t);
+  const changed = structuredClone(before);
+  changed.devices[0].owner.config = changed.devices[0].owner.config.replace(
+    Buffer.alloc(32, 8).toString('base64'), Buffer.alloc(32, 9).toString('base64'));
+  assert.throws(() => membershipPlan(before, changed), /identity\/address changes/);
 });
 test('failed parent final write restores last confirmed network', async t => {
   const { tx, before, after, guard } = await fixture(t); await tx.initialize(before);
