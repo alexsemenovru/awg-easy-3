@@ -2,6 +2,7 @@
 // Invoked by an isolated lab after v2 provisioning, never on a working server.
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
+const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { CellNetworkTransaction, specification } = require('../src/lib/CellNetworkTransaction');
 const { compileCellRouting } = require('../src/lib/CellRoutingPolicy');
@@ -45,6 +46,20 @@ async function main() {
   assert.equal(field('recover').guarded, true);
   assert.equal(field('apply').guarded, false);
   assert.equal(field('status').verified, true);
+  assert.equal(field('boot').guarded, false);
+  const stale = structuredClone(bundle);
+  stale.devices[0].owner.mtu += 1;
+  const staleFile = path.join(directory, 'stale-boot.json');
+  await fs.writeFile(staleFile, JSON.stringify(stale), { mode: 0o600 });
+  let staleRefused = false;
+  try {
+    execFileSync(process.execPath, [require.resolve('./cell-routing-field.cjs'), 'boot', directory, staleFile],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch { staleRefused = true; }
+  assert.equal(staleRefused, true);
+  const afterStale = field('status');
+  assert.equal(afterStale.guardPresent, true);
+  assert.equal(field('apply').guarded, false);
   console.log('PASS locked field v3 recovery; legacy controller cannot bypass network journal');
   const run = (file, args) => execFileSync(file, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   // Lose only this fixture's volatile objects. Never flush host tables/rules.

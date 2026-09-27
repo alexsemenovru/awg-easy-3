@@ -7,6 +7,7 @@ const { constants } = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const crypto = require('node:crypto');
+const { isDeepStrictEqual } = require('node:util');
 const { runProcess } = require('../src/lib/ProcessRunner');
 const { compileCellRouting } = require('../src/lib/CellRoutingPolicy');
 const { CellRoutingCoordinator } = require('../src/lib/CellRoutingCoordinator');
@@ -23,7 +24,7 @@ async function main() {
   const argv = process.argv.slice(2), locked = argv[0] === '--locked-child';
   if (locked) argv.shift();
   const [action, directory, bundleFile] = argv;
-  if (argv.length !== 3 || !['apply', 'recover', 'status'].includes(action) || !path.isAbsolute(directory || '')
+  if (argv.length !== 3 || !['apply', 'recover', 'status', 'boot'].includes(action) || !path.isAbsolute(directory || '')
     || path.dirname(path.resolve(directory)) === path.resolve(directory) || !path.isAbsolute(bundleFile || '')) throw new Error('Invalid field invocation');
   process.umask(0o077);
   await fs.mkdir(directory, { recursive: true, mode: 0o700 });
@@ -65,6 +66,15 @@ async function main() {
       verified: saved.committed !== null && !saved.pending && await network.verify(saved.committed),
       guardPresent: await network.guard.current() !== null };
     else if (action === 'recover') result = await network.recover();
+    else if (action === 'boot') {
+      // A startup is not an update. Restore the last committed revision only;
+      // a bundle compiling to a different network snapshot must leave the
+      // guard in place, not change peers.
+      if (!saved.committed) throw new Error('No committed network to boot');
+      await network.recover();
+      if (!isDeepStrictEqual((await network.load()).committed, desired)) throw new Error('Boot bundle differs from commitment');
+      result = await network.apply(desired);
+    }
     else {
       // Explicit handoff from a provisioned v2 device set; initialization checks
       // exact lifecycle + routing commitments before establishing its parent.
@@ -77,6 +87,7 @@ async function main() {
     await fs.lstat(path.join(directory, 'network.json'));
     throw new Error('Network-owned runtime requires field v3');
   } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  if (action === 'boot') throw new Error('Boot requires a committed field v3 network');
   const lifecycles = new Map();
   const coordinator = new CellRoutingCoordinator({ directory, verifyInterfaces: async names => {
     for (const name of names) {
