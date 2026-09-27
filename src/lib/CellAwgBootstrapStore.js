@@ -9,7 +9,8 @@ const { privateAddress } = require('./CellTunnelControlTransport');
 const { verifyRegistration } = require('./CellRegistration');
 
 const queues = new Map();
-const MAX_RECORDS = 64;
+const MAX_RECORDS = 1024;
+const MAX_ACTIVE = 128;
 const MAX_BYTES = 1024 * 1024;
 const invalid = () => { throw new Error('Invalid AWG bootstrap state'); };
 const id = value => typeof value === 'string' && /^[a-f0-9]{32}$/.test(value);
@@ -43,10 +44,11 @@ function validateRecord(value) {
     'temporaryPublicKey', 'temporaryPresharedKey', 'cellAddress'];
   if (value.status === 'consumed') {
     if (!id(value.requestId) || !token(value.cellKey) || !time(value.changedAt)
+      || value.changedAt < value.createdAt
       || value.changedAt >= value.expiresAt) invalid();
     base.push('requestId', 'cellKey', 'changedAt');
   } else if (value.status === 'revoked') {
-    if (!time(value.changedAt)) invalid();
+    if (!time(value.changedAt) || value.changedAt < value.createdAt) invalid();
     base.push('changedAt');
   }
   if (Object.keys(value).sort().join(',') !== base.sort().join(',')) invalid();
@@ -72,6 +74,7 @@ function validateState(input) {
     }
     return record;
   });
+  if (activeKeys.size > MAX_ACTIVE) invalid();
   return { version: 2, invitations };
 }
 
@@ -134,7 +137,10 @@ class CellAwgBootstrapStore {
     const record = validateRecord({ ...input, phase: 'preparing' });
     if (record.status !== 'pending') invalid();
     return this.exclusive(state => {
-      if (state.invitations.length >= MAX_RECORDS) throw new Error('AWG invitation limit reached');
+      if (state.invitations.length >= MAX_RECORDS
+        || state.invitations.filter(item => item.phase !== 'closed').length >= MAX_ACTIVE) {
+        throw new Error('AWG invitation limit reached');
+      }
       state.invitations.push(record);
       validateState(state);
       return { id: record.id, phase: 'preparing' };

@@ -2,8 +2,12 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
 const { bootstrapPolicySnapshot } = require('../lib/CellAwgBootstrapPolicy');
 const { planNftReplacement } = require('../lib/CellNftOwnership');
+const { CellNftTransaction } = require('../lib/CellNftTransaction');
 
 test('bootstrap policy allows only registration TCP on the dedicated interface', () => {
   const snapshot = bootstrapPolicySnapshot({ interfaceName: 'awgenroll',
@@ -37,4 +41,31 @@ test('bootstrap policy supports IPv6 and rejects foreign or duplicate addresses'
     { peers: [{ phase: 'ready', cellAddress: '8.8.8.8' }] },
     { interfaceName: 'wan name' }, { registrationPort: 0 },
   ]) assert.throws(() => bootstrapPolicySnapshot({ ...base, ...bad }));
+});
+
+test('separate bootstrap table transacts without adopting the main route table', async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-bootstrap-nft-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const desired = bootstrapPolicySnapshot({ interfaceName: 'awgenroll',
+    controllerAddress: '10.90.0.1', registrationPort: 51822, peers: [] });
+  let current = null, guarded = false;
+  const tx = new CellNftTransaction({ journalPath: path.join(directory, 'policy.json'),
+    table: 'awg_easy_3_bootstrap', activateGuard: async () => { guarded = true; },
+    runner: async (bin, args, options) => {
+      assert.equal(bin, 'nft');
+      if (args.includes('list')) return { stdout: JSON.stringify(args.at(-1) === 'tables'
+        ? { nftables: current ? [current.nftables[0],
+          { table: { family: 'inet', name: 'awg_easy_3_routes' } }] :
+          [{ table: { family: 'inet', name: 'awg_easy_3_routes' } }] }
+        : current) };
+      assert.equal(guarded, true);
+      if (args.includes('-c')) return { stdout: '' };
+      const objects = JSON.parse(options.input).nftables.filter(item => item.add).map(item => item.add);
+      current = objects.length ? { nftables: objects } : null;
+      return { stdout: '' };
+    } });
+  await tx.apply(desired);
+  assert.deepEqual((await tx.load()).committed, desired);
+  await tx.apply(null);
+  assert.equal(current, null);
 });

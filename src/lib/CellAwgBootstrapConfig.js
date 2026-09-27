@@ -25,7 +25,7 @@ function renderBootstrapServerConfig({ privateKey, listenPort, controllerAddress
   profile, peers }) {
   validateKey(privateKey, 'bootstrapServerPrivateKey');
   if (!Number.isSafeInteger(listenPort) || listenPort < 1 || listenPort > 65535
-    || !internalAddress(controllerAddress) || !Array.isArray(peers) || peers.length > 64) {
+    || !internalAddress(controllerAddress) || !Array.isArray(peers) || peers.length > 128) {
     throw new TypeError('Invalid bootstrap server configuration');
   }
   const usedKeys = new Set(), usedAddresses = new Set();

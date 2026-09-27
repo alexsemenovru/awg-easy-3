@@ -15,7 +15,7 @@ function bootstrapPolicySnapshot({ interfaceName, controllerAddress, registratio
     || !privateAddress(controllerAddress) || controllerAddress.startsWith('127.')
     || controllerAddress === '::1' || !Number.isSafeInteger(registrationPort)
     || registrationPort < 1 || registrationPort > 65535
-    || !Array.isArray(peers) || peers.length > 64
+    || !Array.isArray(peers) || peers.length > 128
     || peers.some(peer => !peer || !['preparing', 'ready', 'closing', 'closed'].includes(peer.phase))) {
     throw new TypeError('Invalid bootstrap policy');
   }

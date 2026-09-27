@@ -24,6 +24,7 @@ class CellAwgBootstrapCoordinator {
     try {
       await this.runtime.installPeer(record);
       if (!await this.runtime.verifyPeer(record)) throw new Error('Bootstrap peer readback failed');
+      if (record.expiresAt <= this.now()) throw new Error('Bootstrap invitation expired during setup');
       await this.store.markReady(record.id);
       return code;
     } catch {
@@ -31,6 +32,9 @@ class CellAwgBootstrapCoordinator {
       // recover(). Do not display a code for an unverified or partial peer.
       const state = (await this.store.read()).invitations.find(item => item.id === record.id);
       if (state?.phase === 'preparing') await this.store.abandonPreparing(record.id, this.now());
+      else if (state?.phase === 'ready' && state.status === 'pending') {
+        await this.store.beginClose(record.id, { revoke: true, now: this.now() });
+      }
       try {
         await this.runtime.removePeer(record);
         await this.store.markClosed(record.id);

@@ -71,3 +71,39 @@ test('recovery closes a preparation interrupted before code display', async t =>
   assert.equal((await f.store.read()).invitations[0].phase, 'closed');
   assert.equal(f.events.at(-1), `remove:${issued.record.id}`);
 });
+
+test('setup that outlives the invitation expires closed without exposing a code', async t => {
+  const f = await fixture(t);
+  await assert.rejects(f.coordinator.issue({ ...f.options, lifetimeMs: 1 }), /no invitation was issued/);
+  const record = (await f.store.read()).invitations[0];
+  assert.equal(record.status, 'revoked');
+  assert.equal(record.phase, 'closed');
+});
+
+test('failed removal keeps closing intent for recovery retry', async t => {
+  const f = await fixture(t);
+  const code = await f.coordinator.issue(f.options);
+  const id = decodeAwgBootstrapInvitation(code, 1001).id;
+  let fail = true;
+  const remove = f.coordinator.runtime.removePeer;
+  f.coordinator.runtime.removePeer = async record => {
+    if (fail) throw new Error('unavailable');
+    return remove(record);
+  };
+  await assert.rejects(f.coordinator.close(id, { revoke: true }), /unavailable/);
+  assert.equal((await f.store.read()).invitations[0].phase, 'closing');
+  fail = false;
+  await f.coordinator.recover();
+  assert.equal((await f.store.read()).invitations[0].phase, 'closed');
+});
+
+test('ambiguous ready-save failure still revokes and removes an undisclosed code', async t => {
+  const f = await fixture(t);
+  const markReady = f.store.markReady.bind(f.store);
+  f.store.markReady = async id => { await markReady(id); throw new Error('fsync failed'); };
+  await assert.rejects(f.coordinator.issue(f.options), /no invitation was issued/);
+  const record = (await f.store.read()).invitations[0];
+  assert.equal(record.status, 'revoked');
+  assert.equal(record.phase, 'closed');
+  assert.equal(f.events.at(-1), `remove:${record.id}`);
+});
