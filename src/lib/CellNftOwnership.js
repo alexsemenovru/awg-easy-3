@@ -1,6 +1,6 @@
 'use strict';
 const crypto = require('node:crypto');
-const TABLES = new Set(['awg_easy_3_routes', 'awg_easy_3_routing_guard']);
+const TABLES = new Set(['awg_easy_3_routes', 'awg_easy_3_routing_guard', 'awg_easy_3_bootstrap']);
 const plain = value => value && typeof value === 'object' && !Array.isArray(value);
 const stable = value => {
   if (Array.isArray(value)) return value.map(stable);

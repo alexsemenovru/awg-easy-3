@@ -4,13 +4,12 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { runProcess } = require('./ProcessRunner');
 const { normalizeNftSnapshot, nftFingerprint, planNftReplacement } = require('./CellNftOwnership');
-const TABLE = 'awg_easy_3_routes';
+const DEFAULT_TABLE = 'awg_easy_3_routes';
 const MAX_BYTES = 64 * 1024 * 1024 + 4096;
 const queues = new Map();
-const normalize = value => value === null ? null : normalizeNftSnapshot(value, TABLE);
-const equal = (a, b) => a === null || b === null ? a === b : nftFingerprint(a, TABLE) === nftFingerprint(b, TABLE);
-function validate(value) {
+function validate(value, table) {
   if (!value || value.version !== 1 || Object.keys(value).sort().join(',') !== 'committed,pending,version') throw new Error('Invalid nft journal');
+  const normalize = input => input === null ? null : normalizeNftSnapshot(input, table);
   normalize(value.committed);
   if (value.pending !== null) {
     if (!value.pending || Object.keys(value.pending).join(',') !== 'desired') throw new Error('Invalid nft intent');
@@ -22,10 +21,16 @@ function validate(value) {
 // durable guard covering old AND new interfaces. Guard is NEVER released here.
 // Cross-component crash recovery still belongs to the topology coordinator.
 class CellNftTransaction {
-  constructor({ journalPath, activateGuard, runner = runProcess }) {
+  constructor({ journalPath, activateGuard, runner = runProcess, table = DEFAULT_TABLE }) {
     if (typeof journalPath !== 'string' || !journalPath || typeof activateGuard !== 'function') throw new TypeError('Nft journal and guard required');
-    this.file = path.resolve(journalPath); this.runner = runner; this.activateGuard = activateGuard;
+    // Validate the table even before a journal exists.
+    normalizeNftSnapshot({ nftables: [{ table: { family: 'inet', name: table } }] }, table);
+    this.file = path.resolve(journalPath); this.runner = runner;
+    this.activateGuard = activateGuard; this.table = table;
   }
+  normalize(value) { return value === null ? null : normalizeNftSnapshot(value, this.table); }
+  equal(a, b) { return a === null || b === null ? a === b
+    : nftFingerprint(a, this.table) === nftFingerprint(b, this.table); }
   exclusive(work) {
     const task = (queues.get(this.file) || Promise.resolve()).catch(() => {}).then(work);
     queues.set(this.file, task);
@@ -36,14 +41,14 @@ class CellNftTransaction {
     try {
       const stat = await fs.lstat(this.file);
       if (!stat.isFile() || stat.size > MAX_BYTES || (process.platform !== 'win32' && (stat.mode & 0o077))) throw new Error('Unsafe nft journal');
-      return validate(JSON.parse(await fs.readFile(this.file, 'utf8')));
+      return validate(JSON.parse(await fs.readFile(this.file, 'utf8')), this.table);
     } catch (error) {
       if (error.code === 'ENOENT') return { version: 1, committed: null, pending: null };
       throw error;
     }
   }
   async save(value) {
-    const data = JSON.stringify(validate(value));
+    const data = JSON.stringify(validate(value, this.table));
     if (Buffer.byteLength(data) > MAX_BYTES) throw new Error('Nft journal too large');
     const directory = path.dirname(this.file), temporary = path.join(directory, `.nft-${crypto.randomUUID()}.tmp`);
     await fs.mkdir(directory, { recursive: true, mode: 0o700 });
@@ -62,15 +67,15 @@ class CellNftTransaction {
     if (!tables || !Array.isArray(tables.nftables) || tables.nftables.some(x => !x || typeof x !== 'object'
       || Object.keys(x).length !== 1 || (!Object.hasOwn(x, 'metainfo') && (!x.table
         || typeof x.table.family !== 'string' || typeof x.table.name !== 'string')))) throw new Error('Invalid nft inventory');
-    if (!tables.nftables.some(x => x.table?.family === 'inet' && x.table.name === TABLE)) return null;
-    return normalize(JSON.parse((await this.runner('nft', ['-j', 'list', 'table', 'inet', TABLE], { maxOutputBytes: 32 * 1024 * 1024 })).stdout));
+    if (!tables.nftables.some(x => x.table?.family === 'inet' && x.table.name === this.table)) return null;
+    return this.normalize(JSON.parse((await this.runner('nft', ['-j', 'list', 'table', 'inet', this.table], { maxOutputBytes: 32 * 1024 * 1024 })).stdout));
   }
   candidates(saved) { return [saved.committed, ...(saved.pending ? [saved.pending.desired] : [])]; }
   async plan(candidates, desired) {
     const current = await this.current();
-    const owned = current === null ? null : candidates.find(candidate => equal(candidate, current));
+    const owned = current === null ? null : candidates.find(candidate => this.equal(candidate, current));
     if (current !== null && !owned) throw new Error('Foreign or changed cell policy; refusing mutation');
-    return planNftReplacement({ table: TABLE, current, owned, desired });
+    return planNftReplacement({ table: this.table, current, owned, desired });
   }
   async reconcile(candidates, desired) {
     const plan = await this.plan(candidates, desired);
@@ -79,11 +84,11 @@ class CellNftTransaction {
       await this.runner('nft', ['-c', '-j', '-f', '-'], { input });
       await this.runner('nft', ['-j', '-f', '-'], { input });
     }
-    if (!equal(await this.current(), desired)) throw new Error('Cell nft policy did not converge');
+    if (!this.equal(await this.current(), desired)) throw new Error('Cell nft policy did not converge');
     return { changed: plan.changed, guarded: true };
   }
   apply(snapshot) {
-    const desired = normalize(snapshot);
+    const desired = this.normalize(snapshot);
     return this.exclusive(async () => {
       const saved = await this.load();
       if (saved.pending) throw new Error('Interrupted nft transaction requires recovery');

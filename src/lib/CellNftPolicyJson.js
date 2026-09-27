@@ -57,10 +57,10 @@ function ruleExpressions(line) {
         right = values.length === 1 ? values[0] : { set: values };
       }
       expr.push({ match: { op: match[3] ? '!=' : '==', left: { payload: { protocol: match[1], field: match[2] } }, right } });
-    } else if ((match = rest.match(/^tcp dport ([0-9]+) /))) {
-      const port = Number(match[1]);
+    } else if ((match = rest.match(/^tcp (dport|sport) ([0-9]+) /))) {
+      const port = Number(match[2]);
       if (port < 1 || port > 65535) throw new TypeError('Invalid JSON policy port');
-      expr.push({ match: { op: '==', left: { payload: { protocol: 'tcp', field: 'dport' } }, right: port } });
+      expr.push({ match: { op: '==', left: { payload: { protocol: 'tcp', field: match[1] } }, right: port } });
     } else if ((match = rest.match(/^ct state established,related /))) {
       expr.push({ match: { op: 'in', left: { ct: { key: 'state' } }, right: ['established', 'related'] } });
     } else if ((match = rest.match(/^(accept|drop|masquerade)$/))) {
