@@ -9,6 +9,7 @@ const crypto = require('node:crypto');
 const { CellAwgBootstrapStore } = require('../lib/CellAwgBootstrapStore');
 const { createAwgBootstrapInvitation, decodeAwgBootstrapInvitation } = require('../lib/CellAwgBootstrapInvitation');
 const { identity, signRegistration } = require('../lib/CellRegistration');
+const { signAwgRegistration } = require('../lib/CellAwgRegistration');
 const { generateOfficialProfile } = require('../lib/Awg3Config');
 
 const key = () => crypto.randomBytes(32).toString('base64');
@@ -65,4 +66,38 @@ test('bootstrap store rejects duplicate active address and peer and corrupt stat
     /Invalid AWG bootstrap state/);
   await fs.writeFile(path.join(directory, 'bootstrap.json'), '{broken');
   await assert.rejects(store.read(), /Invalid AWG bootstrap state/);
+});
+
+test('v2 registration durably binds a cell-owned permanent AWG key and PSK', async t => {
+  const { store, controller, issued } = await fixture(t);
+  await store.reserve(issued.record);
+  await store.markReady(issued.record.id);
+  const invitation = decodeAwgBootstrapInvitation(issued.code, 1001);
+  const cell = identity();
+  const permanent = { publicKey: key(), presharedKey: key() };
+  const request = signAwgRegistration(invitation, cell.privateKey, permanent, 1002);
+  const result = await store.completeAwgSigned(request, controller.publicKey, 1003);
+  assert.equal(result.awgPublicKey, permanent.publicKey);
+  assert.deepEqual(await store.completeAwgSigned(request, controller.publicKey, 1004), result);
+  const saved = (await store.read()).invitations[0];
+  assert.equal(saved.awgPublicKey, permanent.publicKey);
+  assert.equal(saved.awgPresharedKey, permanent.presharedKey);
+  await assert.rejects(store.completeAwgSigned(signAwgRegistration(invitation, cell.privateKey,
+    { ...permanent, publicKey: key() }, 1005), controller.publicKey, 1006), /consumed/);
+  await store.beginClose(issued.record.id);
+  await store.markClosed(issued.record.id);
+  const closed = (await store.read()).invitations[0];
+  assert.equal(closed.temporaryPresharedKey, null);
+  assert.equal(closed.awgPublicKey, permanent.publicKey);
+});
+
+test('v2 registration refuses reuse of the controller-generated temporary AWG key', async t => {
+  const { store, controller, issued } = await fixture(t);
+  await store.reserve(issued.record);
+  await store.markReady(issued.record.id);
+  const request = signAwgRegistration(decodeAwgBootstrapInvitation(issued.code, 1001),
+    identity().privateKey, { publicKey: issued.record.temporaryPublicKey,
+      presharedKey: key() }, 1002);
+  await assert.rejects(store.completeAwgSigned(request, controller.publicKey, 1003), /unavailable/);
+  assert.equal((await store.read()).invitations[0].status, 'pending');
 });

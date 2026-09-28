@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const { TextDecoder } = require('node:util');
 const { MAX_CLOCK_SKEW_MS } = require('./CellClock');
 const { validateKey } = require('./AwgKeyManager');
 
@@ -60,6 +61,16 @@ function verifyAwgRegistration(request, controllerKey, now = Date.now()) {
     registrationValid: true };
 }
 
+function parseAwgRegistration(bytes) {
+  if (!Buffer.isBuffer(bytes) || bytes.length === 0 || bytes.length > 2048) invalid();
+  let request;
+  try { request = JSON.parse(new TextDecoder('utf8', { fatal: true }).decode(bytes)); }
+  catch { invalid(); }
+  if (!exact(request, fields) || !token(request.signature, 64)) invalid();
+  requestMessage(Object.fromEntries(unsigned.map(name => [name, request[name]])));
+  return request;
+}
+
 const requestHash = request => crypto.createHash('sha256').update(requestMessage(
   Object.fromEntries(unsigned.map(name => [name, request[name]])))).digest('base64url');
 
@@ -109,5 +120,5 @@ function verifyAwgReceipt(receipt, request, controllerKey, now = Date.now()) {
     invitationId: receipt.invitationId, status: 'registered' };
 }
 
-module.exports = { signAwgRegistration, verifyAwgRegistration, signAwgReceipt,
-  verifyAwgReceipt };
+module.exports = { signAwgRegistration, verifyAwgRegistration, parseAwgRegistration,
+  signAwgReceipt, verifyAwgReceipt };

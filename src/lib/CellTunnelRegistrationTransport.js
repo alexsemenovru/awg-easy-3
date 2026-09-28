@@ -3,6 +3,7 @@
 const net = require('node:net');
 const { MAX_BYTES } = require('./CellRegistrationHandler');
 const { verifyReceipt } = require('./CellRegistration');
+const { verifyAwgReceipt } = require('./CellAwgRegistration');
 const { listenControlOnTunnel, privateAddress } = require('./CellTunnelControlTransport');
 
 // This listener must be started only after the temporary AWG peer and its
@@ -11,7 +12,7 @@ function listenRegistrationOnTunnel({ address, port, handler, timeoutMs = 10000 
   return listenControlOnTunnel({ address, port, handler, timeoutMs });
 }
 
-function registerOverTunnel({ address, port, controllerKey, request, timeoutMs = 10000 }) {
+function connectRegistration({ address, port, controllerKey, request, timeoutMs = 10000 }, verify) {
   if (!privateAddress(address) || !Number.isSafeInteger(port) || port < 1 || port > 65535
     || !Number.isSafeInteger(timeoutMs) || timeoutMs < 100) {
     throw new TypeError('Invalid private registration endpoint');
@@ -44,11 +45,14 @@ function registerOverTunnel({ address, port, controllerKey, request, timeoutMs =
       try {
         const response = JSON.parse(frame.subarray(0, end).toString('utf8'));
         if (response.ok !== true) throw new Error('rejected');
-        finish(null, verifyReceipt(response.receipt, request, controllerKey));
+        finish(null, verify(response.receipt, request, controllerKey));
       } catch { finish(new Error('Registration confirmation rejected')); }
     });
     socket.once('connect', () => socket.write(bytes));
   });
 }
 
-module.exports = { listenRegistrationOnTunnel, registerOverTunnel };
+const registerOverTunnel = options => connectRegistration(options, verifyReceipt);
+const registerAwgOverTunnel = options => connectRegistration(options, verifyAwgReceipt);
+
+module.exports = { listenRegistrationOnTunnel, registerOverTunnel, registerAwgOverTunnel };

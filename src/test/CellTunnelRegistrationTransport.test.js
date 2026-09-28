@@ -11,11 +11,14 @@ const { CellRegistrationService } = require('../lib/CellRegistrationService');
 const { CellRegistrationHandler } = require('../lib/CellRegistrationHandler');
 const { decodeInvitation } = require('../lib/CellInvitation');
 const { identity, signRegistration } = require('../lib/CellRegistration');
-const { listenRegistrationOnTunnel, registerOverTunnel } = require('../lib/CellTunnelRegistrationTransport');
+const { listenRegistrationOnTunnel, registerOverTunnel,
+  registerAwgOverTunnel } = require('../lib/CellTunnelRegistrationTransport');
 const { CellAwgBootstrapStore } = require('../lib/CellAwgBootstrapStore');
 const { createAwgBootstrapInvitation, decodeAwgBootstrapInvitation } = require('../lib/CellAwgBootstrapInvitation');
 const { generateOfficialProfile } = require('../lib/Awg3Config');
 const crypto = require('node:crypto');
+const { CellAwgRegistrationService } = require('../lib/CellAwgRegistrationService');
+const { signAwgRegistration, parseAwgRegistration } = require('../lib/CellAwgRegistration');
 
 test('registration proof and signed receipt work on a private tunnel address without TLS', async t => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-tunnel-registration-'));
@@ -53,18 +56,22 @@ test('v2 AWG invitation registers through the private tunnel and is single-use',
       privateKey: key(), publicKey: key(), presharedKey: key(),
     }) }, now: Date.now(), lifetimeMs: 60000 });
   await store.reserve(issued.record);
-  const handler = new CellRegistrationHandler(new CellRegistrationService(identities, store));
+  const handler = new CellRegistrationHandler(new CellAwgRegistrationService(identities, store),
+    { parse: parseAwgRegistration });
   const server = await listenRegistrationOnTunnel({ address: '127.0.0.1', port: 0, handler });
   t.after(() => new Promise(resolve => server.close(resolve)));
   const invitation = decodeAwgBootstrapInvitation(issued.code);
-  const request = signRegistration(invitation, identity().privateKey);
+  const request = signAwgRegistration(invitation, identity().privateKey,
+    { publicKey: key(), presharedKey: key() });
   const options = { address: '127.0.0.1', port: server.address().port,
     controllerKey: controller.publicKey, request };
-  await assert.rejects(registerOverTunnel(options), /confirmation rejected/);
+  await assert.rejects(registerAwgOverTunnel(options), /confirmation rejected/);
   await store.markReady(issued.record.id);
-  assert.equal((await registerOverTunnel(options)).status, 'registered');
-  assert.equal((await registerOverTunnel(options)).status, 'registered');
+  assert.equal((await registerAwgOverTunnel(options)).status, 'registered');
+  assert.equal((await registerAwgOverTunnel(options)).status, 'registered');
   assert.equal((await store.read()).invitations[0].status, 'consumed');
-  const another = signRegistration(invitation, identity().privateKey);
-  await assert.rejects(registerOverTunnel({ ...options, request: another }), /confirmation rejected/);
+  const another = signAwgRegistration(invitation, identity().privateKey,
+    { publicKey: key(), presharedKey: key() });
+  await assert.rejects(registerAwgOverTunnel({ ...options, request: another }), /confirmation rejected/);
+  await assert.rejects(registerOverTunnel(options), /confirmation rejected/);
 });

@@ -7,6 +7,7 @@ const net = require('node:net');
 const { validateKey } = require('./AwgKeyManager');
 const { privateAddress } = require('./CellTunnelControlTransport');
 const { verifyRegistration } = require('./CellRegistration');
+const { verifyAwgRegistration } = require('./CellAwgRegistration');
 
 const queues = new Map();
 const MAX_RECORDS = 1024;
@@ -47,6 +48,12 @@ function validateRecord(value) {
       || value.changedAt < value.createdAt
       || value.changedAt >= value.expiresAt) invalid();
     base.push('requestId', 'cellKey', 'changedAt');
+    if (Object.hasOwn(value, 'awgPublicKey') || Object.hasOwn(value, 'awgPresharedKey')) {
+      try { validateKey(value.awgPublicKey, 'awgPublicKey');
+        validateKey(value.awgPresharedKey, 'awgPresharedKey'); }
+      catch { invalid(); }
+      base.push('awgPublicKey', 'awgPresharedKey');
+    }
   } else if (value.status === 'revoked') {
     if (!time(value.changedAt) || value.changedAt < value.createdAt) invalid();
     base.push('changedAt');
@@ -59,7 +66,8 @@ function validateState(input) {
   if (!input || input.version !== 2 || !Array.isArray(input.invitations)
     || input.invitations.length > MAX_RECORDS
     || Object.keys(input).sort().join(',') !== 'invitations,version') invalid();
-  const ids = new Set(), cellKeys = new Set(), activeKeys = new Set(), activeAddresses = new Set();
+  const ids = new Set(), cellKeys = new Set(), awgKeys = new Set();
+  const activeKeys = new Set(), activeAddresses = new Set();
   const invitations = input.invitations.map(value => {
     const record = validateRecord(value);
     if (ids.has(record.id)) invalid();
@@ -67,6 +75,10 @@ function validateState(input) {
     if (record.status === 'consumed') {
       if (cellKeys.has(record.cellKey)) invalid();
       cellKeys.add(record.cellKey);
+      if (record.awgPublicKey) {
+        if (awgKeys.has(record.awgPublicKey)) invalid();
+        awgKeys.add(record.awgPublicKey);
+      }
     }
     if (record.phase !== 'closed') {
       if (activeKeys.has(record.temporaryPublicKey) || activeAddresses.has(record.cellAddress)) invalid();
@@ -189,6 +201,35 @@ class CellAwgBootstrapStore {
         record.requestId = proof.requestId; record.cellKey = proof.cellKey;
       } else throw new Error('AWG invitation unavailable');
       return { id: record.id, status: 'consumed', cellKey: record.cellKey };
+    });
+  }
+
+  completeAwgSigned(request, controllerKey, now = Date.now()) {
+    const proof = verifyAwgRegistration(request, controllerKey, now);
+    return this.exclusive(state => {
+      const record = state.invitations.find(item => item.id === request.invitationId);
+      if (!record || record.phase !== 'ready' || record.expiresAt <= now) {
+        throw new Error('AWG invitation unavailable');
+      }
+      const hash = crypto.createHash('sha256').update(proof.secret).digest();
+      if (!crypto.timingSafeEqual(hash, Buffer.from(record.secretHash, 'hex'))
+        || proof.awgPublicKey === record.temporaryPublicKey) {
+        throw new Error('AWG invitation unavailable');
+      }
+      if (record.status === 'consumed') {
+        if (record.requestId !== proof.requestId || record.cellKey !== proof.cellKey
+          || record.awgPublicKey !== proof.awgPublicKey
+          || record.awgPresharedKey !== proof.awgPresharedKey) {
+          throw new Error('AWG invitation already consumed');
+        }
+      } else if (record.status === 'pending') {
+        record.status = 'consumed'; record.changedAt = now;
+        record.requestId = proof.requestId; record.cellKey = proof.cellKey;
+        record.awgPublicKey = proof.awgPublicKey;
+        record.awgPresharedKey = proof.awgPresharedKey;
+      } else throw new Error('AWG invitation unavailable');
+      return { id: record.id, status: 'consumed', cellKey: record.cellKey,
+        awgPublicKey: record.awgPublicKey };
     });
   }
 

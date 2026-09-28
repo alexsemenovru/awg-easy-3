@@ -28,8 +28,9 @@ function parseRegistration(bytes) {
 // This component must never be attached to a plaintext public listener.
 class CellRegistrationHandler {
   constructor(service, { maxInFlight = 4, burst = 16, refillMs = 1000,
-    monotonicNow = () => performance.now() } = {}) {
-    if (![maxInFlight, burst, refillMs].every(value => Number.isSafeInteger(value) && value > 0)) {
+    monotonicNow = () => performance.now(), parse = parseRegistration } = {}) {
+    if (![maxInFlight, burst, refillMs].every(value => Number.isSafeInteger(value) && value > 0)
+      || typeof parse !== 'function' || !service || typeof service.register !== 'function') {
       throw new TypeError('Invalid registration limits');
     }
     this.service = service;
@@ -37,6 +38,7 @@ class CellRegistrationHandler {
     this.burst = burst;
     this.refillMs = refillMs;
     this.monotonicNow = monotonicNow;
+    this.parse = parse;
     this.tokens = burst;
     this.last = monotonicNow();
     this.inFlight = 0;
@@ -53,7 +55,7 @@ class CellRegistrationHandler {
     this.tokens -= 1;
     this.inFlight += 1;
     try {
-      const request = parseRegistration(bytes);
+      const request = this.parse(bytes);
       const receipt = await this.service.register(request);
       return { ok: true, receipt };
     } catch {
