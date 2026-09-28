@@ -3,12 +3,14 @@
 const { renderBootstrapServerConfig } = require('./CellAwgBootstrapConfig');
 const { bootstrapPolicySnapshot } = require('./CellAwgBootstrapPolicy');
 const { matchesAwgConfig } = require('./CellAwgSnapshot');
+const { bootstrapServerRoutes } = require('./CellAwgBootstrapRoutes');
+const { planRouteChanges } = require('./CellRouteOwnership');
 
 // Runs only after the dedicated device has been created, owned and journaled.
 // The caller must hold the installation's cross-process lock. Child transactions
 // and this coordinator retain the independent bootstrap guard on any failure.
 class CellAwgBootstrapRuntime {
-  constructor({ store, lifecycle, awg, firewall, guard, interfaceName,
+  constructor({ store, lifecycle, awg, firewall, routes, guard, interfaceName,
     privateKey, listenPort, controllerAddress, registrationPort, profile,
     verifyPermanent }) {
     if (!store || typeof store.read !== 'function' || !lifecycle
@@ -16,10 +18,11 @@ class CellAwgBootstrapRuntime {
       || !awg || !['load', 'recover', 'apply', 'inspect'].every(name => typeof awg[name] === 'function')
       || !firewall || !['load', 'recover', 'apply', 'current', 'equal'].every(name => typeof firewall[name] === 'function')
       || firewall.table !== 'awg_easy_3_bootstrap'
+      || !routes || !['load', 'recover', 'apply', 'inventory'].every(name => typeof routes[name] === 'function')
       || !guard || !['load', 'recover', 'protect', 'release'].every(name => typeof guard[name] === 'function')
       || guard.table !== 'awg_easy_3_bootstrap_guard'
       || typeof verifyPermanent !== 'function') throw new TypeError('Invalid bootstrap runtime components');
-    Object.assign(this, { store, lifecycle, awg, firewall, guard, interfaceName,
+    Object.assign(this, { store, lifecycle, awg, firewall, routes, guard, interfaceName,
       privateKey, listenPort, controllerAddress, registrationPort, profile,
       verifyPermanentPath: verifyPermanent });
     // Validate immutable server parameters before any runtime operation.
@@ -37,7 +40,10 @@ class CellAwgBootstrapRuntime {
     const policy = bootstrapPolicySnapshot({ interfaceName: this.interfaceName,
       controllerAddress: this.controllerAddress, registrationPort: this.registrationPort,
       peers: records });
-    return { spec: { ...owned, owner: { ...owned.owner, config } }, policy };
+    const routeCommands = bootstrapServerRoutes({ interfaceName: this.interfaceName,
+      controllerAddress: this.controllerAddress, peers: records });
+    return { spec: { ...owned, owner: { ...owned.owner, config } }, policy,
+      routeCommands };
   }
 
   async ownership() {
@@ -54,12 +60,18 @@ class CellAwgBootstrapRuntime {
     return { saved, awgState };
   }
 
-  async verify(spec, policy) {
+  async verify(spec, policy, routeCommands) {
     const state = await this.lifecycle.verify(spec);
     if (!state.up) return false;
     await this.awg.inspect([spec.owner]);
     const firewallState = await this.firewall.load();
-    return firewallState.pending === null && this.firewall.equal(firewallState.committed, policy)
+    const routeState = await this.routes.load();
+    if (routeState.pending !== null
+      || JSON.stringify(routeState.committed) !== JSON.stringify(routeCommands)) return false;
+    const routeReadback = planRouteChanges({ previous: routeCommands, desired: routeCommands,
+      inventory: await this.routes.inventory() });
+    return routeReadback.add.length === 0 && routeReadback.remove.length === 0
+      && firewallState.pending === null && this.firewall.equal(firewallState.committed, policy)
       && this.firewall.equal(await this.firewall.current(), policy);
   }
 
@@ -75,6 +87,7 @@ class CellAwgBootstrapRuntime {
     // deriving the new desired state from the durable invitation journal.
     await this.awg.recover();
     await this.firewall.recover();
+    await this.routes.recover();
     const { saved } = await this.ownership();
     const current = await this.awg.load();
     const currentSpec = { ...saved.spec, owner: current.committed };
@@ -82,17 +95,23 @@ class CellAwgBootstrapRuntime {
     if (!matchesAwgConfig(saved.spec.owner.config, current.committed.config)) {
       await this.lifecycle.save({ ...saved, spec: currentSpec });
     }
-    const { spec, policy } = this.desired(records, currentSpec);
+    const { spec, policy, routeCommands } = this.desired(records, currentSpec);
     // On removal, stop admitting the peer before deleting it from AWG. On
     // addition, install the peer under a blanket guard before opening TCP.
-    if (removing) await this.firewall.apply(policy);
+    if (removing) {
+      await this.firewall.apply(policy);
+      await this.routes.apply(routeCommands);
+    }
     if (!matchesAwgConfig(current.committed.config, spec.owner.config)) {
       await this.awg.apply(spec.owner);
       await this.lifecycle.save({ ...saved, spec });
     }
-    if (!removing) await this.firewall.apply(policy);
-    if (!await this.verify(spec, policy)) throw new Error('Bootstrap runtime readback failed');
-    await this.guard.release(() => this.verify(spec, policy));
+    if (!removing) {
+      await this.routes.apply(routeCommands);
+      await this.firewall.apply(policy);
+    }
+    if (!await this.verify(spec, policy, routeCommands)) throw new Error('Bootstrap runtime readback failed');
+    await this.guard.release(() => this.verify(spec, policy, routeCommands));
   }
 
   async installPeer(record) {
@@ -109,8 +128,8 @@ class CellAwgBootstrapRuntime {
     if (!records.some(item => item.id === record.id && ['preparing', 'ready'].includes(item.phase)
       && item.temporaryPublicKey === record.temporaryPublicKey)) return false;
     const { saved } = await this.ownership();
-    const { spec, policy } = this.desired(records, saved.spec);
-    return this.verify(spec, policy);
+    const { spec, policy, routeCommands } = this.desired(records, saved.spec);
+    return this.verify(spec, policy, routeCommands);
   }
 
   async removePeer(record) {

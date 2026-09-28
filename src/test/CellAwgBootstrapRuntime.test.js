@@ -18,6 +18,7 @@ function fixture() {
     addresses: ['10.90.0.1/32'] }, blankHash: null };
   let awgState = { version: 1, committed: owner, pending: null };
   let nftState = { version: 1, committed: null, pending: null };
+  let routeState = { version: 1, committed: [], pending: null };
   let nftCurrent = null, guarded = false;
   const events = [], invitations = [];
   const guard = { table: 'awg_easy_3_bootstrap_guard',
@@ -57,8 +58,26 @@ function fixture() {
     current: async () => structuredClone(nftCurrent),
     equal: (a, b) => JSON.stringify(a) === JSON.stringify(b),
   };
+  const routes = {
+    load: async () => structuredClone(routeState),
+    recover: async () => { assert.equal(guarded, true); events.push('route-recover'); },
+    apply: async desired => {
+      assert.equal(guarded, true); routeState.committed = structuredClone(desired);
+      events.push('route-apply');
+    },
+    inventory: async () => {
+      const result = { routes4: [], routes6: [], rules4: [], rules6: [] };
+      for (const command of routeState.committed) {
+        const family = command.args[0] === '-4' ? 4 : 6;
+        result[`routes${family}`].push({ dst: command.args[3], table: 254,
+          dev: interfaceName, protocol: 186, metric: family === 4 ? 0 : 1024,
+          scope: family === 4 ? 'link' : 'global' });
+      }
+      return result;
+    },
+  };
   const runtime = new CellAwgBootstrapRuntime({ store: { read: async () => ({ invitations }) },
-    lifecycle, awg, firewall, guard, interfaceName, privateKey, listenPort: 51824,
+    lifecycle, awg, firewall, routes, guard, interfaceName, privateKey, listenPort: 51824,
     controllerAddress: '10.90.0.1', registrationPort: 51822, profile,
     verifyPermanent: async () => false });
   return { runtime, guard, events, invitations, get guarded() { return guarded; },
@@ -73,8 +92,8 @@ test('temporary peer is installed under guard before its registration firewall o
   await f.runtime.installPeer(record);
   assert.equal(f.guarded, false);
   assert.equal(f.life.spec.owner.config, f.awgState.committed.config);
-  assert.deepEqual(f.events.filter(x => ['awg-apply', 'nft-apply', 'guard-release'].includes(x)),
-    ['awg-apply', 'nft-apply', 'guard-release']);
+  assert.deepEqual(f.events.filter(x => ['awg-apply', 'route-apply', 'nft-apply', 'guard-release'].includes(x)),
+    ['awg-apply', 'route-apply', 'nft-apply', 'guard-release']);
   assert.equal(await f.runtime.verifyPeer(record), true);
 });
 
@@ -87,8 +106,8 @@ test('temporary peer removal closes firewall before removing AWG peer', async ()
   f.events.length = 0;
   record.phase = 'closing';
   await f.runtime.removePeer(record);
-  assert.deepEqual(f.events.filter(x => ['awg-apply', 'nft-apply', 'guard-release'].includes(x)),
-    ['nft-apply', 'awg-apply', 'guard-release']);
+  assert.deepEqual(f.events.filter(x => ['awg-apply', 'route-apply', 'nft-apply', 'guard-release'].includes(x)),
+    ['nft-apply', 'route-apply', 'awg-apply', 'guard-release']);
   assert.doesNotMatch(f.life.spec.owner.config, /\[Peer\]/);
 });
 
@@ -111,6 +130,18 @@ test('failed firewall update keeps the guard and prevents code display', async (
   f.runtime.firewall.apply = async () => { throw new Error('nft failure'); };
   await assert.rejects(f.runtime.installPeer(record), /nft failure/);
   assert.equal(f.guarded, true);
+  assert.equal(f.events.includes('guard-release'), false);
+});
+
+test('failed route update keeps the guard before opening registration TCP', async () => {
+  const f = fixture();
+  const record = { id: '9'.repeat(32), phase: 'preparing', status: 'pending',
+    cellAddress: '10.90.0.2', temporaryPublicKey: key(), temporaryPresharedKey: key() };
+  f.invitations.push(record);
+  f.runtime.routes.apply = async () => { throw new Error('route failure'); };
+  await assert.rejects(f.runtime.installPeer(record), /route failure/);
+  assert.equal(f.guarded, true);
+  assert.equal(f.events.includes('nft-apply'), false);
   assert.equal(f.events.includes('guard-release'), false);
 });
 
