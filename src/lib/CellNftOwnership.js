@@ -1,6 +1,7 @@
 'use strict';
 const crypto = require('node:crypto');
-const TABLES = new Set(['awg_easy_3_routes', 'awg_easy_3_routing_guard', 'awg_easy_3_bootstrap']);
+const TABLES = new Set(['awg_easy_3_routes', 'awg_easy_3_routing_guard',
+  'awg_easy_3_bootstrap', 'awg_easy_3_bootstrap_guard']);
 const plain = value => value && typeof value === 'object' && !Array.isArray(value);
 const stable = value => {
   if (Array.isArray(value)) return value.map(stable);
@@ -48,11 +49,13 @@ function planNftReplacement({ table, current, owned, desired }) {
   if (next) for (const item of next.nftables) nftables.push({ add: item });
   return { batch: { nftables }, changed: true, desired: next };
 }
-function routingGuardSnapshot(interfaces) {
+function routingGuardSnapshot(interfaces, table = 'awg_easy_3_routing_guard') {
   if (!Array.isArray(interfaces) || interfaces.length < 1 || interfaces.length > 256
     || interfaces.some(name => typeof name !== 'string' || !/^[a-zA-Z0-9_.-]{1,15}$/.test(name))
-    || new Set(interfaces).size !== interfaces.length) throw new TypeError('Invalid routing guard interfaces');
-  const table = 'awg_easy_3_routing_guard';
+    || new Set(interfaces).size !== interfaces.length
+    || !['awg_easy_3_routing_guard', 'awg_easy_3_bootstrap_guard'].includes(table)) {
+    throw new TypeError('Invalid routing guard interfaces');
+  }
   const nftables = [{ table: { family: 'inet', name: table } }];
   for (const [hook, directions] of [['input', ['iifname']], ['output', ['oifname']], ['forward', ['iifname', 'oifname']]]) {
     nftables.push({ chain: { family: 'inet', table, name: hook, type: 'filter', hook, prio: -25, policy: 'accept' } });

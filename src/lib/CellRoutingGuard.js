@@ -4,10 +4,11 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { runProcess } = require('./ProcessRunner');
 const { routingGuardSnapshot, nftFingerprint, planNftReplacement } = require('./CellNftOwnership');
-const TABLE = 'awg_easy_3_routing_guard';
+const DEFAULT_TABLE = 'awg_easy_3_routing_guard';
 const queues = new Map();
-const snapshot = names => names.length ? routingGuardSnapshot(names) : null;
-const equal = (a, b) => a === null || b === null ? a === b : nftFingerprint(a, TABLE) === nftFingerprint(b, TABLE);
+const snapshot = (names, table) => names.length ? routingGuardSnapshot(names, table) : null;
+const equal = (a, b, table) => a === null || b === null ? a === b
+  : nftFingerprint(a, table) === nftFingerprint(b, table);
 function names(value) {
   if (!Array.isArray(value)) throw new TypeError('Invalid guard interfaces');
   if (value.length) routingGuardSnapshot(value);
@@ -34,10 +35,15 @@ function validate(value) {
 // release. Startup recovery must run before accepting work. Never infer table
 // ownership from its name, and never shrink protection during a transaction.
 class CellRoutingGuard {
-  constructor({ journalPath, runner = runProcess }) {
-    if (typeof journalPath !== 'string' || !journalPath) throw new TypeError('Guard journal required');
-    this.file = path.resolve(journalPath); this.runner = runner;
+  constructor({ journalPath, runner = runProcess, table = DEFAULT_TABLE }) {
+    if (typeof journalPath !== 'string' || !journalPath
+      || !['awg_easy_3_routing_guard', 'awg_easy_3_bootstrap_guard'].includes(table)) {
+      throw new TypeError('Guard journal and owned table required');
+    }
+    this.file = path.resolve(journalPath); this.runner = runner; this.table = table;
   }
+  snapshot(names) { return snapshot(names, this.table); }
+  equal(a, b) { return equal(a, b, this.table); }
   exclusive(work) {
     const task = (queues.get(this.file) || Promise.resolve()).catch(() => {}).then(work);
     queues.set(this.file, task);
@@ -76,17 +82,18 @@ class CellRoutingGuard {
       || (!Object.hasOwn(x, 'metainfo') && (!x.table || typeof x.table.family !== 'string' || typeof x.table.name !== 'string')))) {
       throw new Error('Invalid nft inventory');
     }
-    if (!tables.nftables.some(x => x.table?.family === 'inet' && x.table.name === TABLE)) return null;
-    return JSON.parse((await this.runner('nft', ['-j', 'list', 'table', 'inet', TABLE])).stdout);
+    if (!tables.nftables.some(x => x.table?.family === 'inet' && x.table.name === this.table)) return null;
+    return JSON.parse((await this.runner('nft', ['-j', 'list', 'table', 'inet', this.table])).stdout);
   }
   candidates(saved) {
-    return [snapshot(saved.interfaces), ...(saved.pending?.kind === 'protect' ? [snapshot(saved.pending.interfaces)] : [])];
+    return [this.snapshot(saved.interfaces), ...(saved.pending?.kind === 'protect'
+      ? [this.snapshot(saved.pending.interfaces)] : [])];
   }
   async plan(candidates, desired) {
     const current = await this.current();
-    const owned = current === null ? null : candidates.find(candidate => equal(candidate, current));
+    const owned = current === null ? null : candidates.find(candidate => this.equal(candidate, current));
     if (current !== null && !owned) throw new Error('Foreign or changed routing guard; refusing mutation');
-    return planNftReplacement({ table: TABLE, current, owned, desired });
+    return planNftReplacement({ table: this.table, current, owned, desired });
   }
   async change(candidates, desired) {
     const plan = await this.plan(candidates, desired);
@@ -95,7 +102,7 @@ class CellRoutingGuard {
       await this.runner('nft', ['-c', '-j', '-f', '-'], { input });
       await this.runner('nft', ['-j', '-f', '-'], { input });
     }
-    if (!equal(await this.current(), desired)) throw new Error('Routing guard verification failed');
+    if (!this.equal(await this.current(), desired)) throw new Error('Routing guard verification failed');
   }
   protect(interfaces) {
     const requested = names(interfaces);
@@ -104,7 +111,7 @@ class CellRoutingGuard {
       const saved = await this.load();
       if (saved.pending) throw new Error('Interrupted guard operation requires recovery');
       const combined = names([...new Set([...saved.interfaces, ...requested])]);
-      const desired = snapshot(combined);
+      const desired = this.snapshot(combined);
       await this.plan(this.candidates(saved), desired);
       const intent = { ...saved, pending: { kind: 'protect', interfaces: combined } };
       await this.save(intent); // exact before/after ownership durable BEFORE nft
@@ -116,7 +123,7 @@ class CellRoutingGuard {
   async restore(saved) {
     // Interrupted release is cancelled, not completed: uncertainty means block.
     const protectedNames = saved.pending?.kind === 'protect' ? saved.pending.interfaces : saved.interfaces;
-    await this.change(this.candidates(saved), snapshot(protectedNames));
+    await this.change(this.candidates(saved), this.snapshot(protectedNames));
     await this.save({ version: 1, interfaces: protectedNames, pending: null });
     return { guarded: protectedNames.length > 0, interfaces: [...protectedNames] };
   }
@@ -128,7 +135,7 @@ class CellRoutingGuard {
       if (saved.pending) throw new Error('Interrupted guard operation requires recovery');
       if (!saved.interfaces.length) throw new Error('No active owned guard');
       // Restore a missing guard before the coordinator verifies the runtime.
-      await this.change(this.candidates(saved), snapshot(saved.interfaces));
+      await this.change(this.candidates(saved), this.snapshot(saved.interfaces));
       if (await verifyRuntime() !== true) throw new Error('Runtime not verified; guard retained');
       const intent = { ...saved, pending: { kind: 'release' } };
       await this.save(intent);
