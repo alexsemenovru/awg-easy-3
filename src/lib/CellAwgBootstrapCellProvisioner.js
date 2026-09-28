@@ -16,7 +16,7 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 // coordinator may release the separate bootstrap guard after full readback.
 class CellAwgBootstrapCellProvisioner {
   constructor({ connection, lifecycle, awg, firewall, routes, guard,
-    interfaceName, prepare = prepareBootstrapCellDevice }) {
+    interfaceName, prepare = prepareBootstrapCellDevice, now = Date.now }) {
     if (!connection || typeof connection.read !== 'function'
       || !lifecycle || !['load', 'create', 'recover', 'verify'].every(x => typeof lifecycle[x] === 'function')
       || !awg || !['load', 'initialize', 'recover', 'inspect'].every(x => typeof awg[x] === 'function')
@@ -25,11 +25,12 @@ class CellAwgBootstrapCellProvisioner {
       || !routes || !['load', 'recover', 'apply', 'inventory'].every(x => typeof routes[x] === 'function')
       || !guard || !['load', 'recover', 'protect', 'release'].every(x => typeof guard[x] === 'function')
       || guard.table !== 'awg_easy_3_bootstrap_guard'
-      || typeof prepare !== 'function' || !/^[a-zA-Z0-9_.-]{1,15}$/.test(interfaceName)) {
+      || typeof prepare !== 'function' || typeof now !== 'function'
+      || !/^[a-zA-Z0-9_.-]{1,15}$/.test(interfaceName)) {
       throw new TypeError('Invalid cell bootstrap provisioner components');
     }
     Object.assign(this, { connection, lifecycle, awg, firewall, routes, guard,
-      interfaceName, prepare });
+      interfaceName, prepare, now });
   }
 
   async pending() {
@@ -126,6 +127,7 @@ class CellAwgBootstrapCellProvisioner {
 
   async initialize(code) {
     const invitation = await this.pending();
+    if (invitation.expiresAt <= this.now()) throw new Error('Cell bootstrap invitation expired');
     const encoded = Buffer.from(JSON.stringify(invitation)).toString('base64url');
     if (code !== encoded) throw new Error('Cell bootstrap code differs from pending invitation');
     const prepared = await this.prepare({ code, interfaceName: this.interfaceName });
@@ -145,7 +147,6 @@ class CellAwgBootstrapCellProvisioner {
   }
 
   async recover() {
-    const invitation = await this.pending();
     const saved = await this.lifecycle.load();
     if (!['creating', 'ready'].includes(saved.phase)
       || saved.spec.owner.interfaceName !== this.interfaceName) {
@@ -154,6 +155,10 @@ class CellAwgBootstrapCellProvisioner {
     // DNS need not resolve again: recovery uses the exact previously journaled
     // endpoint and configuration, but it must still match the pending code.
     await this.protect();
+    const invitation = await this.pending();
+    if (invitation.expiresAt <= this.now()) {
+      throw new Error('Cell bootstrap invitation expired; temporary device held under guard');
+    }
     return this.finish(specification(saved.spec), invitation);
   }
 }

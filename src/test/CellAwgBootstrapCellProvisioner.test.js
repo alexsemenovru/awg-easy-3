@@ -82,7 +82,8 @@ async function fixture() {
     })), routes6: [], rules4: [], rules6: [] }),
   };
   const provisioner = new CellAwgBootstrapCellProvisioner({ connection: { read: async () => connection },
-    lifecycle, awg, firewall, routes, guard, interfaceName: 'awg-enroll', prepare });
+    lifecycle, awg, firewall, routes, guard, interfaceName: 'awg-enroll', prepare,
+    now: () => 1001 });
   return { code, prepared, provisioner, events, get guarded() { return guarded; },
     setLife: value => { life = value; }, setConnection: value => { connection = value; },
     setRouteState: value => { routeState = value; } };
@@ -138,4 +139,23 @@ test('recovery refuses a journaled cell configuration that differs from invitati
   await assert.rejects(f.provisioner.recover(), /endpoint differs/);
   assert.equal(f.guarded, true);
   assert.equal(f.events.includes('guard-release'), false);
+});
+
+test('expired pending invite cannot create a device and recovery closes an existing one', async () => {
+  const f = await fixture();
+  f.provisioner.now = () => 901001;
+  await assert.rejects(f.provisioner.initialize(f.code), /expired/);
+  assert.equal(f.events.length, 0);
+  f.setLife({ version: 1, phase: 'ready', spec: f.prepared.spec, blankHash: null });
+  await assert.rejects(f.provisioner.recover(), /expired/);
+  assert.equal(f.guarded, true);
+  assert.equal(f.events.includes('guard-release'), false);
+});
+
+test('registered receipt with lingering temporary device stays guarded for retirement', async () => {
+  const f = await fixture();
+  f.setLife({ version: 1, phase: 'ready', spec: f.prepared.spec, blankHash: null });
+  f.setConnection({ status: 'registered' });
+  await assert.rejects(f.provisioner.recover(), /Pending/);
+  assert.equal(f.guarded, true);
 });
