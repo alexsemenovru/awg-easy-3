@@ -107,3 +107,23 @@ test('AWG malformed private journal errors do not include contents', async t => 
   await fs.writeFile(path.join(dir, 'awg.json'), `{"private":"${secret}" BROKEN`, { mode: 0o600 });
   await assert.rejects(tx.load(), e => /corrupt/.test(e.message) && !e.message.includes(secret));
 });
+
+test('AWG retirement clears only a journaled device proven absent after lifecycle removal', async t => {
+  const { tx, owner, kernel } = await fixture(t);
+  await tx.initialize(owner);
+  await assert.rejects(tx.retire(), /still exists/);
+  assert.deepEqual((await tx.load()).committed, owner);
+  kernel.links = [];
+  assert.deepEqual(await tx.retire(), { retired: true, guarded: true });
+  assert.equal((await tx.load()).committed, null);
+  assert.deepEqual(await tx.retire(), { retired: true, guarded: true });
+});
+
+test('AWG retirement refuses pending updates even if the interface disappeared', async t => {
+  const { tx, owner, next, kernel } = await fixture(t);
+  await tx.initialize(owner);
+  await tx.save({ version: 1, committed: owner, pending: { desired: next } });
+  kernel.links = [];
+  await assert.rejects(tx.retire(), /requires recovery/);
+  assert.ok((await tx.load()).pending);
+});
