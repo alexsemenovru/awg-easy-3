@@ -1,6 +1,7 @@
 'use strict';
 
 const { createAwgBootstrapInvitation } = require('./CellAwgBootstrapInvitation');
+const queues = new Map();
 
 // Runtime adapter contract: installPeer applies a fail-closed guard first,
 // verifyPeer proves the exact owned peer/address, removePeer is idempotent and
@@ -16,9 +17,20 @@ class CellAwgBootstrapCoordinator {
       throw new TypeError('Invalid AWG bootstrap coordinator');
     }
     Object.assign(this, { store, runtime, createInvitation, now });
+    this.lockKey = store.filePath || store;
   }
 
-  async issue(options) {
+  exclusive(work) {
+    const task = (queues.get(this.lockKey) || Promise.resolve()).catch(() => {}).then(work);
+    queues.set(this.lockKey, task);
+    const clear = () => { if (queues.get(this.lockKey) === task) queues.delete(this.lockKey); };
+    task.then(clear, clear);
+    return task;
+  }
+
+  issue(options) { return this.exclusive(() => this.issueExclusive(options)); }
+
+  async issueExclusive(options) {
     const { code, record } = await this.createInvitation(options);
     await this.store.reserve(record);
     try {
@@ -43,7 +55,11 @@ class CellAwgBootstrapCoordinator {
     }
   }
 
-  async close(invitationId, { revoke = false } = {}) {
+  close(invitationId, options = {}) {
+    return this.exclusive(() => this.closeExclusive(invitationId, options));
+  }
+
+  async closeExclusive(invitationId, { revoke = false } = {}) {
     const state = (await this.store.read()).invitations.find(item => item.id === invitationId);
     if (!state) throw new Error('Unknown bootstrap invitation');
     if (state.phase === 'closed') return { closed: true };
@@ -59,13 +75,15 @@ class CellAwgBootstrapCoordinator {
     return { closed: true };
   }
 
-  async recover() {
+  recover() { return this.exclusive(() => this.recoverExclusive()); }
+
+  async recoverExclusive() {
     const records = (await this.store.read()).invitations;
     for (const record of records) {
       if (record.phase === 'preparing' || record.phase === 'closing'
         || (record.phase === 'ready' && record.status === 'pending'
           && record.expiresAt <= this.now())) {
-        await this.close(record.id, { revoke: true });
+        await this.closeExclusive(record.id, { revoke: true });
       } else if (record.phase === 'ready' && !await this.runtime.verifyPeer(record)) {
         throw new Error('Bootstrap peer drift; manual recovery required');
       }

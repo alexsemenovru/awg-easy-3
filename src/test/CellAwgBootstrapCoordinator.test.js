@@ -107,3 +107,31 @@ test('ambiguous ready-save failure still revokes and removes an undisclosed code
   assert.equal(record.phase, 'closed');
   assert.equal(f.events.at(-1), `remove:${record.id}`);
 });
+
+test('two coordinators sharing a store serialize invitation mutations', async t => {
+  const f = await fixture(t);
+  let enterFirst, releaseFirst;
+  const entered = new Promise(resolve => { enterFirst = resolve; });
+  const release = new Promise(resolve => { releaseFirst = resolve; });
+  const install = f.coordinator.runtime.installPeer;
+  let installs = 0;
+  f.coordinator.runtime.installPeer = async record => {
+    installs++;
+    if (installs === 1) { enterFirst(); await release; }
+    return install(record);
+  };
+  const other = new CellAwgBootstrapCoordinator({ store: new CellAwgBootstrapStore(f.store.filePath),
+    runtime: f.coordinator.runtime, now: () => 1002 });
+  const first = f.coordinator.issue(f.options);
+  await entered;
+  const second = other.issue({ ...f.options, cellAddress: '10.90.0.3', keyManager: {
+    generatePeerKeys: async () => ({ privateKey: key(), publicKey: key(), presharedKey: key() }),
+  } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(installs, 1);
+  assert.equal((await f.store.read()).invitations.length, 1);
+  releaseFirst();
+  await Promise.all([first, second]);
+  assert.equal(installs, 2);
+  assert.equal((await f.store.read()).invitations.length, 2);
+});
