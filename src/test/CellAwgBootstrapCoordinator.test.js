@@ -97,6 +97,32 @@ test('failed removal keeps closing intent for recovery retry', async t => {
   assert.equal((await f.store.read()).invitations[0].phase, 'closed');
 });
 
+test('recovery retains a consumed temporary peer if the permanent path disappeared', async t => {
+  const f = await fixture(t);
+  const code = await f.coordinator.issue(f.options);
+  const invite = decodeAwgBootstrapInvitation(code, 1001);
+  await f.store.completeSigned(signRegistration(invite, identity().privateKey, 1002),
+    f.controller.publicKey, 1003);
+  f.setPermanent(true);
+  let fail = true;
+  const remove = f.coordinator.runtime.removePeer;
+  f.coordinator.runtime.removePeer = async record => {
+    if (fail) throw new Error('interrupted removal');
+    return remove(record);
+  };
+  await assert.rejects(f.coordinator.close(invite.id), /interrupted removal/);
+  assert.equal((await f.store.read()).invitations[0].phase, 'closing');
+  const removalsBeforeRetry = f.events.filter(event => event.startsWith('remove:')).length;
+  f.setPermanent(false);
+  fail = false;
+  await assert.rejects(f.coordinator.recover(), /Permanent cell path not verified/);
+  assert.equal((await f.store.read()).invitations[0].phase, 'closing');
+  assert.equal(f.events.filter(event => event.startsWith('remove:')).length, removalsBeforeRetry);
+  f.setPermanent(true);
+  await f.coordinator.recover();
+  assert.equal((await f.store.read()).invitations[0].phase, 'closed');
+});
+
 test('ambiguous ready-save failure still revokes and removes an undisclosed code', async t => {
   const f = await fixture(t);
   const markReady = f.store.markReady.bind(f.store);

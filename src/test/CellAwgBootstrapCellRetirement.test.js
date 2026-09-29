@@ -11,6 +11,7 @@ function fixture() {
   let routeState = { committed: [{ file: 'ip', args: ['-4', 'route', 'add',
     '10.90.0.1/32', 'table', 'main', 'proto', '186', 'dev', 'awg-enroll'] }], pending: null };
   let guarded = false, permanent = true, connection = { status: 'registered' };
+  let inventory = { routes4: [], routes6: [], rules4: [], rules6: [] };
   const events = [];
   const lifecycle = {
     load: async () => structuredClone(life),
@@ -42,7 +43,7 @@ function fixture() {
     apply: async value => {
       assert.equal(guarded, true); routeState.committed = value; events.push('route-apply');
     },
-    inventory: async () => ({ routes4: [], routes6: [], rules4: [], rules6: [] }),
+    inventory: async () => structuredClone(inventory),
   };
   const guard = { table: 'awg_easy_3_bootstrap_guard',
     load: async () => ({ interfaces: guarded ? ['awg-enroll'] : [], pending: null }),
@@ -62,7 +63,8 @@ function fixture() {
     setPermanent: value => { permanent = value; },
     setConnection: value => { connection = value; },
     setLife: value => { life = value; },
-    setNftApply: value => { firewall.apply = value; } };
+    setNftApply: value => { firewall.apply = value; },
+    setInventory: value => { inventory = value; } };
 }
 
 test('verified permanent path permits fail-closed temporary retirement', async () => {
@@ -103,4 +105,17 @@ test('interrupted lifecycle removal can finish before AWG journal retirement', a
   await f.retirement.retire();
   assert.equal(f.events.includes('life-remove'), false);
   assert.equal(f.events.includes('awg-retire'), true);
+});
+
+test('stray temporary routes or policy rules prevent guard release after retirement', async () => {
+  for (const [section, entry] of [
+    ['routes4', { dst: '10.90.0.1', dev: 'awg-enroll' }],
+    ['rules6', { priority: 20001, iifname: 'awg-enroll' }],
+  ]) {
+    const f = fixture();
+    f.setInventory({ routes4: [], routes6: [], rules4: [], rules6: [], [section]: [entry] });
+    await assert.rejects(f.retirement.retire(), /Retirement readback failed/);
+    assert.equal(f.guarded, true);
+    assert.equal(f.events.includes('guard-release'), false);
+  }
 });

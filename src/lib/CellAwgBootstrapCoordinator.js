@@ -63,7 +63,7 @@ class CellAwgBootstrapCoordinator {
     const state = (await this.store.read()).invitations.find(item => item.id === invitationId);
     if (!state) throw new Error('Unknown bootstrap invitation');
     if (state.phase === 'closed') return { closed: true };
-    if (state.phase === 'ready' && state.status === 'consumed'
+    if (state.status === 'consumed'
       && !await this.runtime.verifyPermanent(state)) {
       throw new Error('Permanent cell path not verified; temporary peer retained');
     }

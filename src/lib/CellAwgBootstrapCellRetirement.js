@@ -50,13 +50,17 @@ class CellAwgBootstrapCellRetirement {
     const nft = await this.firewall.load();
     const routes = await this.routes.load();
     const inventory = await this.routes.inventory();
-    // Route transaction has already verified deletion. Any matching main
-    // host route must still be treated as unexplained, not silently adopted.
+    // The route journal can be empty after an interrupted retirement. Do not
+    // release the guard while a route or rule still names our temporary device.
+    const sections = ['routes4', 'routes6', 'rules4', 'rules6'];
+    if (sections.some(key => !Array.isArray(inventory[key])
+      || inventory[key].some(row => !row || typeof row !== 'object'
+        || row.dev === this.interfaceName || row.iif === this.interfaceName
+        || row.iifname === this.interfaceName))) return false;
     return life.phase === 'empty' && awg.committed === null && awg.pending === null
       && nft.committed === null && nft.pending === null
       && this.firewall.equal(await this.firewall.current(), null)
-      && routes.pending === null && routes.committed.length === 0
-      && ['routes4', 'routes6', 'rules4', 'rules6'].every(key => Array.isArray(inventory[key]));
+      && routes.pending === null && routes.committed.length === 0;
   }
 
   async retire() {
