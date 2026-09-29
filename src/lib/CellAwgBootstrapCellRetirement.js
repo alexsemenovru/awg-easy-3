@@ -84,7 +84,12 @@ class CellAwgBootstrapCellRetirement {
     } else if (current.phase === 'removing') await this.lifecycle.recover();
     else if (current.phase !== 'empty') throw new Error('Cell bootstrap creation requires recovery');
     await this.awg.retire();
-    await this.guard.release(() => this.empty());
+    await this.guard.release(async () => {
+      // The permanent path may have drifted during the multi-step cleanup.
+      // Never declare retirement complete on an earlier verification alone.
+      await this.authorization();
+      return this.empty();
+    });
     return { retired: true };
   }
 }

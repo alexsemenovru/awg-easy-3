@@ -11,6 +11,7 @@ function fixture() {
   let routeState = { committed: [{ file: 'ip', args: ['-4', 'route', 'add',
     '10.90.0.1/32', 'table', 'main', 'proto', '186', 'dev', 'awg-enroll'] }], pending: null };
   let guarded = false, permanent = true, connection = { status: 'registered' };
+  let verifyPermanent = async () => permanent;
   let inventory = { routes4: [], routes6: [], rules4: [], rules6: [] };
   const events = [];
   const lifecycle = {
@@ -56,11 +57,12 @@ function fixture() {
   };
   const retirement = new CellAwgBootstrapCellRetirement({
     connection: { read: async () => connection }, lifecycle, awg, firewall, routes,
-    guard, interfaceName: 'awg-enroll', verifyPermanent: async () => permanent,
+    guard, interfaceName: 'awg-enroll', verifyPermanent: state => verifyPermanent(state),
     now: () => 2000,
   });
   return { retirement, events, get guarded() { return guarded; },
     setPermanent: value => { permanent = value; },
+    setVerification: value => { verifyPermanent = value; },
     setConnection: value => { connection = value; },
     setLife: value => { life = value; },
     setNftApply: value => { firewall.apply = value; },
@@ -118,4 +120,14 @@ test('stray temporary routes or policy rules prevent guard release after retirem
     assert.equal(f.guarded, true);
     assert.equal(f.events.includes('guard-release'), false);
   }
+});
+
+test('permanent path is checked again before the final guard release', async () => {
+  const f = fixture();
+  let checks = 0;
+  f.setVerification(async () => ++checks < 3);
+  await assert.rejects(f.retirement.retire(), /not verified/);
+  assert.equal(checks, 3);
+  assert.equal(f.guarded, true);
+  assert.equal(f.events.includes('guard-release'), false);
 });
