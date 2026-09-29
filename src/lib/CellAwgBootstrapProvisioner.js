@@ -44,7 +44,17 @@ class CellAwgBootstrapProvisioner {
     await this.guard.protect([this.interfaceName]);
   }
 
+  assertInitialSpec(spec) {
+    const hostPrefix = net.isIP(this.controllerAddress) === 4 ? 32 : 128;
+    if (spec.owner.interfaceName !== this.interfaceName
+      || !same(spec.addresses, [`${this.controllerAddress}/${hostPrefix}`])
+      || normalizeAwgConfig(spec.owner.config).peers.length !== 0) {
+      throw new Error('Bootstrap initial device must have its own address and no peers');
+    }
+  }
+
   async finish(spec) {
+    this.assertInitialSpec(spec);
     let life = await this.lifecycle.load();
     if (!['creating', 'ready'].includes(life.phase) || !same(life.spec, spec)) {
       throw new Error('Bootstrap lifecycle differs from provisioned identity');
@@ -81,12 +91,7 @@ class CellAwgBootstrapProvisioner {
 
   async initialize(input) {
     const spec = specification(input);
-    const hostPrefix = net.isIP(this.controllerAddress) === 4 ? 32 : 128;
-    if (spec.owner.interfaceName !== this.interfaceName
-      || !same(spec.addresses, [`${this.controllerAddress}/${hostPrefix}`])
-      || normalizeAwgConfig(spec.owner.config).peers.length !== 0) {
-      throw new Error('Bootstrap initial device must have its own address and no peers');
-    }
+    this.assertInitialSpec(spec);
     await this.requireNoInvitations();
     if ((await this.lifecycle.load()).phase !== 'empty') throw new Error('Existing bootstrap lifecycle requires recovery');
     await this.protect();
@@ -104,6 +109,7 @@ class CellAwgBootstrapProvisioner {
       throw new Error('Bootstrap lifecycle belongs to another interface');
     }
     await this.protect();
+    this.assertInitialSpec(saved.spec);
     return this.finish(saved.spec);
   }
 }

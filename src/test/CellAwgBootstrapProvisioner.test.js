@@ -95,3 +95,14 @@ test('live invitation or changed child ownership prevents initial provisioning',
   assert.equal(f.guarded, true);
   assert.equal(f.events.includes('guard-release'), false);
 });
+
+test('recovery refuses a journaled bootstrap device with a different address', async () => {
+  const f = await fixture();
+  f.setLife({ version: 1, phase: 'ready', spec: {
+    ...f.spec, addresses: ['10.90.0.9/32'],
+  }, blankHash: null });
+  await assert.rejects(f.provisioner.recover(), /own address and no peers/);
+  assert.equal(f.guarded, true);
+  assert.equal(f.events.includes('awg-init'), false);
+  assert.equal(f.events.includes('guard-release'), false);
+});
