@@ -1,0 +1,8 @@
+# Disposable VPS lab only. Keep libtorrent's unused TCP listener private.
+# UDP remains reachable for public Mainline DHT participation.
+table inet awg_dht_lab {
+    chain input {
+        type filter hook input priority -1; policy accept;
+        tcp dport { 49033, 49034 } reject
+    }
+}
