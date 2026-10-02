@@ -6,6 +6,7 @@ Public network contact is opt-in via --public-bootstrap.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import resource
@@ -92,6 +93,29 @@ def json_value(value):
     return value
 
 
+def decode_probe_item(item, target):
+    raw = item.get("value", item.get(b"value")) if isinstance(item, dict) else item
+    if isinstance(raw, str):
+        raw = raw.encode("utf-8")
+    if not isinstance(raw, bytes):
+        return None
+    candidates = [raw]
+    # Debian's libtorrent 1.2.9 Python binding returns an extra pair of
+    # apostrophes around an otherwise valid bencoded string value.
+    if len(raw) >= 2 and raw.startswith(b"'") and raw.endswith(b"'"):
+        candidates.append(raw[1:-1])
+    for candidate in candidates:
+        if hashlib.sha1(lt.bencode(candidate)).hexdigest() != target.lower():
+            continue
+        try:
+            value = json.loads(candidate.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if isinstance(value, dict) and value.get("awg_easy_dht_probe") == 1:
+            return value
+    return None
+
+
 def main():
     args = options()
     bootstrap = list(args.bootstrap)
@@ -176,14 +200,10 @@ def main():
                         item = None  # libtorrent binding uses invalid entry on miss
                         if args.trace_packets:
                             emit("get_binding_error", detail=str(error), alert=alert.message())
-                    value = None
-                    if item is not None:
-                        raw = item.get("value") if isinstance(item, dict) else item
-                        if isinstance(raw, bytes):
-                            try:
-                                value = json.loads(raw.decode("utf-8"))
-                            except (UnicodeDecodeError, json.JSONDecodeError):
-                                pass
+                    value = decode_probe_item(item, str(alert.target)) if item is not None else None
+                    if args.trace_packets and item is not None:
+                        emit("get_alert_shape", item_type=type(item).__name__,
+                             item_repr=repr(item)[:500])
                     get_success = get_success or (
                         isinstance(value, dict)
                         and value.get("awg_easy_dht_probe") == 1
@@ -191,6 +211,16 @@ def main():
                     emit("get_result", hash=str(alert.target), value=json_value(value))
                 elif args.trace_packets and isinstance(alert, lt.dht_pkt_alert):
                     emit("packet", detail=alert.message())
+                    try:
+                        packet = lt.bdecode(alert.pkt_buf)
+                        response = packet.get(b"r", packet.get("r"))
+                        if isinstance(response, dict):
+                            record = response.get(b"v", response.get("v"))
+                            if record is not None:
+                                emit("packet_record", bencoded_sha1=hashlib.sha1(lt.bencode(record)).hexdigest(),
+                                     record_type=type(record).__name__)
+                    except (RuntimeError, TypeError, ValueError):
+                        pass
                 elif isinstance(alert, lt.dht_bootstrap_alert):
                     emit("bootstrapped")
                 elif type(alert).__name__ == "dht_error_alert":
