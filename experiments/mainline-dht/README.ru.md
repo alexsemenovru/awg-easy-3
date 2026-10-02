@@ -125,3 +125,6 @@ SHA-1, но Python-обвязка 1.2.9 добавляла апострофы и
 [BEP 44](https://www.bittorrent.org/beps/bep_0044.html),
 [libtorrent settings](https://libtorrent.org/reference-Settings.html),
 [libtorrent Python binding](https://libtorrent.org/python_binding.html).
+
+Дополнительный полевой тест изменяемой подписанной записи и сравнение JS/Python
+библиотек: `docs/CELL_DHT_MUTABLE_FIELD_20261002.ru.md`.

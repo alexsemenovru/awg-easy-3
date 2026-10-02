@@ -1,0 +1,10 @@
+{
+  "name": "awg-easy-mainline-dht-node-probe",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "description": "Isolated cross-implementation BEP 44 read probe; never bundled with AWG-Easy",
+  "dependencies": {
+    "bittorrent-dht": "11.0.12"
+  }
+}
