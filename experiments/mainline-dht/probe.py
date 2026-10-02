@@ -51,17 +51,23 @@ def options():
     parser.add_argument("--bootstrap", action="append", type=endpoint, default=[])
     parser.add_argument("--public-bootstrap", action="store_true")
     parser.add_argument("--put-probe", action="store_true", help="publish random, non-secret test record")
+    parser.add_argument("--probe-nonce", metavar="HEX24",
+                        help="fixed non-secret nonce for repeatable local tests")
     parser.add_argument("--get-probe", metavar="SHA1", help="retrieve test record by 40-digit hash")
     parser.add_argument("--probe-delay", type=int, default=15,
                         help="wait for DHT bootstrap before put/get")
     parser.add_argument("--retry-interval", type=int, default=25,
-                        help="repeat get until the record is found")
+                        help="repeat put/get until the record is published/found")
+    parser.add_argument("--trace-packets", action="store_true",
+                        help="diagnostic DHT packet logging; use only with disposable probe data")
     args = parser.parse_args()
     if (not 1 <= args.port <= 65535 or args.seconds < 1 or args.interval < 1
             or args.probe_delay < 0 or args.retry_interval < 1):
         parser.error("port, seconds, interval and probe delay must be valid")
     if args.get_probe and (len(args.get_probe) != 40 or any(c not in "0123456789abcdefABCDEF" for c in args.get_probe)):
         parser.error("--get-probe requires a 40-digit SHA-1 hash")
+    if args.probe_nonce and (len(args.probe_nonce) != 24 or any(c not in "0123456789abcdefABCDEF" for c in args.probe_nonce)):
+        parser.error("--probe-nonce requires 24 hexadecimal digits")
     if not (args.bootstrap or args.public_bootstrap):
         parser.error("choose --bootstrap HOST:PORT or --public-bootstrap")
     if (args.put_probe or args.get_probe) and args.probe_delay >= args.seconds:
@@ -99,6 +105,8 @@ def main():
         | alert_categories.error_notification
         | alert_categories.status_notification
     )
+    if args.trace_packets:
+        alert_mask |= alert_categories.dht_log_notification
     settings = {
         "listen_interfaces": f"{args.bind}:{args.port}",
         "dht_bootstrap_nodes": "",  # no implicit, unreviewed bootstraps
@@ -138,7 +146,14 @@ def main():
     deadline = time.monotonic() + args.seconds
     next_sample = time.monotonic()
     probe_at = time.monotonic() + args.probe_delay
-    put_requested = False
+    # libtorrent 1.x/2.0 Python dht_immutable_item_alert.item converts the
+    # result with entry.string(), so a DHT dictionary cannot be read here.
+    # Store compact JSON as a bencoded string instead.
+    put_value = (json.dumps({"awg_easy_dht_probe": 1,
+                             "nonce": args.probe_nonce or os.urandom(12).hex()},
+                            sort_keys=True, separators=(",", ":"))
+                 if args.put_probe else None)
+    next_put = probe_at
     next_lookup = probe_at
     failed_listen = False
     put_success = False
@@ -150,15 +165,32 @@ def main():
                     failed_listen = True
                     emit("listen_failed", message=alert.message())
                 elif isinstance(alert, lt.dht_put_alert):
-                    put_success = alert.num_success > 0
+                    put_success = put_success or alert.num_success > 0
                     emit("put_result", hash=str(alert.target), success=alert.num_success)
+                    if not put_success:
+                        next_put = time.monotonic() + args.retry_interval
                 elif isinstance(alert, lt.dht_immutable_item_alert):
                     try:
-                        value = alert.item
-                    except RuntimeError:
-                        value = None  # libtorrent 2.0 binding uses invalid entry on miss
-                    get_success = value is not None
+                        item = alert.item
+                    except RuntimeError as error:
+                        item = None  # libtorrent binding uses invalid entry on miss
+                        if args.trace_packets:
+                            emit("get_binding_error", detail=str(error), alert=alert.message())
+                    value = None
+                    if item is not None:
+                        raw = item.get("value") if isinstance(item, dict) else item
+                        if isinstance(raw, bytes):
+                            try:
+                                value = json.loads(raw.decode("utf-8"))
+                            except (UnicodeDecodeError, json.JSONDecodeError):
+                                pass
+                    get_success = get_success or (
+                        isinstance(value, dict)
+                        and value.get("awg_easy_dht_probe") == 1
+                        and str(alert.target).lower() == args.get_probe.lower())
                     emit("get_result", hash=str(alert.target), value=json_value(value))
+                elif args.trace_packets and isinstance(alert, lt.dht_pkt_alert):
+                    emit("packet", detail=alert.message())
                 elif isinstance(alert, lt.dht_bootstrap_alert):
                     emit("bootstrapped")
                 elif type(alert).__name__ == "dht_error_alert":
@@ -172,11 +204,10 @@ def main():
             if failed_listen:
                 return 2
             now = time.monotonic()
-            if args.put_probe and not put_requested and now >= probe_at:
-                put_requested = True
-                value = {"awg_easy_dht_probe": 1, "nonce": os.urandom(12).hex()}
-                target = session.dht_put_immutable_item(value)
-                emit("put_requested", hash=str(target), value=value)
+            if put_value is not None and not put_success and now >= next_put:
+                target = session.dht_put_immutable_item(put_value)
+                emit("put_requested", hash=str(target), value=put_value)
+                next_put = now + args.retry_interval
             if args.get_probe and not get_success and now >= next_lookup:
                 session.dht_get_immutable_item(lt.sha1_hash(bytes.fromhex(args.get_probe)))
                 emit("get_requested", hash=args.get_probe.lower())
