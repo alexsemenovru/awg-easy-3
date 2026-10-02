@@ -23,14 +23,25 @@ const salt = Buffer.from(saltText)
 const target = createHash('sha1').update(expectedKey).update(salt).digest()
 const spkiPrefix = Buffer.from('302a300506032b6570032100', 'hex')
 const emit = (event, fields = {}) => console.log(JSON.stringify({ event, time: Date.now(), ...fields }))
+let verifyCount = 0
+let discoveredNodes = 0
 const dht = new DHT({
+  bootstrap: ['dht.libtorrent.org:25401', 'dht.transmissionbt.com:6881',
+    'router.bittorrent.com:6881'],
   verify: (signature, message, key) => {
-    if (!Buffer.isBuffer(key) || key.length !== 32 || !key.equals(expectedKey)) return false
+    verifyCount++
+    if (!Buffer.isBuffer(key) || key.length !== 32 || !key.equals(expectedKey)) {
+      emit('verify_rejected_key')
+      return false
+    }
     try {
       const publicKey = createPublicKey({ key: Buffer.concat([spkiPrefix, key]),
         format: 'der', type: 'spki' })
-      return verifySignature(null, message, publicKey, signature)
+      const valid = verifySignature(null, message, publicKey, signature)
+      emit('verify_signature', { valid })
+      return valid
     } catch {
+      emit('verify_error')
       return false
     }
   }
@@ -51,6 +62,7 @@ function stop (success) {
 dht.on('error', error => emit('error', { message: error.message }))
 dht.on('warning', error => emit('warning', { message: error.message }))
 dht.on('listening', () => emit('listening', { port: dht.address().port }))
+dht.on('node', () => { discoveredNodes++ })
 dht.on('ready', () => {
   emit('ready', { target: target.toString('hex'), nodes: dht.nodes.count() })
   lookupTimer = setInterval(lookup, 15000)
@@ -69,7 +81,8 @@ function lookup () {
   dht.get(target, { salt, cache: false }, (error, item) => {
     if (complete) return
     if (error) return emit('get_error', { message: error.message })
-    if (!item) return emit('get_missing')
+    if (!item) return emit('get_missing', { verifyCount, discoveredNodes,
+      nodes: dht.nodes.count() })
     if (!Buffer.isBuffer(item.k) || !item.k.equals(expectedKey) ||
         !Buffer.isBuffer(item.v) || !Number.isSafeInteger(item.seq)) {
       return emit('get_invalid_shape')
