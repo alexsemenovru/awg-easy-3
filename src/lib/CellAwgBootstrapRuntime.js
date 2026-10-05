@@ -19,7 +19,7 @@ class CellAwgBootstrapRuntime {
       || !firewall || !['load', 'recover', 'apply', 'current', 'equal'].every(name => typeof firewall[name] === 'function')
       || firewall.table !== 'awg_easy_3_bootstrap'
       || !routes || !['load', 'recover', 'apply', 'inventory'].every(name => typeof routes[name] === 'function')
-      || !guard || !['load', 'recover', 'protect', 'release'].every(name => typeof guard[name] === 'function')
+      || !guard || !['load', 'current', 'recover', 'protect', 'release'].every(name => typeof guard[name] === 'function')
       || guard.table !== 'awg_easy_3_bootstrap_guard'
       || typeof verifyPermanent !== 'function') throw new TypeError('Invalid bootstrap runtime components');
     Object.assign(this, { store, lifecycle, awg, firewall, routes, guard, interfaceName,
@@ -139,6 +139,9 @@ class CellAwgBootstrapRuntime {
     const guard = await this.guard.load();
     if (guard.pending !== null || !Array.isArray(guard.interfaces)
       || guard.interfaces.length !== 0) return false;
+    // The journal alone cannot prove that an interrupted release removed the
+    // nft guard from the kernel. Do not advertise the listener on such drift.
+    if (await this.guard.current() !== null) return false;
     const records = await this.records();
     const { saved } = await this.ownership();
     const { spec, policy, routeCommands } = this.desired(records, saved.spec);

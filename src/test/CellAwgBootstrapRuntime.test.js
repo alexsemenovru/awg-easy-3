@@ -23,6 +23,7 @@ function fixture() {
   const events = [], invitations = [];
   const guard = { table: 'awg_easy_3_bootstrap_guard',
     load: async () => ({ interfaces: guarded ? [interfaceName] : [], pending: null }),
+    current: async () => null,
     recover: async () => { events.push('guard-recover'); },
     protect: async () => { guarded = true; events.push('guard-protect'); },
     release: async check => {
@@ -97,6 +98,9 @@ test('temporary peer is installed under guard before its registration firewall o
   assert.equal(await f.runtime.verifyPeer(record), true);
   assert.equal(await f.runtime.verifyCurrent(), true);
   f.guard.load = async () => ({ interfaces: ['awg-enroll'], pending: null });
+  assert.equal(await f.runtime.verifyCurrent(), false);
+  f.guard.load = async () => ({ interfaces: [], pending: null });
+  f.guard.current = async () => ({ unexpected: true });
   assert.equal(await f.runtime.verifyCurrent(), false);
 });
 
