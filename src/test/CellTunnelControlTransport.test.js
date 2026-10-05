@@ -13,6 +13,8 @@ const { ControlIdentityStore } = require('../lib/ControlIdentityStore');
 const { CellSettingsPublisher } = require('../lib/CellSettingsPublisher');
 const { CellSettingsReceiver } = require('../lib/CellSettingsReceiver');
 const { CellAwgBootstrapStore } = require('../lib/CellAwgBootstrapStore');
+const { CellAwgLifecycle } = require('../lib/CellAwgLifecycle');
+const { createAwgOwnership } = require('../lib/CellAwgOwnership');
 const { listenTunnelControlEndpoint, syncCellSettings } = require('../lib/CellControlService');
 
 const ownedLoopback = () => ({
@@ -104,6 +106,8 @@ test('registered cell polls and acknowledges settings over the tunnel transport'
   await assert.rejects(syncCellSettings(options), /Control reply rejected/);
   await assert.rejects(syncCellSettings({ ...options, transport: 'tls' }), /requires the tunnel/);
   await assert.rejects(syncCellSettings({ ...options, transport: undefined }), /requires the tunnel/);
+  await assert.rejects(syncCellSettings({ ...options,
+    connectionStore: { read: async () => ({ version: 3, status: 'registered' }) } }), /Unsupported cell connection version/);
   await bootstrapStore.write({ version: 2, invitations: [{ ...record,
     phase: 'closed', temporaryPresharedKey: null }] });
   assert.equal((await syncCellSettings(options)).status, 'no-settings');
@@ -148,4 +152,34 @@ test('tunnel control listener requires a ready owned AWG address and a live devi
     lifecycle: { ...lifecycle, verify: async () => ({ up: false }) } }), /down/);
   await assert.rejects(listenTunnelControlEndpoint({ ...base,
     lifecycle: { ...lifecycle, verify: async () => { throw new Error('AWG drift'); } } }), /AWG drift/);
+});
+
+test('tunnel listener checks the real lifecycle journal and AWG readback before binding', async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-tunnel-owned-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const config = `[Interface]\nPrivateKey = ${Buffer.alloc(32, 7).toString('base64')}\nListenPort = 54322\nJc = 3\n`;
+  const spec = { version: 1, owner: createAwgOwnership({ interfaceName: 'cell0', config }),
+    addresses: ['127.0.0.1/32'] };
+  let alias = spec.owner.ownerTag;
+  const lifecycle = new CellAwgLifecycle({ journalPath: path.join(directory, 'owned.json'),
+    activateGuard: async () => {}, runner: async (file, args) => {
+      if (file === 'ip' && args[0] === '-d') return { stdout: JSON.stringify([{
+        ifname: 'cell0', ifalias: alias, mtu: spec.owner.mtu, flags: ['UP'],
+        linkinfo: { info_kind: 'tun', info_data: { type: 'tun' } },
+      }]) };
+      if (file === 'ip' && args[0] === '-j') return { stdout: JSON.stringify([{
+        ifname: 'cell0', addr_info: [{ family: 'inet', local: '127.0.0.1', prefixlen: 32 }],
+      }]) };
+      if (file === 'awg' && args[0] === 'showconf') return { stdout: config };
+      if (file === 'sysctl' && args[0] === '-n') return { stdout: '2' };
+      throw new Error('Unexpected AWG mutation');
+    } });
+  await lifecycle.save({ version: 1, phase: 'ready', spec, blankHash: null });
+  const options = { address: '127.0.0.1', port: 0, lifecycle,
+    bootstrapStore: { read: async () => ({ version: 2, invitations: [] }) },
+    identityStore: {}, publisherForCell: () => {} };
+  const server = await listenTunnelControlEndpoint(options);
+  await new Promise(resolve => server.close(resolve));
+  alias = 'foreign-owner';
+  await assert.rejects(listenTunnelControlEndpoint(options), /Foreign or unproven AWG interface/);
 });

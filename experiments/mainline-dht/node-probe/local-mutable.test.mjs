@@ -40,9 +40,9 @@ test('pinned Node DHT publishes and updates a signed BEP 44 record on loopback',
     writer.addNode(contact)
     reader.addNode(contact)
     await Promise.all([writerReady, readerReady])
-    const value = revision => Buffer.from(JSON.stringify({ probe: 1, revision }))
-    const options = (revision, signRecord = data => sign(null, data, privateKey)) => ({
-      k: rawPublic, salt, seq: revision, v: value(revision), sign: signRecord,
+    const value = (revision, endpoint = null) => Buffer.from(JSON.stringify({ probe: 1, revision, endpoint }))
+    const options = (revision, signRecord = data => sign(null, data, privateKey), endpoint = null) => ({
+      k: rawPublic, salt, seq: revision, v: value(revision, endpoint), sign: signRecord,
     })
     const first = await put(writer, options(1))
     assert.deepEqual(first.hash, target)
@@ -55,6 +55,22 @@ test('pinned Node DHT publishes and updates a signed BEP 44 record on loopback',
     assert.equal(JSON.parse(updated.v).revision, 2)
     assert.equal(verifyRecord(updated.sig, Buffer.from('wrong'), updated.k), false)
     assert.equal(verifyRecord(updated.sig, Buffer.from('wrong'), Buffer.alloc(32)), false)
-    await assert.rejects(put(writer, options(3, () => Buffer.alloc(64))))
-    assert.equal((await get(reader, target, salt)).seq, 2)
+    // A different process/UDP port can update the same signed locator without
+    // a pre-existing torrent or a new DHT identity. This is not a public-IP test.
+    const moved = new DHT({ bootstrap: false, verify: verifyRecord })
+    t.after(() => close(moved))
+    const listening = wait(moved, 'listening')
+    moved.listen(0, '127.0.0.1')
+    await listening
+    const movedReady = wait(moved, 'node')
+    moved.addNode(contact)
+    await movedReady
+    const endpoint = `127.0.0.1:${moved.address().port}`
+    assert.ok((await put(moved, options(3, undefined, endpoint))).accepted > 0)
+    const relocated = await get(reader, target, salt)
+    assert.equal(relocated.seq, 3)
+    assert.equal(JSON.parse(relocated.v).endpoint, endpoint)
+    await assert.rejects(put(moved, options(2)), /sequence number less than current/)
+    await assert.rejects(put(moved, options(4, () => Buffer.alloc(64))))
+    assert.equal((await get(reader, target, salt)).seq, 3)
   })
