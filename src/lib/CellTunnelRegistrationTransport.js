@@ -1,11 +1,9 @@
 'use strict';
 
 const net = require('node:net');
-const { MAX_BYTES } = require('./CellRegistrationHandler');
-const { CellRegistrationHandler } = require('./CellRegistrationHandler');
+const { CellRegistrationHandler, MAX_BYTES } = require('./CellRegistrationHandler');
 const { verifyReceipt } = require('./CellRegistration');
-const { verifyAwgReceipt } = require('./CellAwgRegistration');
-const { parseAwgRegistration } = require('./CellAwgRegistration');
+const { verifyAwgReceipt, parseAwgRegistration } = require('./CellAwgRegistration');
 const { CellAwgRegistrationService } = require('./CellAwgRegistrationService');
 const { requireOwnedTunnelAddress } = require('./CellOwnedTunnel');
 const { listenControlOnTunnel, privateAddress } = require('./CellTunnelControlTransport');
@@ -24,6 +22,10 @@ async function listenAwgRegistrationOnTunnel({ address, port, lifecycle, identit
     || !identityStore || typeof identityStore.load !== 'function'
     || !bootstrapRuntime || typeof bootstrapRuntime.verifyCurrent !== 'function') {
     throw new TypeError('AWG registration requires identity, store and bootstrap runtime');
+  }
+  if (bootstrapRuntime.store !== bootstrapStore || bootstrapRuntime.lifecycle !== lifecycle
+    || bootstrapRuntime.controllerAddress !== address || bootstrapRuntime.registrationPort !== port) {
+    throw new Error('AWG registration listener differs from verified bootstrap runtime');
   }
   await requireOwnedTunnelAddress({ lifecycle, address });
   if (await bootstrapRuntime.verifyCurrent() !== true) throw new Error('AWG bootstrap path is not verified');

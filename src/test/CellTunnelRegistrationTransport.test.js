@@ -125,14 +125,22 @@ test('v2 registration listener fails closed without owned AWG and bootstrap read
   } }), verify: async () => ({ up: true }) };
   const options = { address: '127.0.0.1', port: 0, lifecycle: owned,
     identityStore: identities, bootstrapStore: store };
+  const runtime = { store, lifecycle: owned, controllerAddress: '127.0.0.1', registrationPort: 0,
+    verifyCurrent: async () => true };
   await assert.rejects(listenAwgRegistrationOnTunnel(options), /bootstrap runtime/);
   await assert.rejects(listenAwgRegistrationOnTunnel({ ...options,
     lifecycle: { ...owned, verify: async () => ({ up: false }) },
-    bootstrapRuntime: { verifyCurrent: async () => true } }), /device is down/);
+    bootstrapRuntime: { ...runtime, lifecycle: { ...owned, verify: async () => ({ up: false }) } } }),
+  /differs from verified/);
+  const down = { ...owned, verify: async () => ({ up: false }) };
+  await assert.rejects(listenAwgRegistrationOnTunnel({ ...options, lifecycle: down,
+    bootstrapRuntime: { ...runtime, lifecycle: down } }), /device is down/);
   await assert.rejects(listenAwgRegistrationOnTunnel({ ...options,
-    bootstrapRuntime: { verifyCurrent: async () => false } }), /not verified/);
+    bootstrapRuntime: { ...runtime, verifyCurrent: async () => false } }), /not verified/);
+  await assert.rejects(listenAwgRegistrationOnTunnel({ ...options,
+    bootstrapRuntime: { ...runtime, registrationPort: 51822 } }), /differs from verified/);
   const server = await listenAwgRegistrationOnTunnel({ ...options,
-    bootstrapRuntime: { verifyCurrent: async () => true } });
+    bootstrapRuntime: runtime });
   t.after(() => new Promise(resolve => server.close(resolve)));
   const key = () => crypto.randomBytes(32).toString('base64');
   const issued = await createAwgBootstrapInvitation({ controllerKey: controller.publicKey,
