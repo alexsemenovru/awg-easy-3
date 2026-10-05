@@ -95,6 +95,9 @@ test('temporary peer is installed under guard before its registration firewall o
   assert.deepEqual(f.events.filter(x => ['awg-apply', 'route-apply', 'nft-apply', 'guard-release'].includes(x)),
     ['awg-apply', 'route-apply', 'nft-apply', 'guard-release']);
   assert.equal(await f.runtime.verifyPeer(record), true);
+  assert.equal(await f.runtime.verifyCurrent(), true);
+  f.guard.load = async () => ({ interfaces: ['awg-enroll'], pending: null });
+  assert.equal(await f.runtime.verifyCurrent(), false);
 });
 
 test('temporary peer removal closes firewall before removing AWG peer', async () => {

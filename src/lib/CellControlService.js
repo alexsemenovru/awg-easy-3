@@ -1,6 +1,5 @@
 'use strict';
-const net = require('node:net');
-const { ipNumber } = require('./GeoIpAddress');
+const { requireOwnedTunnelAddress } = require('./CellOwnedTunnel');
 const { verifyControl, signControl, signControlReply, verifyControlReply } = require('./CellControlProtocol');
 const { exchangeOverTls, createRegistrationServer } = require('./CellRegistrationTransport');
 const { exchangeOverTunnel, listenControlOnTunnel } = require('./CellTunnelControlTransport');
@@ -73,20 +72,7 @@ async function listenTunnelControlEndpoint({ address, port, identityStore, boots
   if (!bootstrapStore || typeof bootstrapStore.read !== 'function') {
     throw new TypeError('AWG bootstrap store required for tunnel control');
   }
-  if (!lifecycle || typeof lifecycle.load !== 'function' || typeof lifecycle.verify !== 'function') {
-    throw new TypeError('Owned AWG lifecycle required for tunnel control');
-  }
-  const saved = await lifecycle.load();
-  if (saved.phase !== 'ready' || !saved.spec?.owner?.interfaceName
-    || !Array.isArray(saved.spec.addresses)) {
-    throw new Error('Owned AWG device is not ready');
-  }
-  const family = net.isIP(address);
-  if (!family || !saved.spec.addresses.some(value => {
-    const host = value.split('/')[0];
-    return net.isIP(host) === family && ipNumber(host) === ipNumber(address);
-  })) throw new Error('Control bind address is not owned by AWG');
-  if (!(await lifecycle.verify(saved.spec)).up) throw new Error('Owned AWG device is down');
+  await requireOwnedTunnelAddress({ lifecycle, address });
   return listenControlOnTunnel({ address, port,
     handler: new CellControlService({ identityStore, bootstrapStore, publisherForCell }) });
 }

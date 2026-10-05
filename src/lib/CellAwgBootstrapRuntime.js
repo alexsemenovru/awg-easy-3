@@ -132,6 +132,20 @@ class CellAwgBootstrapRuntime {
     return this.verify(spec, policy, routeCommands);
   }
 
+  // Read-only admission gate for the registration listener. A temporary peer
+  // may be installed, but the guard must already be released and the complete
+  // journal/kernel/firewall/route snapshot must still agree.
+  async verifyCurrent() {
+    const guard = await this.guard.load();
+    if (guard.pending !== null || !Array.isArray(guard.interfaces)
+      || guard.interfaces.length !== 0) return false;
+    const records = await this.records();
+    const { saved } = await this.ownership();
+    const { spec, policy, routeCommands } = this.desired(records, saved.spec);
+    if (!matchesAwgConfig(saved.spec.owner.config, spec.owner.config)) return false;
+    return this.verify(spec, policy, routeCommands);
+  }
+
   async removePeer(record) {
     const records = await this.records();
     if (!records.some(item => item.id === record.id && item.phase === 'closing'

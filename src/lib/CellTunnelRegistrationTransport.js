@@ -2,14 +2,35 @@
 
 const net = require('node:net');
 const { MAX_BYTES } = require('./CellRegistrationHandler');
+const { CellRegistrationHandler } = require('./CellRegistrationHandler');
 const { verifyReceipt } = require('./CellRegistration');
 const { verifyAwgReceipt } = require('./CellAwgRegistration');
+const { parseAwgRegistration } = require('./CellAwgRegistration');
+const { CellAwgRegistrationService } = require('./CellAwgRegistrationService');
+const { requireOwnedTunnelAddress } = require('./CellOwnedTunnel');
 const { listenControlOnTunnel, privateAddress } = require('./CellTunnelControlTransport');
 
 // This listener must be started only after the temporary AWG peer and its
 // port-specific guard are verified. It binds to a private tunnel address, not WAN.
 function listenRegistrationOnTunnel({ address, port, handler, timeoutMs = 10000 }) {
   return listenControlOnTunnel({ address, port, handler, timeoutMs });
+}
+
+// v2 entry point: only bind after both the owned AWG device and the caller's
+// bootstrap peer/firewall readback are ready. Legacy v1 uses the generic helper.
+async function listenAwgRegistrationOnTunnel({ address, port, lifecycle, identityStore,
+  bootstrapStore, bootstrapRuntime, timeoutMs = 10000 }) {
+  if (!bootstrapStore || typeof bootstrapStore.completeAwgSigned !== 'function'
+    || !identityStore || typeof identityStore.load !== 'function'
+    || !bootstrapRuntime || typeof bootstrapRuntime.verifyCurrent !== 'function') {
+    throw new TypeError('AWG registration requires identity, store and bootstrap runtime');
+  }
+  await requireOwnedTunnelAddress({ lifecycle, address });
+  if (await bootstrapRuntime.verifyCurrent() !== true) throw new Error('AWG bootstrap path is not verified');
+  const handler = new CellRegistrationHandler(
+    new CellAwgRegistrationService(identityStore, bootstrapStore),
+    { parse: parseAwgRegistration });
+  return listenRegistrationOnTunnel({ address, port, handler, timeoutMs });
 }
 
 function connectRegistration({ address, port, controllerKey, request, timeoutMs = 10000 }, verify) {
@@ -55,4 +76,5 @@ function connectRegistration({ address, port, controllerKey, request, timeoutMs 
 const registerOverTunnel = options => connectRegistration(options, verifyReceipt);
 const registerAwgOverTunnel = options => connectRegistration(options, verifyAwgReceipt);
 
-module.exports = { listenRegistrationOnTunnel, registerOverTunnel, registerAwgOverTunnel };
+module.exports = { listenRegistrationOnTunnel, listenAwgRegistrationOnTunnel,
+  registerOverTunnel, registerAwgOverTunnel };
