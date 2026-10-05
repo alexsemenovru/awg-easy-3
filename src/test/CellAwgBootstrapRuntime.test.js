@@ -102,6 +102,11 @@ test('temporary peer is installed under guard before its registration firewall o
   f.guard.load = async () => ({ interfaces: [], pending: null });
   f.guard.current = async () => ({ unexpected: true });
   assert.equal(await f.runtime.verifyCurrent(), false);
+  f.guard.current = async () => null;
+  f.runtime.firewall.current = async () => null;
+  assert.equal(await f.runtime.verifyCurrent(), false);
+  f.runtime.lifecycle.verify = async () => ({ up: false });
+  assert.equal(await f.runtime.verifyCurrent(), false);
 });
 
 test('temporary peer removal closes firewall before removing AWG peer', async () => {
