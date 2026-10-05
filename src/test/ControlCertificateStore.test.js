@@ -131,6 +131,7 @@ test('registered cell polls signed settings over TLS and confirms only successfu
     apply: async () => { if (failed) throw new Error('runtime failure'); applies++; },
   });
   const options = { connectionStore, identityStore: cellIdentity, receiver, host: '127.0.0.1', port: control.address().port };
+  await assert.rejects(syncCellSettings({ ...options, transport: 'tunnel' }), /requires the TLS/);
   assert.equal((await syncCellSettings(options)).status, 'no-settings');
   await publisher.publish({ schema: 1, clients: [] });
   assert.deepEqual(await syncCellSettings(options), { status: 'applied', revision: 1 });

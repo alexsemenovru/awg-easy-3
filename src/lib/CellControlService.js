@@ -1,4 +1,6 @@
 'use strict';
+const net = require('node:net');
+const { ipNumber } = require('./GeoIpAddress');
 const { verifyControl, signControl, signControlReply, verifyControlReply } = require('./CellControlProtocol');
 const { exchangeOverTls, createRegistrationServer } = require('./CellRegistrationTransport');
 const { exchangeOverTunnel, listenControlOnTunnel } = require('./CellTunnelControlTransport');
@@ -64,13 +66,27 @@ async function prepareControlEndpoint({ identityStore, certificateStore, enrollm
     handler: new CellControlService({ identityStore, enrollmentStore, publisherForCell }) });
 }
 
-// Explicitly opt-in only after the owned inter-server AWG interface is up.
-// The transport rejects public bind addresses; runtime integration must also
-// verify interface ownership before opening the listener.
-function listenTunnelControlEndpoint({ address, port, identityStore, bootstrapStore, publisherForCell }) {
+// Never accept a merely private host address: prove it belongs to our ready,
+// unchanged inter-server AWG device immediately before opening the listener.
+async function listenTunnelControlEndpoint({ address, port, identityStore, bootstrapStore,
+  lifecycle, publisherForCell }) {
   if (!bootstrapStore || typeof bootstrapStore.read !== 'function') {
     throw new TypeError('AWG bootstrap store required for tunnel control');
   }
+  if (!lifecycle || typeof lifecycle.load !== 'function' || typeof lifecycle.verify !== 'function') {
+    throw new TypeError('Owned AWG lifecycle required for tunnel control');
+  }
+  const saved = await lifecycle.load();
+  if (saved.phase !== 'ready' || !saved.spec?.owner?.interfaceName
+    || !Array.isArray(saved.spec.addresses)) {
+    throw new Error('Owned AWG device is not ready');
+  }
+  const family = net.isIP(address);
+  if (!family || !saved.spec.addresses.some(value => {
+    const host = value.split('/')[0];
+    return net.isIP(host) === family && ipNumber(host) === ipNumber(address);
+  })) throw new Error('Control bind address is not owned by AWG');
+  if (!(await lifecycle.verify(saved.spec)).up) throw new Error('Owned AWG device is down');
   return listenControlOnTunnel({ address, port,
     handler: new CellControlService({ identityStore, bootstrapStore, publisherForCell }) });
 }
@@ -81,6 +97,15 @@ async function syncCellSettings({ connectionStore, identityStore, receiver, host
   transport = 'tls' }) {
   const connection = await connectionStore.read();
   if (connection?.status !== 'registered') throw new Error('Cell is not registered');
+  if (connection.version !== 1 && connection.version !== 2) {
+    throw new Error('Unsupported cell connection version');
+  }
+  if (connection.version === 2 && transport !== 'tunnel') {
+    throw new Error('AWG cell control requires the tunnel transport');
+  }
+  if (connection.version === 1 && transport !== 'tls') {
+    throw new Error('Legacy cell control requires the TLS transport');
+  }
   const identity = await identityStore.load('cell');
   if (identity.publicKey !== connection.cellKey) throw new Error('Cell identity changed');
   const exchange = async (action, payload = null) => {

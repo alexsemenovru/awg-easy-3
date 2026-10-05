@@ -15,6 +15,12 @@ const { CellSettingsReceiver } = require('../lib/CellSettingsReceiver');
 const { CellAwgBootstrapStore } = require('../lib/CellAwgBootstrapStore');
 const { listenTunnelControlEndpoint, syncCellSettings } = require('../lib/CellControlService');
 
+const ownedLoopback = () => ({
+  load: async () => ({ phase: 'ready', spec: { owner: { interfaceName: 'testawg' },
+    addresses: ['127.0.0.1/32'] } }),
+  verify: async () => ({ up: true }),
+});
+
 test('tunnel control transport refuses public addresses and never auto-listens', async () => {
   for (const address of ['0.0.0.0', '216.57.108.77', '::', '2001:db8::1', 'localhost']) {
     assert.equal(privateAddress(address), false);
@@ -81,7 +87,7 @@ test('registered cell polls and acknowledges settings over the tunnel transport'
   await bootstrapStore.write({ version: 2, invitations: [record] });
   const publisher = new CellSettingsPublisher(path.join(directory, 'desired.json'), identities, cell.publicKey);
   const server = await listenTunnelControlEndpoint({ address: '127.0.0.1', port: 0,
-    identityStore: identities, bootstrapStore,
+    identityStore: identities, bootstrapStore, lifecycle: ownedLoopback(),
     publisherForCell: key => { assert.equal(key, cell.publicKey); return publisher; } });
   t.after(() => new Promise(resolve => server.close(resolve)));
   let applies = 0;
@@ -89,13 +95,15 @@ test('registered cell polls and acknowledges settings over the tunnel transport'
     controllerKey: controller.publicKey, cellKey: cell.publicKey,
     apply: async () => { applies++; },
   });
-  const options = { connectionStore: { read: async () => ({ status: 'registered',
+  const options = { connectionStore: { read: async () => ({ version: 2, status: 'registered',
     controllerKey: controller.publicKey, cellKey: cell.publicKey }) },
   identityStore: cellIdentities, receiver, host: '127.0.0.1', port: server.address().port,
   transport: 'tunnel' };
   // Consumed invitation alone is not authority to manage the cell: the
   // permanent AWG path must have been verified and the temporary peer retired.
   await assert.rejects(syncCellSettings(options), /Control reply rejected/);
+  await assert.rejects(syncCellSettings({ ...options, transport: 'tls' }), /requires the tunnel/);
+  await assert.rejects(syncCellSettings({ ...options, transport: undefined }), /requires the tunnel/);
   await bootstrapStore.write({ version: 2, invitations: [{ ...record,
     phase: 'closed', temporaryPresharedKey: null }] });
   assert.equal((await syncCellSettings(options)).status, 'no-settings');
@@ -112,15 +120,32 @@ test('tunnel control rejects legacy enrollment and incomplete v2 identity', asyn
   const identities = new ControlIdentityStore(path.join(directory, 'controller.json'));
   const controller = await identities.create('controller');
   const cell = identity();
-  assert.throws(() => listenTunnelControlEndpoint({ address: '127.0.0.1', port: 0,
+  await assert.rejects(listenTunnelControlEndpoint({ address: '127.0.0.1', port: 0,
     identityStore: identities, enrollmentStore: { read: async () => ({ invitations: [] }) },
     publisherForCell: () => {} }), /AWG bootstrap store required/);
   const bootstrapStore = new CellAwgBootstrapStore(path.join(directory, 'bootstrap.json'));
   const server = await listenTunnelControlEndpoint({ address: '127.0.0.1', port: 0,
-    identityStore: identities, bootstrapStore,
+    identityStore: identities, bootstrapStore, lifecycle: ownedLoopback(),
     publisherForCell: () => { throw new Error('Unauthorised publisher access'); } });
   t.after(() => new Promise(resolve => server.close(resolve)));
   const request = signControl({ controllerKey: controller.publicKey, action: 'poll' }, cell.privateKey);
   await assert.rejects(exchangeOverTunnel({ address: '127.0.0.1', port: server.address().port,
     request, controllerKey: controller.publicKey }), /Control reply rejected/);
+});
+
+test('tunnel control listener requires a ready owned AWG address and a live device', async () => {
+  const base = { address: '127.0.0.1', port: 0,
+    bootstrapStore: { read: async () => ({ version: 2, invitations: [] }) },
+    identityStore: {}, publisherForCell: () => {} };
+  await assert.rejects(listenTunnelControlEndpoint(base), /lifecycle required/);
+  const lifecycle = ownedLoopback();
+  await assert.rejects(listenTunnelControlEndpoint({ ...base,
+    lifecycle: { ...lifecycle, load: async () => ({ phase: 'creating' }) } }), /not ready/);
+  await assert.rejects(listenTunnelControlEndpoint({ ...base,
+    lifecycle: { ...lifecycle, load: async () => ({ phase: 'ready',
+      spec: { owner: { interfaceName: 'testawg' }, addresses: ['10.88.0.1/32'] } }) } }), /not owned/);
+  await assert.rejects(listenTunnelControlEndpoint({ ...base,
+    lifecycle: { ...lifecycle, verify: async () => ({ up: false }) } }), /down/);
+  await assert.rejects(listenTunnelControlEndpoint({ ...base,
+    lifecycle: { ...lifecycle, verify: async () => { throw new Error('AWG drift'); } } }), /AWG drift/);
 });
