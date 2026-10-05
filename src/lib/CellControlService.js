@@ -7,9 +7,14 @@ const { acknowledgeApplied } = require('./CellSettingsAck');
 const PROTOCOL = 'awg-easy-3-control/1';
 
 class CellControlService {
-  constructor({ identityStore, enrollmentStore, publisherForCell, monotonicNow = () => performance.now() }) {
+  constructor({ identityStore, enrollmentStore, bootstrapStore, publisherForCell,
+    monotonicNow = () => performance.now() }) {
+    if (enrollmentStore && bootstrapStore) {
+      throw new TypeError('Control service cannot mix legacy and AWG cell enrollment');
+    }
     this.identityStore = identityStore;
     this.enrollmentStore = enrollmentStore;
+    this.bootstrapStore = bootstrapStore;
     this.publisherForCell = publisherForCell;
     this.inFlight = 0;
     this.monotonicNow = monotonicNow;
@@ -28,8 +33,14 @@ class CellControlService {
     try {
       const controller = await this.identityStore.load('controller');
       const request = verifyControl(bytes, controller.publicKey);
-      const enrollment = await this.enrollmentStore.read();
-      if (!enrollment.invitations.some(item => item.status === 'consumed' && item.cellKey === request.cellKey)) {
+      const enrollment = await (this.bootstrapStore || this.enrollmentStore).read();
+      const allowed = this.bootstrapStore
+        ? enrollment.version === 2 && enrollment.invitations.some(item =>
+          item.status === 'consumed' && item.phase === 'closed'
+          && item.cellKey === request.cellKey && item.awgPublicKey && item.awgPresharedKey)
+        : enrollment.invitations.some(item => item.status === 'consumed'
+          && item.cellKey === request.cellKey);
+      if (!allowed) {
         throw new Error('Unknown cell');
       }
       const publisher = this.publisherForCell(request.cellKey);
@@ -56,9 +67,12 @@ async function prepareControlEndpoint({ identityStore, certificateStore, enrollm
 // Explicitly opt-in only after the owned inter-server AWG interface is up.
 // The transport rejects public bind addresses; runtime integration must also
 // verify interface ownership before opening the listener.
-function listenTunnelControlEndpoint({ address, port, identityStore, enrollmentStore, publisherForCell }) {
+function listenTunnelControlEndpoint({ address, port, identityStore, bootstrapStore, publisherForCell }) {
+  if (!bootstrapStore || typeof bootstrapStore.read !== 'function') {
+    throw new TypeError('AWG bootstrap store required for tunnel control');
+  }
   return listenControlOnTunnel({ address, port,
-    handler: new CellControlService({ identityStore, enrollmentStore, publisherForCell }) });
+    handler: new CellControlService({ identityStore, bootstrapStore, publisherForCell }) });
 }
 
 // One explicit sync, not a daemon. Control address supplied locally until installer

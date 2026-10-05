@@ -5,12 +5,14 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { identity } = require('../lib/CellRegistration');
 const { signControl, signControlReply } = require('../lib/CellControlProtocol');
 const { listenControlOnTunnel, exchangeOverTunnel, privateAddress } = require('../lib/CellTunnelControlTransport');
 const { ControlIdentityStore } = require('../lib/ControlIdentityStore');
 const { CellSettingsPublisher } = require('../lib/CellSettingsPublisher');
 const { CellSettingsReceiver } = require('../lib/CellSettingsReceiver');
+const { CellAwgBootstrapStore } = require('../lib/CellAwgBootstrapStore');
 const { listenTunnelControlEndpoint, syncCellSettings } = require('../lib/CellControlService');
 
 test('tunnel control transport refuses public addresses and never auto-listens', async () => {
@@ -68,10 +70,18 @@ test('registered cell polls and acknowledges settings over the tunnel transport'
   const controller = await identities.create('controller');
   const cellIdentities = new ControlIdentityStore(path.join(directory, 'cell.json'));
   const cell = await cellIdentities.create('cell');
+  const bootstrapStore = new CellAwgBootstrapStore(path.join(directory, 'bootstrap.json'));
+  const key = () => crypto.randomBytes(32).toString('base64');
+  const record = { version: 2, id: crypto.randomBytes(16).toString('hex'),
+    status: 'consumed', phase: 'ready', createdAt: 1000, expiresAt: 61000,
+    secretHash: crypto.randomBytes(32).toString('hex'), temporaryPublicKey: key(),
+    temporaryPresharedKey: key(), cellAddress: '10.90.0.2',
+    requestId: crypto.randomBytes(16).toString('hex'), cellKey: cell.publicKey,
+    changedAt: 1002, awgPublicKey: key(), awgPresharedKey: key() };
+  await bootstrapStore.write({ version: 2, invitations: [record] });
   const publisher = new CellSettingsPublisher(path.join(directory, 'desired.json'), identities, cell.publicKey);
   const server = await listenTunnelControlEndpoint({ address: '127.0.0.1', port: 0,
-    identityStore: identities,
-    enrollmentStore: { read: async () => ({ invitations: [{ status: 'consumed', cellKey: cell.publicKey }] }) },
+    identityStore: identities, bootstrapStore,
     publisherForCell: key => { assert.equal(key, cell.publicKey); return publisher; } });
   t.after(() => new Promise(resolve => server.close(resolve)));
   let applies = 0;
@@ -83,10 +93,34 @@ test('registered cell polls and acknowledges settings over the tunnel transport'
     controllerKey: controller.publicKey, cellKey: cell.publicKey }) },
   identityStore: cellIdentities, receiver, host: '127.0.0.1', port: server.address().port,
   transport: 'tunnel' };
+  // Consumed invitation alone is not authority to manage the cell: the
+  // permanent AWG path must have been verified and the temporary peer retired.
+  await assert.rejects(syncCellSettings(options), /Control reply rejected/);
+  await bootstrapStore.write({ version: 2, invitations: [{ ...record,
+    phase: 'closed', temporaryPresharedKey: null }] });
   assert.equal((await syncCellSettings(options)).status, 'no-settings');
   await publisher.publish({ schema: 1, clients: [] });
   assert.deepEqual(await syncCellSettings(options), { status: 'applied', revision: 1 });
   assert.equal((await publisher.load()).ack.revision, 1);
   await syncCellSettings(options);
   assert.equal(applies, 1);
+});
+
+test('tunnel control rejects legacy enrollment and incomplete v2 identity', async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-tunnel-denied-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const identities = new ControlIdentityStore(path.join(directory, 'controller.json'));
+  const controller = await identities.create('controller');
+  const cell = identity();
+  assert.throws(() => listenTunnelControlEndpoint({ address: '127.0.0.1', port: 0,
+    identityStore: identities, enrollmentStore: { read: async () => ({ invitations: [] }) },
+    publisherForCell: () => {} }), /AWG bootstrap store required/);
+  const bootstrapStore = new CellAwgBootstrapStore(path.join(directory, 'bootstrap.json'));
+  const server = await listenTunnelControlEndpoint({ address: '127.0.0.1', port: 0,
+    identityStore: identities, bootstrapStore,
+    publisherForCell: () => { throw new Error('Unauthorised publisher access'); } });
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const request = signControl({ controllerKey: controller.publicKey, action: 'poll' }, cell.privateKey);
+  await assert.rejects(exchangeOverTunnel({ address: '127.0.0.1', port: server.address().port,
+    request, controllerKey: controller.publicKey }), /Control reply rejected/);
 });
