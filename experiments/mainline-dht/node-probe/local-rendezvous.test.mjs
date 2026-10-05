@@ -38,4 +38,19 @@ test('BEP 5 finds an unknown peer through an unrelated loopback DHT node',
     })
     await lookup(seeker, hash)
     assert.ok(seen.some(peer => peer.host === '127.0.0.1' && peer.port === servicePort))
+    const contacts = seeker.toJSON().nodes.map(({ host, port }) => ({ host, port }))
+    assert.ok(contacts.some(node => node.host === '127.0.0.1' && node.port === contact.port))
+    // Recreate the seeker with only its remembered contacts. Public routers
+    // are absent: a reachable prior contact is enough for rendezvous.
+    const restored = new DHT({ bootstrap: contacts })
+    t.after(() => close(restored))
+    const listening = event(restored, 'listening')
+    restored.listen(0, '127.0.0.1')
+    await listening
+    const recovered = []
+    restored.on('peer', (peer, infoHash) => {
+      if (infoHash.equals(hash)) recovered.push(peer)
+    })
+    await lookup(restored, hash)
+    assert.ok(recovered.some(peer => peer.host === '127.0.0.1' && peer.port === servicePort))
   })
