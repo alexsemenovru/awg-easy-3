@@ -7,6 +7,7 @@ const publicHex = process.argv[2]
 const saltText = process.argv[3] || 'awg-easy-test'
 const duration = Number(process.argv[4] || 120)
 const directNode = process.argv[5]
+const marker = process.argv[6] || 'legacy'
 if (!/^[a-fA-F0-9]{64}$/.test(publicHex || '') ||
     !Number.isInteger(duration) || duration < 10 || duration > 300 ||
     !/^[\x20-\x7e]{1,64}$/.test(saltText)) {
@@ -15,6 +16,10 @@ if (!/^[a-fA-F0-9]{64}$/.test(publicHex || '') ||
 }
 if (directNode && !/^[^:]+:[1-9][0-9]{0,4}$/.test(directNode)) {
   process.stderr.write('invalid HOST:PORT\n')
+  process.exit(2)
+}
+if (!['legacy', 'field'].includes(marker)) {
+  process.stderr.write('invalid marker\n')
   process.exit(2)
 }
 
@@ -26,8 +31,9 @@ const emit = (event, fields = {}) => console.log(JSON.stringify({ event, time: D
 let verifyCount = 0
 let discoveredNodes = 0
 const dht = new DHT({
-  bootstrap: ['dht.libtorrent.org:25401', 'dht.transmissionbt.com:6881',
-    'router.bittorrent.com:6881'],
+  bootstrap: process.env.DHT_FIELD_NO_PUBLIC_BOOTSTRAP === '1' ? false
+    : ['dht.libtorrent.org:25401', 'dht.transmissionbt.com:6881',
+      'router.bittorrent.com:6881'],
   verify: (signature, message, key) => {
     verifyCount++
     if (!Buffer.isBuffer(key) || key.length !== 32 || !key.equals(expectedKey)) {
@@ -89,7 +95,8 @@ function lookup () {
     }
     let record
     try { record = JSON.parse(item.v.toString('utf8')) } catch { return emit('get_invalid_json') }
-    if (!record || record.awg_easy_mutable_probe !== 1) return emit('get_wrong_record')
+    if (!record || !(marker === 'legacy' ? record.awg_easy_mutable_probe === 1
+      : record.probe === 'awg-easy-disposable')) return emit('get_wrong_record')
     emit('get_verified', { seq: item.seq, record })
     stop(true)
   })
