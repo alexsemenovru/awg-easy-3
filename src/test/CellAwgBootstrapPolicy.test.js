@@ -49,6 +49,21 @@ test('bootstrap policy supports IPv6 and rejects foreign or duplicate addresses'
   ]) assert.throws(() => bootstrapPolicySnapshot({ ...base, ...bad }));
 });
 
+test('multiple invitations keep nft readback chain order and block WAN fallback per peer', () => {
+  const snapshot = bootstrapPolicySnapshot({ interfaceName: 'awgenroll',
+    controllerAddress: '10.90.0.1', registrationPort: 51822,
+    peers: [{ phase: 'ready', cellAddress: '10.90.0.3' },
+      { phase: 'preparing', cellAddress: '10.90.0.2' }] });
+  const rules = snapshot.nftables.filter(item => item.rule).map(item => item.rule);
+  assert.deepEqual(rules.map(rule => rule.chain), [
+    'input', 'input', 'input', 'output', 'output', 'output', 'output', 'output',
+    'forward', 'forward',
+  ]);
+  assert.deepEqual(rules.slice(5, 7).map(rule => rule.expr[0].match.right),
+    ['10.90.0.2', '10.90.0.3']);
+  assert.ok(rules.slice(5, 7).every(rule => rule.expr.at(-1).drop === null));
+});
+
 test('separate bootstrap table transacts without adopting the main route table', async t => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-bootstrap-nft-'));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
