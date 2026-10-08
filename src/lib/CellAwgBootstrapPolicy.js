@@ -37,11 +37,17 @@ function bootstrapPolicySnapshot({ interfaceName, controllerAddress, registratio
   }
   const add = (chain, line) => nftables.push({ rule: { family: 'inet', table: TABLE,
     chain, ...ruleExpressions(line) } });
-  for (const address of [...addresses].sort()) {
+  const sorted = [...addresses].sort();
+  // nft readback groups rules by chain even when an add batch interleaves them.
+  // Keep the desired snapshot in that same order for exact ownership checks.
+  for (const address of sorted) {
     add('input', `iifname "${interfaceName}" ${protocol} saddr ${address} ${protocol} daddr ${controllerAddress} tcp dport ${registrationPort} accept`);
-    add('output', `oifname "${interfaceName}" ${protocol} saddr ${controllerAddress} ${protocol} daddr ${address} tcp sport ${registrationPort} accept`);
   }
   add('input', `iifname "${interfaceName}" drop`);
+  for (const address of sorted) {
+    add('output', `oifname "${interfaceName}" ${protocol} saddr ${controllerAddress} ${protocol} daddr ${address} tcp sport ${registrationPort} accept`);
+  }
+  for (const address of sorted) add('output', `${protocol} daddr ${address} drop`);
   add('output', `oifname "${interfaceName}" drop`);
   add('forward', `iifname "${interfaceName}" drop`);
   add('forward', `oifname "${interfaceName}" drop`);

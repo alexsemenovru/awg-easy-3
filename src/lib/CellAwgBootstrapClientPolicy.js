@@ -25,8 +25,11 @@ function bootstrapClientPolicySnapshot({ interfaceName, cellAddress,
   const add = (chain, line) => nftables.push({ rule: { family: 'inet', table: TABLE,
     chain, ...ruleExpressions(line) } });
   add('input', `iifname "${interfaceName}" ${protocol} saddr ${controllerAddress} ${protocol} daddr ${cellAddress} tcp sport ${registrationPort} accept`);
-  add('output', `oifname "${interfaceName}" ${protocol} saddr ${cellAddress} ${protocol} daddr ${controllerAddress} tcp dport ${registrationPort} accept`);
   add('input', `iifname "${interfaceName}" drop`);
+  add('output', `oifname "${interfaceName}" ${protocol} saddr ${cellAddress} ${protocol} daddr ${controllerAddress} tcp dport ${registrationPort} accept`);
+  // If Linux discards the interface route on link-down, it may otherwise send
+  // the private control destination via the public default route.
+  add('output', `${protocol} daddr ${controllerAddress} drop`);
   add('output', `oifname "${interfaceName}" drop`);
   add('forward', `iifname "${interfaceName}" drop`);
   add('forward', `oifname "${interfaceName}" drop`);

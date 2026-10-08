@@ -14,13 +14,19 @@ test('bootstrap policy allows only registration TCP on the dedicated interface',
     controllerAddress: '10.90.0.1', registrationPort: 51822,
     peers: [{ phase: 'ready', cellAddress: '10.90.0.2' }] });
   const rules = snapshot.nftables.filter(item => item.rule).map(item => item.rule);
-  assert.equal(rules.length, 6);
+  assert.equal(rules.length, 7);
   assert.equal(rules[0].chain, 'input');
   assert.deepEqual(rules[0].expr.at(-2).match.left.payload, { protocol: 'tcp', field: 'dport' });
-  assert.equal(rules[1].chain, 'output');
-  assert.deepEqual(rules[1].expr.at(-2).match.left.payload, { protocol: 'tcp', field: 'sport' });
-  assert.deepEqual(rules.slice(-4).map(rule => [rule.chain, rule.expr.at(-1)]), [
-    ['input', { drop: null }], ['output', { drop: null }],
+  assert.equal(rules[1].chain, 'input');
+  assert.deepEqual(rules[1].expr.at(-1), { drop: null });
+  assert.equal(rules[2].chain, 'output');
+  assert.deepEqual(rules[2].expr.at(-2).match.left.payload, { protocol: 'tcp', field: 'sport' });
+  assert.equal(rules[3].chain, 'output');
+  assert.deepEqual(rules[3].expr[0].match.left.payload, { protocol: 'ip', field: 'daddr' });
+  assert.equal(rules[3].expr[0].match.right, '10.90.0.2');
+  assert.deepEqual(rules[3].expr.at(-1), { drop: null });
+  assert.deepEqual(rules.slice(-3).map(rule => [rule.chain, rule.expr.at(-1)]), [
+    ['output', { drop: null }],
     ['forward', { drop: null }], ['forward', { drop: null }],
   ]);
   const closed = bootstrapPolicySnapshot({ interfaceName: 'awgenroll',

@@ -23,6 +23,11 @@ test('unconfigured peer endpoints can roam but explicitly configured transit end
   const v6 = base + 'Endpoint = [fd99::1]:12345\n';
   assert.equal(matchesAwgConfig(v6, v6.replace('fd99::1', 'fd99:0:0:0:0:0:0:1')), true);
 });
+test('an unconfigured client listen port may be assigned dynamically, but an explicit port remains pinned', () => {
+  const client = base.replace('ListenPort = 54322\n', '');
+  assert.equal(matchesAwgConfig(client, base), true);
+  assert.equal(matchesAwgConfig(base, base.replace('54322', '54323')), false);
+});
 test('peer ordering is irrelevant, duplicate identities and fields are rejected', () => {
   const peer = `[Peer]\nPublicKey = ${key(3)}\nAllowedIPs = 10.88.0.3/32\n`;
   const [iface, first] = base.split('[Peer]');

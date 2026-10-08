@@ -91,6 +91,10 @@ function normalizeAwgConfig(text) {
 }
 function matchesAwgConfig(expectedText, actualText) {
   const expected = normalizeAwgConfig(expectedText), actual = normalizeAwgConfig(actualText);
+  // A client with no configured listen port receives an ephemeral port from
+  // the userspace AWG backend; showconf reports it after the socket binds.
+  // Explicitly configured server/transit ports remain pinned by readback.
+  if (!Object.hasOwn(expected.interface, 'listenport')) delete actual.interface.listenport;
   const byKey = new Map(expected.peers.map(peer => [peer.publickey, peer]));
   // Client roaming legitimately learns an endpoint when none was configured.
   // A configured transit endpoint, however, is checked exactly after canonicalization.
