@@ -42,6 +42,7 @@ function compileCellRouting({ topology, nodeId, context, geoDatabase = {} }) {
   const pathTo = (id, family) => id === nodeId ? client : links.get(id)?.[`ipv${family}`] ? links.get(id).interfaceName : null;
   const home = plan.routes.filter(r => r.group === 'home');
   const input = [], forward = [], output = [], nat = [], geoRules = [], geoSets = new Map();
+  const remoteHostDestinations = new Set();
   const geoDefinitions = new Map();
   const commands = [], rules = [], routeKeys = new Set();
   const route = (family, table, destination, dev, metric) => {
@@ -59,10 +60,12 @@ function compileCellRouting({ topology, nodeId, context, geoDatabase = {} }) {
     for (const r of plan.routes) {
       if (r.entry !== nodeId && enabled(r, family) && pathTo(r.entry, family)) {
         route(family, 'main', `${r[`address${family}`]}/${suffix}`, pathTo(r.entry, family));
+        remoteHostDestinations.add(`${ip} daddr ${r[`address${family}`]} drop`);
       }
     }
     if (controller !== nodeId && panelAddress && pathTo(controller, family)) {
       route(family, 'main', `${panelAddress}/${suffix}`, pathTo(controller, family));
+      remoteHostDestinations.add(`${ip} daddr ${panelAddress} drop`);
     }
     for (const link of links.values()) {
       // Permanent unreachable terminal: link deletion must never fall through to
@@ -129,7 +132,7 @@ function compileCellRouting({ topology, nodeId, context, geoDatabase = {} }) {
   const render = lines => lines.map(line => `    ${line}`).join('\n');
   const nftSnapshot = routingPolicySnapshot({ input: [...input, `iifname ${managed} drop`],
     forward: [...forward, ...geoRules.flatMap(r => r.split('\n')), ...rules, `iifname ${managed} drop`, `oifname ${managed} drop`],
-    output: [...output, `oifname ${managed} drop`], nat, sets: [...geoDefinitions.values()] });
+    output: [...output, ...remoteHostDestinations, `oifname ${managed} drop`], nat, sets: [...geoDefinitions.values()] });
   return { plan, commands, table: TABLE,
     nftSnapshot,
     nftables: `# Managed by AWG-Easy 3 routing prototype\ntable inet ${TABLE} {\n${[...geoSets.values()].join('\n')}
@@ -146,6 +149,7 @@ ${render(rules)}
   }
   chain output { type filter hook output priority -15; policy accept;
 ${render(output)}
+${render([...remoteHostDestinations])}
     oifname ${managed} drop
   }
   chain postrouting { type nat hook postrouting priority srcnat; policy accept;

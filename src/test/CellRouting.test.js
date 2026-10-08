@@ -49,6 +49,16 @@ test('remote-exit policy scopes rules to ingress, adds terminal unreachable rout
   assert.match(built.nftables, /iifname "clients" oifname "transit" ip saddr 10\.88\.0\.2 accept/);
   assert.ok(!built.nftables.includes('iifname "clients" oifname "wan" ip saddr 10.88.0.2 accept'));
 });
+test('remote managed host destinations cannot fall back to the public route on link loss', () => {
+  const cell = compileCellRouting({ topology: fixture(), nodeId: 'cell', context: context('main') });
+  const main = compileCellRouting({ topology: fixture(), nodeId: 'main', context: context('cell') });
+  assert.match(cell.nftables, /ip daddr 10\.88\.0\.1 drop/);
+  assert.match(cell.nftables, /ip6 daddr fd88::1 drop/);
+  assert.match(main.nftables, /ip daddr 10\.88\.0\.2 drop/);
+  assert.match(main.nftables, /ip6 daddr fd88::2 drop/);
+  assert.match(cell.nftables, /ip daddr 10\.88\.0\.3 drop/);
+  assert.ok(!main.nftables.includes('ip daddr 10.88.0.3 drop'));
+});
 test('exit filters GeoIP before WAN allow and NATs only at exit', () => {
   const f = fixture(); f.clients[0].assignment.geoPolicy = { mode: 'block', countries: ['RU'] };
   const built = compileCellRouting({ topology: f, nodeId: 'main', context: context('cell'),
