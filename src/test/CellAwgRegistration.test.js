@@ -6,6 +6,7 @@ const crypto = require('node:crypto');
 const { identity } = require('../lib/CellRegistration');
 const { signAwgRegistration, verifyAwgRegistration,
   signAwgReceipt, verifyAwgReceipt } = require('../lib/CellAwgRegistration');
+const { generateOfficialProfile } = require('../lib/Awg3Config');
 
 const key = () => crypto.randomBytes(32).toString('base64');
 function fixture() {
@@ -44,6 +45,25 @@ test('signed v2 receipt confirms exactly the submitted permanent AWG identity', 
   assert.throws(() => verifyAwgReceipt({ ...receipt, requestHash: crypto.randomBytes(32).toString('base64url') },
     f.request, f.controller.publicKey, 100003));
   assert.throws(() => verifyAwgReceipt(receipt, f.request, identity().publicKey, 100003));
+});
+
+test('signed v3 receipt binds a complete permanent path without exposing the cell private key', () => {
+  const f = fixture();
+  const permanent = { version: 1, endpointHost: 'controller.example', endpointPort: 53084,
+    controllerAddress: '10.91.8.1', cellAddress: '10.91.8.2', controlPort: 53083,
+    serverPublicKey: key(), profile: generateOfficialProfile() };
+  const receipt = signAwgReceipt(f.request, f.controller.privateKey, 100002, permanent);
+  const verified = verifyAwgReceipt(receipt, f.request, f.controller.publicKey, 100003);
+  assert.equal(receipt.version, 3);
+  assert.deepEqual(verified.permanent, permanent);
+  assert.equal(JSON.stringify(receipt).includes('privateKey'), false);
+  for (const patch of [{ endpointPort: 53085 }, { cellAddress: '10.91.8.3' },
+    { serverPublicKey: key() }]) {
+    assert.throws(() => verifyAwgReceipt({ ...receipt,
+      permanent: { ...receipt.permanent, ...patch } }, f.request, f.controller.publicKey, 100003));
+  }
+  assert.throws(() => signAwgReceipt(f.request, f.controller.privateKey, 100002,
+    { ...permanent, endpointHost: 'bad host' }));
 });
 
 test('v2 proof rejects malformed keys, extra fields and expired or future timestamps', () => {

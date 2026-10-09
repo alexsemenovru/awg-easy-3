@@ -90,3 +90,22 @@ test('corrupt permanent key pair and repeated begin are refused without replacem
   await fs.writeFile(f.file, JSON.stringify(pending));
   await assert.rejects(f.store.read(), /Invalid AWG cell connection state/);
 });
+
+test('cell persists the signed permanent path descriptor and refuses corrupt disk edits', async t => {
+  const f = await fixture(t);
+  await f.store.begin(f.issued.code);
+  const descriptor = { version: 1, endpointHost: 'controller.example', endpointPort: 53084,
+    controllerAddress: '10.91.8.1', cellAddress: '10.91.8.2', controlPort: 53083,
+    serverPublicKey: key(), profile: generateOfficialProfile() };
+  f.store.connect = async ({ request }) => ({ status: 'registered',
+    controllerKey: request.controllerKey, cellKey: request.cellKey,
+    invitationId: request.invitationId, permanent: descriptor });
+  await f.store.resume();
+  const saved = await f.store.read();
+  assert.deepEqual(saved.controllerPath, descriptor);
+  assert.equal(Object.hasOwn(saved, 'invitation'), false);
+  assert.equal(Object.hasOwn(saved, 'request'), false);
+  saved.controllerPath.endpointHost = 'bad host';
+  await fs.writeFile(f.file, JSON.stringify(saved));
+  await assert.rejects(f.store.read(), /Invalid AWG cell connection state/);
+});

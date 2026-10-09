@@ -8,6 +8,7 @@ const { validateKey } = require('./AwgKeyManager');
 const { privateAddress } = require('./CellTunnelControlTransport');
 const { verifyRegistration } = require('./CellRegistration');
 const { verifyAwgRegistration } = require('./CellAwgRegistration');
+const { validatePermanentDescriptor } = require('./CellAwgPermanentDescriptor');
 
 const queues = new Map();
 const MAX_RECORDS = 1024;
@@ -43,6 +44,10 @@ function validateRecord(value) {
   }
   const base = ['version', 'id', 'status', 'phase', 'createdAt', 'expiresAt', 'secretHash',
     'temporaryPublicKey', 'temporaryPresharedKey', 'cellAddress'];
+  if (Object.hasOwn(value, 'permanentDescriptor')) {
+    try { validatePermanentDescriptor(value.permanentDescriptor); } catch { invalid(); }
+    base.push('permanentDescriptor');
+  }
   if (value.status === 'consumed') {
     if (!id(value.requestId) || !token(value.cellKey) || !time(value.changedAt)
       || value.changedAt < value.createdAt
@@ -229,7 +234,8 @@ class CellAwgBootstrapStore {
         record.awgPresharedKey = proof.awgPresharedKey;
       } else throw new Error('AWG invitation unavailable');
       return { id: record.id, status: 'consumed', cellKey: record.cellKey,
-        awgPublicKey: record.awgPublicKey };
+        awgPublicKey: record.awgPublicKey,
+        ...(record.permanentDescriptor ? { permanentDescriptor: record.permanentDescriptor } : {}) };
     });
   }
 

@@ -4,6 +4,7 @@ const crypto = require('node:crypto');
 const { TextDecoder } = require('node:util');
 const { MAX_CLOCK_SKEW_MS } = require('./CellClock');
 const { validateKey } = require('./AwgKeyManager');
+const { validatePermanentDescriptor } = require('./CellAwgPermanentDescriptor');
 
 const MAX_AGE_MS = 5 * 60 * 1000;
 const invalid = () => { throw new Error('Invalid AWG cell registration proof'); };
@@ -75,35 +76,43 @@ const requestHash = request => crypto.createHash('sha256').update(requestMessage
   Object.fromEntries(unsigned.map(name => [name, request[name]])))).digest('base64url');
 
 function receiptMessage(receipt) {
-  const names = ['version', 'status', 'invitationId', 'requestId', 'cellKey',
+  const basic = ['version', 'status', 'invitationId', 'requestId', 'cellKey',
     'controllerKey', 'requestHash', 'issuedAt'];
-  if (!exact(receipt, names) || receipt.version !== 2 || receipt.status !== 'registered'
+  const permanent = receipt.version === 3
+    ? validatePermanentDescriptor(receipt.permanent) : null;
+  if (!exact(receipt, permanent ? [...basic, 'permanent'] : basic)
+    || ![2, 3].includes(receipt.version) || receipt.status !== 'registered'
     || !id(receipt.invitationId) || !id(receipt.requestId)
     || !token(receipt.cellKey, 32) || !token(receipt.controllerKey, 32)
     || !token(receipt.requestHash, 32)
     || !Number.isSafeInteger(receipt.issuedAt) || receipt.issuedAt < 0) invalid();
-  return Buffer.from(JSON.stringify(['awg-easy-3/cell-awg-registration-receipt/v2',
+  return Buffer.from(JSON.stringify([`awg-easy-3/cell-awg-registration-receipt/v${receipt.version}`,
     receipt.invitationId, receipt.requestId, receipt.controllerKey, receipt.cellKey,
-    receipt.requestHash, receipt.status, receipt.issuedAt]));
+    receipt.requestHash, receipt.status, receipt.issuedAt,
+    ...(permanent ? [permanent] : [])]));
 }
 
-function signAwgReceipt(request, identityPrivateKey, now = Date.now()) {
+function signAwgReceipt(request, identityPrivateKey, now = Date.now(), permanentDescriptor) {
   let key;
   try { key = crypto.createPrivateKey(identityPrivateKey); }
   catch { invalid(); }
   if (key.asymmetricKeyType !== 'ed25519') invalid();
   const controllerKey = crypto.createPublicKey(key).export({ format: 'jwk' }).x;
   verifyAwgRegistration(request, controllerKey, now);
-  const receipt = { version: 2, status: 'registered', invitationId: request.invitationId,
+  const receipt = { version: permanentDescriptor ? 3 : 2, status: 'registered', invitationId: request.invitationId,
     requestId: request.requestId, cellKey: request.cellKey, controllerKey,
     requestHash: requestHash(request), issuedAt: now };
+  if (permanentDescriptor) receipt.permanent = validatePermanentDescriptor(permanentDescriptor);
   return { ...receipt, signature: crypto.sign(null, receiptMessage(receipt), key).toString('base64url') };
 }
 
 function verifyAwgReceipt(receipt, request, controllerKey, now = Date.now()) {
   verifyAwgRegistration(request, controllerKey, now);
-  if (!exact(receipt, ['version', 'status', 'invitationId', 'requestId', 'cellKey',
-    'controllerKey', 'requestHash', 'issuedAt', 'signature']) || !token(receipt.signature, 64)) invalid();
+  if (!receipt || ![2, 3].includes(receipt.version)
+    || !exact(receipt, ['version', 'status', 'invitationId', 'requestId', 'cellKey',
+      'controllerKey', 'requestHash', 'issuedAt', 'signature',
+      ...(receipt.version === 3 ? ['permanent'] : [])])
+    || !token(receipt.signature, 64)) invalid();
   const body = { ...receipt }; delete body.signature;
   const bytes = receiptMessage(body);
   if (receipt.controllerKey !== controllerKey || receipt.invitationId !== request.invitationId
@@ -117,7 +126,8 @@ function verifyAwgReceipt(receipt, request, controllerKey, now = Date.now()) {
   } }); } catch { invalid(); }
   if (!crypto.verify(null, bytes, key, Buffer.from(receipt.signature, 'base64url'))) invalid();
   return { controllerKey, cellKey: receipt.cellKey,
-    invitationId: receipt.invitationId, status: 'registered' };
+    invitationId: receipt.invitationId, status: 'registered',
+    ...(receipt.version === 3 ? { permanent: validatePermanentDescriptor(receipt.permanent) } : {}) };
 }
 
 module.exports = { signAwgRegistration, verifyAwgRegistration, parseAwgRegistration,

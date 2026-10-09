@@ -21,7 +21,7 @@ class CellAwgRegistrationService {
     if (result.status !== 'consumed' || result.awgPublicKey !== request.awgPublicKey) {
       throw new Error('Permanent AWG registration was not committed');
     }
-    return signAwgReceipt(request, controller.privateKey, now);
+    return signAwgReceipt(request, controller.privateKey, now, result.permanentDescriptor);
   }
 }
 

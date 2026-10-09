@@ -77,7 +77,7 @@ test('v2 AWG invitation registers through the private tunnel and is single-use',
   await assert.rejects(registerOverTunnel(options), /confirmation rejected/);
 });
 
-test('cell-owned permanent AWG identity persists across a real loopback v2 registration', async t => {
+test('v2 invitation delivers signed permanent path and cell-owned identity over loopback', async t => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-v2-connection-loopback-'));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   const controllerIds = new ControlIdentityStore(path.join(directory, 'controller.json'));
@@ -85,15 +85,20 @@ test('cell-owned permanent AWG identity persists across a real loopback v2 regis
   const controller = await controllerIds.create('controller');
   await cellIds.create('cell');
   const store = new CellAwgBootstrapStore(path.join(directory, 'bootstrap.json'));
+  const key = () => crypto.randomBytes(32).toString('base64');
+  const serverPublicKey = key();
+  const descriptor = { version: 1, endpointHost: 'controller.example', endpointPort: 53084,
+    controllerAddress: '10.91.8.1', cellAddress: '10.91.8.2', controlPort: 53083,
+    serverPublicKey, profile: generateOfficialProfile() };
   const handler = new CellRegistrationHandler(new CellAwgRegistrationService(controllerIds, store),
     { parse: parseAwgRegistration });
   const server = await listenRegistrationOnTunnel({ address: '127.0.0.1', port: 0, handler });
   t.after(() => new Promise(resolve => server.close(resolve)));
-  const key = () => crypto.randomBytes(32).toString('base64');
   const issued = await createAwgBootstrapInvitation({ controllerKey: controller.publicKey,
     endpointHost: 'example.test', endpointPort: 51824,
     registrationPort: server.address().port, controllerAddress: '10.90.0.1',
-    cellAddress: '10.90.0.2', serverPublicKey: key(),
+    cellAddress: '10.90.0.2', serverPublicKey,
+    permanentDescriptor: descriptor,
     profile: generateOfficialProfile(), keyManager: { generatePeerKeys: async () => ({
       privateKey: key(), publicKey: key(), presharedKey: key(),
     }) }, now: Date.now(), lifetimeMs: 60000 });
@@ -109,8 +114,14 @@ test('cell-owned permanent AWG identity persists across a real loopback v2 regis
     { keyManager: { generatePeerKeys: async () => permanent },
       connect: args => registerAwgOverTunnel({ ...args, address: '127.0.0.1' }) });
   await cell.begin(issued.code);
+  const pending = await cell.read();
+  const registration = { address: '127.0.0.1', port: server.address().port,
+    controllerKey: controller.publicKey, request: pending.request };
+  const first = await registerAwgOverTunnel(registration);
+  assert.deepEqual((await registerAwgOverTunnel(registration)).permanent, first.permanent);
   assert.deepEqual(await cell.resume(), { status: 'registered' });
   assert.equal((await cell.read()).permanent.publicKey, permanent.publicKey);
+  assert.deepEqual((await cell.read()).controllerPath, descriptor);
   assert.equal((await store.read()).invitations[0].awgPublicKey, permanent.publicKey);
 });
 

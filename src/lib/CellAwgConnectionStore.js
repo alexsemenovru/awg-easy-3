@@ -8,6 +8,7 @@ const { decodeAwgBootstrapInvitation } = require('./CellAwgBootstrapInvitation')
 const { signAwgRegistration, verifyAwgRegistration,
   parseAwgRegistration } = require('./CellAwgRegistration');
 const { registerAwgOverTunnel } = require('./CellTunnelRegistrationTransport');
+const { validatePermanentDescriptor } = require('./CellAwgPermanentDescriptor');
 
 const queues = new Map();
 const MAX_BYTES = 16384;
@@ -71,8 +72,12 @@ class CellAwgConnectionStore {
         || state.request.awgPresharedKey !== keys.presharedKey
         || state.request.issuedAt >= invitation.expiresAt) invalid();
     } else {
-      if (Object.keys(state).sort().join(',') !==
-        'cellKey,controllerKey,invitationId,permanent,status,version'
+      const fields = ['cellKey', 'controllerKey', 'invitationId', 'permanent', 'status', 'version'];
+      if (Object.hasOwn(state, 'controllerPath')) {
+        validatePermanentDescriptor(state.controllerPath);
+        fields.push('controllerPath');
+      }
+      if (Object.keys(state).sort().join(',') !== fields.sort().join(',')
         || typeof state.invitationId !== 'string' || !/^[a-f0-9]{32}$/.test(state.invitationId)
         || !token(state.controllerKey)) invalid();
     }
@@ -157,7 +162,8 @@ class CellAwgConnectionStore {
       }
       await this.save({ version: 2, status: 'registered', cellKey: state.cellKey,
         controllerKey: state.invitation.controllerKey,
-        invitationId: state.invitation.id, permanent: state.permanent });
+        invitationId: state.invitation.id, permanent: state.permanent,
+        ...(result.permanent ? { controllerPath: validatePermanentDescriptor(result.permanent) } : {}) });
       return { status: 'registered' };
     });
   }

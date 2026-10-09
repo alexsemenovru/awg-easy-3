@@ -6,6 +6,8 @@ const { TextDecoder } = require('node:util');
 const { AwgKeyManager, validateKey } = require('./AwgKeyManager');
 const { validateProfile } = require('./Awg3Config');
 const { privateAddress } = require('./CellTunnelControlTransport');
+const { validatePermanentDescriptor } = require('./CellAwgPermanentDescriptor');
+const { validEndpointHost } = require('./CellAwgEndpointHost');
 
 const MAX_CODE_LENGTH = 8192;
 const MAX_LIFETIME_MS = 24 * 60 * 60 * 1000;
@@ -24,19 +26,6 @@ function token(value) {
     && Buffer.from(value, 'base64url').toString('base64url') === value;
 }
 
-function endpoint(host) {
-  if (typeof host !== 'string' || host.length === 0 || host.length > 253) return false;
-  const family = net.isIP(host);
-  if (family === 4) {
-    const [first, second] = host.split('.').map(Number);
-    return first !== 0 && first !== 127 && first < 224 && !(first === 169 && second === 254);
-  }
-  if (family === 6) return host !== '::' && host !== '::1'
-    && !/^f[ef]/i.test(host) && !/^fe[89ab]/i.test(host);
-  return host.split('.').every(label =>
-    /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/.test(label));
-}
-
 function port(value) {
   return Number.isSafeInteger(value) && value >= 1 && value <= 65535;
 }
@@ -49,7 +38,7 @@ function validatePayload(value) {
     || typeof value.id !== 'string' || !ID.test(value.id)
     || !token(value.controllerKey) || !token(value.secret)
     || !Number.isSafeInteger(value.expiresAt) || value.expiresAt < 0
-    || !endpoint(value.endpointHost) || !port(value.endpointPort) || !port(value.registrationPort)
+    || !validEndpointHost(value.endpointHost) || !port(value.endpointPort) || !port(value.registrationPort)
     || !privateAddress(value.controllerAddress) || !privateAddress(value.cellAddress)
     || value.controllerAddress.startsWith('127.') || value.cellAddress.startsWith('127.')
     || value.controllerAddress === '::1' || value.cellAddress === '::1'
@@ -76,7 +65,7 @@ function validatePayload(value) {
 // never in the returned server-side record.
 async function createAwgBootstrapInvitation({ controllerKey, endpointHost, endpointPort,
   registrationPort, controllerAddress, cellAddress, serverPublicKey,
-  keyManager = new AwgKeyManager(),
+  permanentDescriptor, keyManager = new AwgKeyManager(),
   profile, now = Date.now(), lifetimeMs = 900000 }) {
   if (!Number.isSafeInteger(now) || now < 0 || !Number.isSafeInteger(lifetimeMs)
     || lifetimeMs < 1 || lifetimeMs > MAX_LIFETIME_MS || now + lifetimeMs > Number.MAX_SAFE_INTEGER
@@ -100,6 +89,7 @@ async function createAwgBootstrapInvitation({ controllerKey, endpointHost, endpo
     temporaryPublicKey: temporaryKeys.publicKey,
     temporaryPresharedKey: temporaryKeys.presharedKey,
     cellAddress: payload.cellAddress,
+    ...(permanentDescriptor ? { permanentDescriptor: validatePermanentDescriptor(permanentDescriptor) } : {}),
   } };
 }
 
