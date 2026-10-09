@@ -18,6 +18,9 @@ test('controller policy groups multiple peers by chain and drops WAN fallback fo
   const snapshot = permanentControlPolicySnapshot({ role: 'controller',
     interfaceName: 'awgperm8', descriptor: descriptor(),
     peerAddresses: ['10.91.8.3', '10.91.8.2'] });
+  assert.deepEqual(snapshot.nftables.slice(0, 5).map(item => item.table ? 'table'
+    : item.chain ? `chain:${item.chain.name}` : `rule:${item.rule.chain}`),
+  ['table', 'chain:input', 'rule:input', 'rule:input', 'rule:input']);
   const rules = snapshot.nftables.filter(item => item.rule).map(item => item.rule);
   assert.deepEqual(rules.map(rule => rule.chain), ['input', 'input', 'input',
     'output', 'output', 'output', 'output', 'output', 'forward', 'forward']);
