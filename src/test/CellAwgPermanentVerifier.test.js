@@ -10,7 +10,7 @@ function fixture(role = 'cell') {
   const peerPublicKey = key();
   let owned = true, timestamp = 1000, probed = false, calls = 0;
   const verifier = new CellAwgPermanentVerifier({
-    path: { interfaceName: 'awgperm8', verifyOwned: async () => owned }, peerPublicKey, role,
+    path: { interfaceName: 'awgperm8', verifyOperational: async () => owned }, peerPublicKey, role,
     controlAddress: '10.91.8.1', localAddress: '10.91.8.2', controlPort: 53083,
     now: () => 1010_000,
     runner: async (file, args) => {
@@ -58,7 +58,7 @@ test('handshake parsing refuses duplicate, malformed or missing peers', () => {
 });
 
 test('retirement verifier refuses loopback or public control paths', () => {
-  const common = { path: { interfaceName: 'awgperm8', verifyOwned: async () => true },
+  const common = { path: { interfaceName: 'awgperm8', verifyOperational: async () => true },
     peerPublicKey: key(), role: 'cell', localAddress: '10.91.8.2', controlPort: 53083 };
   for (const controlAddress of ['127.0.0.1', '::1', '8.8.8.8']) {
     assert.throws(() => new CellAwgPermanentVerifier({ ...common, controlAddress }), /Invalid/);

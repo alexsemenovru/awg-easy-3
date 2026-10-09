@@ -61,6 +61,6 @@ test('generated plan has exact shape accepted by permanent path component', () =
     routes: methods(['load', 'apply', 'recover', 'inventory']),
     firewall: { ...methods(['load', 'apply', 'recover', 'current']),
       normalize: value => value, equal: (a, b) => a === b },
-    guard: methods(['load', 'recover', 'protect', 'release']) });
+    guard: methods(['load', 'current', 'recover', 'protect', 'release']) });
   assert.equal(path.interfaceName, 'awgperm8');
 });

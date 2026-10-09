@@ -15,7 +15,7 @@ class CellAwgPermanentPath {
       || !awg || !['load', 'initialize', 'recover', 'inspect'].every(name => typeof awg[name] === 'function')
       || !routes || !['load', 'apply', 'recover', 'inventory'].every(name => typeof routes[name] === 'function')
       || !firewall || !['load', 'apply', 'recover', 'current', 'equal', 'normalize'].every(name => typeof firewall[name] === 'function')
-      || !guard || !['load', 'recover', 'protect', 'release'].every(name => typeof guard[name] === 'function')
+      || !guard || !['load', 'current', 'recover', 'protect', 'release'].every(name => typeof guard[name] === 'function')
       || !Array.isArray(routeCommands) || !policy) {
       throw new TypeError('Permanent AWG path dependencies required');
     }
@@ -57,6 +57,13 @@ class CellAwgPermanentPath {
     const firewall = await this.firewall.load();
     return firewall.pending === null && this.firewall.equal(firewall.committed, this.policy)
       && this.firewall.equal(await this.firewall.current(), this.policy);
+  }
+
+  async verifyOperational() {
+    const guard = await this.guard.load();
+    if (guard.pending !== null || !Array.isArray(guard.interfaces)
+      || guard.interfaces.length || await this.guard.current() !== null) return false;
+    return this.verifyOwned();
   }
 
   async finish() {

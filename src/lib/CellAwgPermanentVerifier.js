@@ -52,7 +52,7 @@ class CellAwgPermanentVerifier {
   constructor({ path, peerPublicKey, role, controlAddress, controlPort,
     localAddress, runner = runProcess, probe = probeControlTcp,
     now = Date.now, maxAgeSeconds = 120 }) {
-    if (!path || typeof path.verifyOwned !== 'function'
+    if (!path || typeof path.verifyOperational !== 'function'
       || !path.interfaceName || !/^[A-Za-z0-9_.-]{1,15}$/.test(path.interfaceName)
       || !['controller', 'cell'].includes(role) || !tunnelAddress(controlAddress)
       || !tunnelAddress(localAddress) || controlAddress === localAddress
@@ -69,7 +69,7 @@ class CellAwgPermanentVerifier {
   }
 
   async verify() {
-    if (!await this.path.verifyOwned()) return false;
+    if (!await this.path.verifyOperational()) return false;
     let output;
     try {
       output = (await this.runner('awg', ['show', this.path.interfaceName,

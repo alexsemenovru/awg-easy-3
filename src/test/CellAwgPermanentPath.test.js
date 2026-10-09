@@ -20,11 +20,12 @@ function fixture() {
     'table', 'main', 'proto', '186', 'dev', name] }];
   let life = { phase: 'empty', spec: null }, awg = { committed: null, pending: null };
   let routes = { committed: [], pending: null }, firewall = { committed: null, pending: null };
-  let currentPolicy = null, guarded = false, up = true, failPolicy = false;
+  let currentPolicy = null, guarded = false, lingeringGuard = false, up = true, failPolicy = false;
   let foreignRoute = false;
   const events = [];
   const guard = {
     load: async () => ({ interfaces: guarded ? [name] : [], pending: null }),
+    current: async () => guarded || lingeringGuard ? { nftables: [] } : null,
     recover: async () => events.push('guard-recover'),
     protect: async () => { guarded = true; events.push('guard-protect'); },
     release: async check => {
@@ -72,6 +73,7 @@ function fixture() {
   return { path, events, spec, get guarded() { return guarded; },
     setFailPolicy: value => { failPolicy = value; }, setUp: value => { up = value; },
     setAwg: value => { awg = value; }, setLife: value => { life = value; },
+    setLingeringGuard: value => { lingeringGuard = value; },
     setCurrentPolicy: value => { currentPolicy = value; },
     setForeignRoute: value => { foreignRoute = value; } };
 }
@@ -80,6 +82,10 @@ test('permanent path installs under guard, verifies all children, then releases'
   const f = fixture();
   assert.deepEqual(await f.path.initialize(), { ready: true });
   assert.equal(f.guarded, false);
+  assert.equal(await f.path.verifyOperational(), true);
+  f.setLingeringGuard(true);
+  assert.equal(await f.path.verifyOperational(), false);
+  f.setLingeringGuard(false);
   assert.deepEqual(f.events.filter(event => ['guard-protect', 'life-create', 'awg-init',
     'routes-apply', 'nft-apply', 'guard-release'].includes(event)),
   ['guard-protect', 'life-create', 'awg-init', 'routes-apply', 'nft-apply', 'guard-release']);
@@ -90,6 +96,7 @@ test('failed permanent policy retains guard and recovery resumes without replaci
   const f = fixture(); f.setFailPolicy(true);
   await assert.rejects(f.path.initialize(), /nft failed/);
   assert.equal(f.guarded, true);
+  assert.equal(await f.path.verifyOperational(), false);
   f.setFailPolicy(false);
   assert.deepEqual(await f.path.recover(), { ready: true });
   assert.equal(f.guarded, false);
