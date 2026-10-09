@@ -79,12 +79,19 @@ function routingPolicySnapshot({ input, forward, output, nat, sets }) {
   for (const set of sets) {
     if (!/^geo[46]_[a-f0-9]{16}$/.test(set.name) || ![4, 6].includes(set.family)) throw new TypeError('Invalid routing GeoIP set');
     const elem = intervalElements(set.elements, set.family);
-    nftables.push({ set: { family: 'inet', table: TABLE, name: set.name, type: `ipv${set.family}_addr`, flags: ['interval'], 'auto-merge': true,
+    nftables.push({ set: { family: 'inet', table: TABLE, name: set.name, type: `ipv${set.family}_addr`, flags: ['interval'],
       ...(elem.length ? { elem } : {}) } });
   }
   for (const [chain, lines] of chains) for (const line of lines) if (line.trim()) {
     nftables.push({ rule: { family: 'inet', table: TABLE, chain, ...ruleExpressions(line) } });
   }
-  return normalizeNftSnapshot({ nftables }, TABLE);
+  // nft list table emits sets first, then each chain immediately followed by
+  // its rules. The desired snapshot must match that exact kernel readback.
+  const ordered = [nftables[0], ...nftables.filter(item => item.set)];
+  for (const [name] of chains) {
+    ordered.push(...nftables.filter(item => item.chain?.name === name));
+    ordered.push(...nftables.filter(item => item.rule?.chain === name));
+  }
+  return normalizeNftSnapshot({ nftables: ordered }, TABLE);
 }
 module.exports = { routingPolicySnapshot, ruleExpressions, intervalElements };

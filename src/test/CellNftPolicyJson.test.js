@@ -33,7 +33,10 @@ test('JSON table declares dependencies before rules and immutable GeoIP interval
   assert.equal(json.nftables.filter(x => x.chain).length, 4);
   const index = json.nftables.findIndex(x => x.set);
   assert.ok(index < json.nftables.findIndex(x => x.rule));
+  assert.equal(index, 1);
+  assert.equal(json.nftables[2].chain.name, 'input');
+  assert.equal(json.nftables[3].rule.chain, 'input');
   assert.deepEqual(json.nftables[index].set.flags, ['interval']);
-  assert.equal(json.nftables[index].set['auto-merge'], true);
+  assert.ok(!Object.hasOwn(json.nftables[index].set, 'auto-merge'));
   assert.ok(!Object.hasOwn(json.nftables[index].set, 'elem'));
 });

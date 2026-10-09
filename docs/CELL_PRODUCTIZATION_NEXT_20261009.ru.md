@@ -39,6 +39,10 @@ guard-таблицы в ядре. Совпадения AWG/routes/firewall не�
 В той же изоляции проверен общий генератор guard-таблиц для control,
 bootstrap и routing. Найден и исправлен порядок chain/rule: прежний JSON
 устанавливался, но не совпадал с kernel readback, что могло сорвать recovery.
+Такой же дефект исправлен в bootstrap-policy и маршрутизирующей/GeoIP-policy.
+Для interval-наборов удалён `auto-merge` из ожидаемого JSON: объединение
+диапазонов уже делается компилятором, а ядро не возвращает этот атрибут в
+readback. В WSL namespace совпадение проверено на IPv4 и IPv6 GeoIP-наборах.
 Генератор `CellAwgPermanentPlan` уже собирает конфиг, адрес, host-route и
 firewall в форму, которую принимает `CellAwgPermanentPath`. При повторном
 создании он принимает только сохранённый ownerTag с тем же конфигом;

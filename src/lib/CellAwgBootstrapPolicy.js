@@ -51,7 +51,12 @@ function bootstrapPolicySnapshot({ interfaceName, controllerAddress, registratio
   add('output', `oifname "${interfaceName}" drop`);
   add('forward', `iifname "${interfaceName}" drop`);
   add('forward', `oifname "${interfaceName}" drop`);
-  return normalizeNftSnapshot({ nftables }, TABLE);
+  const ordered = [nftables[0]];
+  for (const hook of ['input', 'output', 'forward']) {
+    ordered.push(...nftables.filter(item => item.chain?.name === hook));
+    ordered.push(...nftables.filter(item => item.rule?.chain === hook));
+  }
+  return normalizeNftSnapshot({ nftables: ordered }, TABLE);
 }
 
 module.exports = { bootstrapPolicySnapshot };
