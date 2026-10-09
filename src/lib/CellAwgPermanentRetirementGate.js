@@ -17,19 +17,26 @@ function endpointHost(endpoint) {
 // read-only retirement gate; it does not close invitations or mutate peers.
 class CellAwgPermanentRetirementGate {
   constructor({ deployment, keyManager = new AwgKeyManager(),
+    revisionStore = null,
     verifierFactory = options => new CellAwgPermanentVerifier(options) }) {
     if (!deployment || !deployment.store || typeof deployment.store.read !== 'function'
       || typeof deployment.buildPath !== 'function'
       || !keyManager || typeof keyManager.derivePublicKey !== 'function'
+      || (revisionStore !== null && typeof revisionStore.read !== 'function')
       || typeof verifierFactory !== 'function') {
       throw new TypeError('Invalid permanent AWG retirement gate');
     }
-    Object.assign(this, { deployment, keyManager, verifierFactory });
+    Object.assign(this, { deployment, keyManager, revisionStore, verifierFactory });
   }
 
   async load() {
-    const plan = await this.deployment.store.read();
-    if (!plan) return null;
+    const base = await this.deployment.store.read();
+    if (!base) return null;
+    const revision = this.revisionStore && await this.revisionStore.read();
+    // A prepared expansion is not yet proof of an operational path. The
+    // caller must finish recovery and commit it before retiring bootstrap.
+    if (revision?.pending) return null;
+    const plan = revision?.committed || base;
     const path = this.deployment.buildPath({ stateDirectory: this.deployment.stateDirectory,
       plan, runner: this.deployment.runner });
     return { plan, path };

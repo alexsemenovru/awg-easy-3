@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const { generateOfficialProfile } = require('../lib/Awg3Config');
 const { permanentCellPlan, permanentControllerPlan } = require('../lib/CellAwgPermanentPlan');
+const { permanentControllerExpansionPlan } = require('../lib/CellAwgPermanentExpansionPlan');
 const { CellAwgPermanentRetirementGate } = require('../lib/CellAwgPermanentRetirementGate');
 
 const key = () => crypto.randomBytes(32).toString('base64');
@@ -22,12 +23,12 @@ function fixture() {
   return { descriptor, connection, record, keyManager };
 }
 
-function gateFor(plan, keyManager) {
+function gateFor(plan, keyManager, revisionStore = null) {
   const calls = [];
   const deployment = { stateDirectory: 'private', runner: async () => {},
     store: { read: async () => ({ ...plan, version: 1 }) },
     buildPath: () => ({ interfaceName: 'awgperm8', verifyOperational: async () => true }) };
-  return { gate: new CellAwgPermanentRetirementGate({ deployment, keyManager,
+  return { gate: new CellAwgPermanentRetirementGate({ deployment, keyManager, revisionStore,
     verifierFactory: options => ({ verify: async () => { calls.push(options); return true; } }) }), calls };
 }
 
@@ -58,4 +59,26 @@ test('controller retirement gate refuses another AWG peer or changed signed cell
   assert.equal(await gate.verifyController({ ...f.record, awgPublicKey: key() }), false);
   assert.equal(await gate.verifyController({ ...f.record, cellAddress: '10.91.8.9' }), false);
   assert.equal(calls.length, 1);
+});
+
+test('controller retirement uses only committed expansion revision for the new cell', async () => {
+  const f = fixture(), privateKey = key();
+  const base = await permanentControllerPlan({ privateKey, descriptor: f.descriptor,
+    peers: [{ cellAddress: f.record.cellAddress, awgPublicKey: f.record.awgPublicKey,
+      awgPresharedKey: f.record.awgPresharedKey }], interfaceName: 'awgperm8',
+    keyManager: f.keyManager });
+  const second = { ...f.record, cellAddress: '10.91.8.3', awgPublicKey: key(),
+    awgPresharedKey: key(), permanentDescriptor: { ...f.descriptor, cellAddress: '10.91.8.3' } };
+  const expanded = await permanentControllerExpansionPlan({ currentPlan: { ...base, version: 1 },
+    records: [f.record, second], keyManager: f.keyManager });
+  const state = { pending: expanded, committed: null };
+  const { gate, calls } = gateFor(base, f.keyManager, { read: async () => state });
+  assert.equal(await gate.verifyController(second), false);
+  assert.equal(calls.length, 0);
+  state.pending = null;
+  state.committed = expanded;
+  assert.equal(await gate.verifyController(second), true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].peerPublicKey, second.awgPublicKey);
+  assert.equal(await gate.verifyController({ ...second, awgPublicKey: key() }), false);
 });
