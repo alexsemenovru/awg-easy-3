@@ -6,11 +6,11 @@ const { RuntimeApplier } = require('./RuntimeApplier');
 const { runProcess } = require('./ProcessRunner');
 const GUARD = 'awg_easy_3_cell_guard';
 
-function guardPolicy(interfaceName, exists = false) {
+function guardPolicy(interfaceName) {
   if (typeof interfaceName !== 'string' || !/^[a-zA-Z0-9_.-]{1,15}$/.test(interfaceName)) {
     throw new TypeError('Invalid cell interface');
   }
-  return `${exists ? `delete table inet ${GUARD}\n` : ''}table inet ${GUARD} {
+  return `table inet ${GUARD} {
   chain input { type filter hook input priority -20; policy accept; iifname "${interfaceName}" drop; }
   chain output { type filter hook output priority -20; policy accept; oifname "${interfaceName}" drop; }
   chain forward { type filter hook forward priority -20; policy accept; iifname "${interfaceName}" drop; oifname "${interfaceName}" drop; }
@@ -52,7 +52,10 @@ class CellRuntimeAdapter {
       if (error.code !== 1 && error.exitCode !== 1) throw error;
       exists = false;
     }
-    const input = guardPolicy(this.server.interfaceName, exists);
+    if (exists) {
+      throw new Error('Existing cell guard table requires explicit ownership recovery');
+    }
+    const input = guardPolicy(this.server.interfaceName);
     await this.runner('nft', ['-c', '-f', '-'], { input });
     await this.runner('nft', ['-f', '-'], { input });
     // Keep guard on ANY uncertain outcome, including rollback failure. A later

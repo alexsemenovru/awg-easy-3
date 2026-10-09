@@ -27,13 +27,29 @@ test('cell runtime blocks traffic before changing peers and unblocks only on suc
 test('runtime failure retains guard; validation failure touches no system objects', async () => {
   const calls = [];
   const adapter = new CellRuntimeAdapter({ server: server(), runner: async (file, args) => {
-    calls.push([file, ...args].join(' ')); return { stdout: '' };
+    calls.push([file, ...args].join(' '));
+    if (file === 'nft' && args[0] === 'list') {
+      throw Object.assign(new Error('missing'), { code: 1 });
+    }
+    return { stdout: '' };
   }, runtime: { runtimeDirectory: '/cell-test', readOptional: async () => '[Interface]',
     apply: async () => { throw new Error('apply failed'); } } });
   await assert.rejects(adapter.apply({ shell: 'anything' }));
   assert.equal(calls.length, 0);
   await assert.rejects(adapter.apply({ schema: 1, clients: [] }), /apply failed/);
   assert.ok(!calls.some(call => call.startsWith('nft delete')));
+});
+
+test('cell runtime never adopts or replaces a pre-existing same-name guard table', async () => {
+  const calls = [];
+  const adapter = new CellRuntimeAdapter({ server: server(), runner: async (file, args) => {
+    calls.push([file, ...args].join(' '));
+    if (file === 'ip') throw Object.assign(new Error('missing'), { code: 1 });
+    return { stdout: '' };
+  }, runtime: { apply: async () => { throw new Error('must not apply'); } } });
+  await assert.rejects(adapter.apply({ schema: 1, clients: [] }), /ownership recovery/);
+  assert.deepEqual(calls, ['ip link show dev awg0', 'nft list table inet awg_easy_3_cell_guard']);
+  assert.doesNotMatch(guardPolicy('awg0'), /delete table/);
 });
 
 test('guard syntax validates in isolated Linux namespace', { skip: process.env.AWG_TEST_WSL !== '1' }, () => {
