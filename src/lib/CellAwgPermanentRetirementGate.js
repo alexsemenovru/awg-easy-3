@@ -1,0 +1,92 @@
+'use strict';
+
+const { AwgKeyManager } = require('./AwgKeyManager');
+const { normalizeAwgConfig } = require('./CellAwgSnapshot');
+const { permanentCellPlan, permanentControllerPlan } = require('./CellAwgPermanentPlan');
+const { CellAwgPermanentVerifier } = require('./CellAwgPermanentVerifier');
+const { validatePermanentDescriptor } = require('./CellAwgPermanentDescriptor');
+
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+function endpointHost(endpoint) {
+  if (typeof endpoint !== 'string') return null;
+  const match = endpoint.match(/^\[([^\]]+)\]:\d+$/) || endpoint.match(/^([^:]+):\d+$/);
+  return match?.[1] ?? null;
+}
+
+// Bridges signed bootstrap identity to the exact permanent plan. This is a
+// read-only retirement gate; it does not close invitations or mutate peers.
+class CellAwgPermanentRetirementGate {
+  constructor({ deployment, keyManager = new AwgKeyManager(),
+    verifierFactory = options => new CellAwgPermanentVerifier(options) }) {
+    if (!deployment || !deployment.store || typeof deployment.store.read !== 'function'
+      || typeof deployment.buildPath !== 'function'
+      || !keyManager || typeof keyManager.derivePublicKey !== 'function'
+      || typeof verifierFactory !== 'function') {
+      throw new TypeError('Invalid permanent AWG retirement gate');
+    }
+    Object.assign(this, { deployment, keyManager, verifierFactory });
+  }
+
+  async load() {
+    const plan = await this.deployment.store.read();
+    if (!plan) return null;
+    const path = this.deployment.buildPath({ stateDirectory: this.deployment.stateDirectory,
+      plan, runner: this.deployment.runner });
+    return { plan, path };
+  }
+
+  async verifyCell(connection) {
+    if (connection?.status !== 'registered' || !connection.controllerPath) return false;
+    const saved = await this.load();
+    if (!saved) return false;
+    let expected, descriptor, peer;
+    try {
+      descriptor = validatePermanentDescriptor(connection.controllerPath);
+      const parsed = normalizeAwgConfig(saved.plan.spec.owner.config);
+      if (parsed.peers.length !== 1) return false;
+      peer = parsed.peers[0];
+      expected = permanentCellPlan({ connection,
+        interfaceName: saved.plan.spec.owner.interfaceName,
+        resolvedEndpointHost: endpointHost(peer.endpoint), owner: saved.plan.spec.owner });
+    } catch { return false; }
+    if (!same(expected, { spec: saved.plan.spec, policy: saved.plan.policy,
+      routeCommands: saved.plan.routeCommands })) return false;
+    return this.verifierFactory({ path: saved.path, role: 'cell',
+      peerPublicKey: descriptor.serverPublicKey,
+      controlAddress: descriptor.controllerAddress,
+      localAddress: descriptor.cellAddress, controlPort: descriptor.controlPort,
+      runner: this.deployment.runner }).verify();
+  }
+
+  async verifyController(record) {
+    if (record?.status !== 'consumed' || !record.permanentDescriptor
+      || !record.awgPublicKey || !record.awgPresharedKey) return false;
+    const saved = await this.load();
+    if (!saved) return false;
+    let expected, descriptor;
+    try {
+      descriptor = validatePermanentDescriptor(record.permanentDescriptor);
+      if (descriptor.cellAddress !== record.cellAddress) return false;
+      const parsed = normalizeAwgConfig(saved.plan.spec.owner.config);
+      const peers = parsed.peers.map(peer => ({
+        cellAddress: peer.allowedips.length === 1 ? peer.allowedips[0].split('/')[0] : null,
+        awgPublicKey: peer.publickey, awgPresharedKey: peer.presharedkey,
+      }));
+      if (!peers.some(peer => peer.cellAddress === record.cellAddress
+        && peer.awgPublicKey === record.awgPublicKey
+        && peer.awgPresharedKey === record.awgPresharedKey)) return false;
+      expected = await permanentControllerPlan({ privateKey: parsed.interface.privatekey,
+        descriptor, peers, interfaceName: saved.plan.spec.owner.interfaceName,
+        owner: saved.plan.spec.owner, keyManager: this.keyManager });
+    } catch { return false; }
+    if (!same(expected, { spec: saved.plan.spec, policy: saved.plan.policy,
+      routeCommands: saved.plan.routeCommands })) return false;
+    return this.verifierFactory({ path: saved.path, role: 'controller',
+      peerPublicKey: record.awgPublicKey,
+      controlAddress: descriptor.controllerAddress,
+      localAddress: descriptor.cellAddress, controlPort: descriptor.controlPort,
+      runner: this.deployment.runner }).verify();
+  }
+}
+
+module.exports = { CellAwgPermanentRetirementGate };
