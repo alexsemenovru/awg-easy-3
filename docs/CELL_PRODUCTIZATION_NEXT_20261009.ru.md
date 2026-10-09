@@ -36,6 +36,9 @@ AWG readback подтверждает только числовые endpoint-а�
 действует» требуется `verifyOperational()`: пустой guard journal и отсутствие
 guard-таблицы в ядре. Совпадения AWG/routes/firewall недостаточно, если
 канал ещё перекрыт защитой после частичной ошибки.
+В той же изоляции проверен общий генератор guard-таблиц для control,
+bootstrap и routing. Найден и исправлен порядок chain/rule: прежний JSON
+устанавливался, но не совпадал с kernel readback, что могло сорвать recovery.
 Генератор `CellAwgPermanentPlan` уже собирает конфиг, адрес, host-route и
 firewall в форму, которую принимает `CellAwgPermanentPath`. При повторном
 создании он принимает только сохранённый ownerTag с тем же конфигом;

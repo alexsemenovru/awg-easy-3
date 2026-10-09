@@ -65,8 +65,8 @@ function routingGuardSnapshot(interfaces, table = 'awg_easy_3_routing_guard') {
         expr: [{ match: { op: '==', left: { meta: { key } }, right: name } }, { drop: null }] } });
     }
   }
-  // Kernel list output emits chain definitions before their rules. Preserve
-  // rule order exactly; only construct the declarative sections in that order.
-  return normalizeNftSnapshot({ nftables: [...nftables.filter(x => !x.rule), ...nftables.filter(x => x.rule)] }, table);
+  // Kernel list output groups each chain immediately with its rules. The
+  // construction above already has that exact order; do not hoist chains.
+  return normalizeNftSnapshot({ nftables }, table);
 }
 module.exports = { normalizeNftSnapshot, nftFingerprint, planNftReplacement, routingGuardSnapshot };

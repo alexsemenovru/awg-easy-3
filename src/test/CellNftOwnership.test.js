@@ -48,6 +48,9 @@ test('guard JSON is deterministic, blocks all managed directions and no unrelate
   assert.deepEqual(a, routingGuardSnapshot(['clients', 'transit']));
   assert.equal(a.nftables.filter(x => x.chain).length, 3);
   assert.equal(a.nftables.filter(x => x.rule).length, 8);
+  assert.deepEqual(a.nftables.slice(0, 4).map(item => item.table ? 'table'
+    : item.chain ? `chain:${item.chain.name}` : `rule:${item.rule.chain}`),
+  ['table', 'chain:input', 'rule:input', 'rule:input']);
   assert.ok(a.nftables.filter(x => x.rule).every(x => Object.hasOwn(x.rule.expr.at(-1), 'drop')));
   assert.ok(!JSON.stringify(a).includes('eth0'));
   for (const input of [[], ['bad name'], ['same', 'same'], ['a\nflush ruleset']]) assert.throws(() => routingGuardSnapshot(input));
