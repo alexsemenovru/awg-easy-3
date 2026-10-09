@@ -43,6 +43,12 @@ bootstrap и routing. Найден и исправлен порядок chain/ru
 Для interval-наборов удалён `auto-merge` из ожидаемого JSON: объединение
 диапазонов уже делается компилятором, а ядро не возвращает этот атрибут в
 readback. В WSL namespace совпадение проверено на IPv4 и IPv6 GeoIP-наборах.
+Дополнительно сценарий с двумя клиентами, Home-доступом и блокировкой GeoIP
+закреплён опциональным `CellNftKernelReadback.test.js`: он сверяет полный
+снимок Основного узла и Ячейки с реальным `nft` в одноразовом namespace.
+Запуск вручную в PowerShell: `$env:AWG_NFT_KERNEL_TEST='1'; node --test
+src/test/CellNftKernelReadback.test.js`. Тест требует WSL Ubuntu с `nft` и
+`unshare` под root; обычный тестовый прогон его пропускает.
 Генератор `CellAwgPermanentPlan` уже собирает конфиг, адрес, host-route и
 firewall в форму, которую принимает `CellAwgPermanentPath`. При повторном
 создании он принимает только сохранённый ownerTag с тем же конфигом;
