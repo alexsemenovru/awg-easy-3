@@ -48,3 +48,17 @@ test('unconfigured controller boot does not load TUN or invent a permanent plan'
     ensureTun: async () => { throw new Error('unexpected'); } }),
   { configured: false, applied: null });
 });
+
+test('boot uses the committed expansion plan instead of stale first-cell plan', async () => {
+  const base = { id: 'first' }, current = { id: 'expanded' };
+  const seen = [];
+  const deployment = { stateDirectory: 'private', runner: async () => {},
+    store: { read: async () => base }, resume: async () => { throw new Error('stale base'); },
+    buildPath: ({ plan }) => { seen.push(plan.id);
+      return { verifyOperational: async () => plan === current }; } };
+  const result = await recoverPermanentBoot({ deployment,
+    expansionRuntime: { recoverCurrent: async () => current },
+    ensureTun: async () => {} });
+  assert.deepEqual(result, { configured: true, applied: null });
+  assert.deepEqual(seen, ['expanded']);
+});
