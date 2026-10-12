@@ -22,8 +22,18 @@ class CellSettingsReceiver {
     let raw;
     try {
       const stat = await fs.lstat(this.filePath);
-      if (!stat.isFile() || stat.size > 2 * 1024 * 1024) throw new Error('Invalid settings file');
-      if (process.platform !== 'win32' && (stat.mode & 0o077)) throw new Error('Settings file permissions are too broad');
+      if (!stat.isFile() || stat.nlink !== 1 || stat.size > 2 * 1024 * 1024) {
+        throw new Error('Invalid settings file');
+      }
+      if (process.platform !== 'win32'
+        && (stat.uid !== process.getuid() || (stat.mode & 0o077))) {
+        throw new Error('Unsafe settings file ownership or permissions');
+      }
+      const directory = await fs.lstat(path.dirname(this.filePath));
+      if (!directory.isDirectory() || (process.platform !== 'win32'
+        && (directory.uid !== process.getuid() || (directory.mode & 0o077)))) {
+        throw new Error('Private cell settings directory required');
+      }
       raw = await fs.readFile(this.filePath, 'utf8');
     } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
     const state = JSON.parse(raw);
@@ -41,6 +51,11 @@ class CellSettingsReceiver {
   async save(state) {
     const dir = path.dirname(this.filePath);
     await fs.mkdir(dir, { recursive: true, mode: 0o700 });
+    const dirStat = await fs.lstat(dir);
+    if (!dirStat.isDirectory() || (process.platform !== 'win32'
+      && (dirStat.uid !== process.getuid() || (dirStat.mode & 0o077)))) {
+      throw new Error('Private cell settings directory required');
+    }
     const temporary = path.join(dir, `.cell-settings-${crypto.randomUUID()}.tmp`);
     let handle;
     try {

@@ -71,3 +71,24 @@ test('default receiver enforces assignment schema before saving or applying', as
     settings: { schema: 1, clients: [] } }, controller.privateKey));
   assert.deepEqual(applied, [{ schema: 1, clients: [] }]);
 });
+
+test('Linux receiver refuses linked state and a publicly accessible state directory',
+  { skip: process.platform === 'win32' }, async t => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-settings-private-'));
+    t.after(() => fs.rm(dir, { recursive: true, force: true }));
+    const controller = identity();
+    const cellKey = identity().publicKey;
+    const file = path.join(dir, 'settings.json');
+    const receiver = new CellSettingsReceiver(file, { controllerKey: controller.publicKey,
+      cellKey, apply: async () => {} });
+    await receiver.receive(signSettings({ cellKey, revision: 1,
+      settings: { schema: 1, clients: [] } }, controller.privateKey));
+    const alias = `${file}.alias`;
+    await fs.link(file, alias);
+    await assert.rejects(receiver.load(), /Invalid settings file/);
+    await fs.unlink(alias);
+    const saved = await receiver.load();
+    await fs.chmod(dir, 0o755);
+    await assert.rejects(receiver.load(), /Private cell settings directory required/);
+    await assert.rejects(receiver.save(saved), /Private cell settings directory required/);
+  });
