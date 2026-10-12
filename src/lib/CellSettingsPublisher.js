@@ -35,7 +35,12 @@ class CellSettingsPublisher {
     } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
     const state = JSON.parse(raw);
     const controller = await this.identityStore.load('controller');
-    if (state.version !== 1 || !state.desired) throw new Error('Invalid published settings state');
+    if (!state || state.version !== 1 || !state.desired
+      || !['ack,desired,version', 'ack,confirmed,desired,version'].includes(
+        Object.keys(state).sort().join(','))
+      || (state.ack !== null && (typeof state.ack !== 'object' || Array.isArray(state.ack)))) {
+      throw new Error('Invalid published settings state');
+    }
     const result = verifySettings(state.desired, { controllerKey: controller.publicKey, cellKey: this.cellKey });
     validateCellSettings(result.settings);
     if (state.ack) verifySettingsAck(state.ack, state.desired);

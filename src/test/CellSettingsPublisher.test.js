@@ -81,6 +81,9 @@ test('older acknowledged journal retains its last confirmed settings on next pub
   corrupted.confirmed.ack.signature = 'invalid';
   await fs.writeFile(file, JSON.stringify(corrupted));
   await assert.rejects(publisher.load(), /acknowledgement mismatch/);
+  delete corrupted.ack;
+  await fs.writeFile(file, JSON.stringify(corrupted));
+  await assert.rejects(publisher.load(), /Invalid published settings state/);
 });
 
 test('Linux publisher refuses linked state and a public state directory',
