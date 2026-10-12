@@ -9,6 +9,7 @@ const crypto = require('node:crypto');
 const { generateOfficialProfile } = require('../lib/Awg3Config');
 const { permanentControllerPlan } = require('../lib/CellAwgPermanentPlan');
 const { permanentControllerExpansionPlan } = require('../lib/CellAwgPermanentExpansionPlan');
+const { permanentControllerRemovalPlan } = require('../lib/CellAwgPermanentRemovalPlan');
 const { CellAwgPermanentDeployment } = require('../lib/CellAwgPermanentDeployment');
 const { openPermanentControllerRuntime } = require('../lib/CellAwgPermanentControllerRuntime');
 
@@ -59,6 +60,11 @@ test('controller assembly opens only a reserved base and shares one revision jou
     records: [first, second], keyManager });
   await runtime.revisionStore.prepare(expanded);
   await runtime.revisionStore.commit();
+  const reduced = await permanentControllerRemovalPlan({ currentPlan: expanded,
+    record: first, keyManager });
+  await runtime.revisionStore.prepare(reduced);
+  await runtime.revisionStore.commit();
+  assert.equal((await runtime.revisionStore.read()).version, 2);
   await fs.unlink(runtime.revisionStore.filePath);
   baseOperational = false;
   guarded = false;
