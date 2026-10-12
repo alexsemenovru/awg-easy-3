@@ -29,7 +29,32 @@ class CellSettingsPublisher {
     const result = verifySettings(state.desired, { controllerKey: controller.publicKey, cellKey: this.cellKey });
     validateCellSettings(result.settings);
     if (state.ack) verifySettingsAck(state.ack, state.desired);
-    return state;
+    // Older journals had only desired+ack. Preserve their confirmed revision
+    // when the next desired revision is first published after an upgrade.
+    const confirmed = state.confirmed === undefined
+      ? (state.ack ? { desired: state.desired, ack: state.ack } : null)
+      : state.confirmed;
+    if (confirmed !== null) {
+      if (!confirmed || Object.keys(confirmed).sort().join(',') !== 'ack,desired') {
+        throw new Error('Invalid confirmed cell settings state');
+      }
+      const last = verifySettings(confirmed.desired,
+        { controllerKey: controller.publicKey, cellKey: this.cellKey });
+      validateCellSettings(last.settings);
+      verifySettingsAck(confirmed.ack, confirmed.desired);
+      if (confirmed.desired.revision > state.desired.revision
+        || (confirmed.desired.revision === state.desired.revision
+          && (confirmed.desired.payload !== state.desired.payload
+            || state.ack === null))) {
+        throw new Error('Confirmed cell settings differ from desired revision');
+      }
+    }
+    if (state.ack && (!confirmed
+      || JSON.stringify(confirmed.desired) !== JSON.stringify(state.desired)
+      || JSON.stringify(confirmed.ack) !== JSON.stringify(state.ack))) {
+      throw new Error('Confirmed cell settings disagree with acknowledgement');
+    }
+    return { ...state, confirmed };
   }
 
   async save(state) {
@@ -67,7 +92,8 @@ class CellSettingsPublisher {
       const controller = await this.identityStore.load('controller');
       const desired = signSettings({ cellKey: this.cellKey, revision: (previous?.desired.revision || 0) + 1,
         settings }, controller.privateKey);
-      await this.save({ version: 1, desired, ack: null });
+      await this.save({ version: 1, desired, ack: null,
+        confirmed: previous?.confirmed ?? null });
       return desired;
     });
   }
@@ -78,7 +104,8 @@ class CellSettingsPublisher {
       const state = await this.load();
       if (!state) throw new Error('No published settings');
       const result = verifySettingsAck(ack, state.desired);
-      await this.save({ ...state, ack });
+      await this.save({ ...state, ack,
+        confirmed: { desired: state.desired, ack } });
       return result;
     });
   }
