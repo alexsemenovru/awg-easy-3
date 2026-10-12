@@ -27,23 +27,23 @@ test('cell assembly binds bootstrap retirement and join to one permanent gate', 
   assert.throws(() => createPermanentCellRuntime({ stateDirectory: directory,
     connectionStore, bootstrap: bootstrap(), temporaryInterfaceName: 'awgjoin8',
     receiver, clientRuntime: {} }), /settings receiver required/);
-  const runtime = createPermanentCellRuntime({ stateDirectory: directory,
-    connectionStore, bootstrap: bootstrap(), temporaryInterfaceName: 'awgjoin8', receiver });
+  assert.throws(() => createPermanentCellRuntime({ stateDirectory: directory,
+    connectionStore, bootstrap: bootstrap(), temporaryInterfaceName: 'awgjoin8', receiver }),
+  /settings receiver required/);
   const events = [];
-  const protectedRuntime = createPermanentCellRuntime({ stateDirectory: directory,
+  const runtime = createPermanentCellRuntime({ stateDirectory: directory,
     connectionStore, bootstrap: bootstrap(), temporaryInterfaceName: 'awgjoin8', receiver,
     clientRuntime: { prepareBoot: async () => { events.push('guard'); } } });
-  assert.deepEqual(await protectedRuntime.recoverBoot({ ensureTun: async () => {
+  assert.deepEqual(await runtime.recoverBoot({ ensureTun: async () => {
     throw new Error('unexpected TUN preflight'); } }), { configured: false, applied: null });
   assert.deepEqual(events, ['guard']);
   assert.equal(runtime.retirement.connection, connectionStore);
-  assert.deepEqual(await runtime.recoverBoot({ ensureTun: async () => {
-    throw new Error('unexpected TUN preflight'); } }), { configured: false, applied: null });
   await assert.rejects(runtime.join({ interfaceName: 'awgperm8' }),
     /Signed permanent cell registration required/);
   connection = { status: 'registered' };
   await assert.rejects(runtime.recoverBoot({ ensureTun: async () => {} }),
     /resume join before boot/);
+  assert.deepEqual(events, ['guard', 'guard']);
   runtime.gate.verifyCell = async value => { verified = value; return true; };
   await runtime.retirement.authorization();
   assert.equal(verified, connection);

@@ -10,10 +10,10 @@ const { recoverPermanentBoot } = require('./CellAwgPermanentBoot');
 // exactly the same permanent-path gate that the join uses. The caller still
 // owns the cross-process installation lock and the temporary AWG lifecycle.
 function createPermanentCellRuntime({ stateDirectory, connectionStore, bootstrap,
-  temporaryInterfaceName, receiver, clientRuntime = null, runner } = {}) {
+  temporaryInterfaceName, receiver, clientRuntime, runner } = {}) {
   if (!connectionStore || typeof connectionStore.read !== 'function'
     || !receiver || typeof receiver.restoreApplied !== 'function'
-    || clientRuntime !== null && typeof clientRuntime.prepareBoot !== 'function'
+    || !clientRuntime || typeof clientRuntime.prepareBoot !== 'function'
     || !bootstrap || typeof bootstrap !== 'object') {
     throw new TypeError('Cell connection, bootstrap and settings receiver required');
   }
@@ -30,7 +30,7 @@ function createPermanentCellRuntime({ stateDirectory, connectionStore, bootstrap
       retirement }),
     recoverBoot: async options => {
       const result = await recoverPermanentBoot({ ...options, deployment, receiver,
-        ...(clientRuntime ? { protectClientTraffic: () => clientRuntime.prepareBoot() } : {}) });
+        protectClientTraffic: () => clientRuntime.prepareBoot() });
       if (!result.configured && (await connectionStore.read())?.status === 'registered') {
         throw new Error('Registered cell has no permanent plan; resume join before boot');
       }
