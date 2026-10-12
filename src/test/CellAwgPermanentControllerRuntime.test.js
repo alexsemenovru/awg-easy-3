@@ -8,6 +8,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { generateOfficialProfile } = require('../lib/Awg3Config');
 const { permanentControllerPlan } = require('../lib/CellAwgPermanentPlan');
+const { permanentControllerExpansionPlan } = require('../lib/CellAwgPermanentExpansionPlan');
 const { CellAwgPermanentDeployment } = require('../lib/CellAwgPermanentDeployment');
 const { openPermanentControllerRuntime } = require('../lib/CellAwgPermanentControllerRuntime');
 
@@ -23,11 +24,28 @@ test('controller assembly opens only a reserved base and shares one revision jou
     controllerAddress: '10.91.8.1', cellAddress: '10.91.8.2', controlPort: 53083,
     serverPublicKey, profile: generateOfficialProfile() };
   const keyManager = { derivePublicKey: async () => serverPublicKey };
+  const first = { status: 'consumed', cellAddress: descriptor.cellAddress,
+    awgPublicKey: key(), awgPresharedKey: key(), permanentDescriptor: descriptor };
   const plan = await permanentControllerPlan({ privateKey: key(), descriptor,
-    peers: [{ cellAddress: descriptor.cellAddress, awgPublicKey: key(), awgPresharedKey: key() }],
+    peers: [{ cellAddress: first.cellAddress, awgPublicKey: first.awgPublicKey,
+      awgPresharedKey: first.awgPresharedKey }],
     interfaceName: 'awgperm8', keyManager });
-  await new CellAwgPermanentDeployment({ stateDirectory: directory }).store.reserve(plan);
-  const runtime = await openPermanentControllerRuntime({ stateDirectory: directory, keyManager });
+  const original = new CellAwgPermanentDeployment({ stateDirectory: directory });
+  await original.store.reserve(plan);
+  let baseOperational = false, guarded = false;
+  const deployment = { stateDirectory: directory, runner: async () => {},
+    store: original.store, install: async () => {},
+    resume: async () => { assert.equal(guarded, true);
+      if (!baseOperational) throw new Error('expanded state differs from base');
+      guarded = false; },
+    buildPath: () => ({ protect: async () => { guarded = true; },
+      verifyOperational: async () => baseOperational && !guarded }) };
+  await assert.rejects(openPermanentControllerRuntime({ stateDirectory: directory,
+    keyManager, deployment }), /Missing permanent revision journal; base recovery failed/);
+  assert.equal(guarded, true);
+  baseOperational = true;
+  const runtime = await openPermanentControllerRuntime({ stateDirectory: directory,
+    keyManager, deployment });
   assert.equal(runtime.expansionRuntime.deployment, runtime.deployment);
   assert.equal(runtime.expansionRuntime.revisionStore, runtime.revisionStore);
   assert.equal(runtime.gate.deployment, runtime.deployment);
@@ -36,4 +54,18 @@ test('controller assembly opens only a reserved base and shares one revision jou
   await assert.rejects(runtime.join({ bootstrapStore: { read: async () => ({ invitations: [] }) },
     invitationId: 'a'.repeat(32), coordinator: { close: async () => {} },
     interfaceName: 'awgperm8', privateKey: key() }), /Consumed permanent cell invitation required/);
+  const second = { status: 'consumed', cellAddress: '10.91.8.3',
+    awgPublicKey: key(), awgPresharedKey: key(), permanentDescriptor: {
+      ...descriptor, cellAddress: '10.91.8.3' } };
+  const expanded = await permanentControllerExpansionPlan({ currentPlan: { ...plan, version: 1 },
+    records: [first, second], keyManager });
+  await runtime.revisionStore.prepare(expanded);
+  await runtime.revisionStore.commit();
+  await fs.unlink(runtime.revisionStore.filePath);
+  baseOperational = false;
+  guarded = false;
+  await assert.rejects(openPermanentControllerRuntime({ stateDirectory: directory,
+    keyManager, deployment }), /Missing permanent revision journal; base recovery failed/);
+  assert.equal(guarded, true);
+  await assert.rejects(fs.lstat(runtime.revisionStore.filePath), { code: 'ENOENT' });
 });
