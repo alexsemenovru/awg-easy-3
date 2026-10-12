@@ -1,8 +1,10 @@
 'use strict';
 
+const path = require('node:path');
 const { normalizeAwgConfig, matchesAwgConfig } = require('./CellAwgSnapshot');
 const { permanentCellPlan, permanentControllerPlan } = require('./CellAwgPermanentPlan');
 const { permanentControllerExpansionPlan } = require('./CellAwgPermanentExpansionPlan');
+const { CellAwgPermanentRevisionStore } = require('./CellAwgPermanentRevisionStore');
 
 const sameConfig = (a, b) => matchesAwgConfig(a, b) && matchesAwgConfig(b, a);
 
@@ -51,7 +53,7 @@ async function joinPermanentCell({ connectionStore, deployment, gate, retirement
 // durable additive revision path; a base installation is never reinstalled.
 async function joinPermanentController({ bootstrapStore, invitationId, deployment,
   gate, coordinator, interfaceName, privateKey, keyManager,
-  expansionRuntime = null }) {
+  expansionRuntime = null, initialRevisionStore = null }) {
   if (!bootstrapStore || typeof bootstrapStore.read !== 'function'
     || !deployment || typeof deployment.install !== 'function'
     || !deployment.store || typeof deployment.store.read !== 'function'
@@ -80,7 +82,16 @@ async function joinPermanentController({ bootstrapStore, invitationId, deploymen
         awgPublicKey: record.awgPublicKey,
         awgPresharedKey: record.awgPresharedKey }],
       ...(keyManager ? { keyManager } : {}) });
-    await deployment.install(plan);
+    if (!initialRevisionStore && (typeof deployment.stateDirectory !== 'string'
+      || !path.isAbsolute(deployment.stateDirectory))) {
+      throw new TypeError('Permanent controller state directory required');
+    }
+    const journal = initialRevisionStore || new CellAwgPermanentRevisionStore(
+      path.join(deployment.stateDirectory, 'revision.json'), { ...plan, version: 1 });
+    if (typeof journal.initialize !== 'function') {
+      throw new TypeError('Permanent controller revision initialization required');
+    }
+    await deployment.install(plan, { beforeApply: () => journal.initialize() });
   } else if (enrolled.length === 1) {
     // The first join may be retried after its plan was reserved. Preserve the
     // pre-expansion path and require the exact previously owned identity.

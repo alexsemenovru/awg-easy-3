@@ -46,9 +46,12 @@ class CellAwgPermanentDeployment {
     this.store = new CellAwgPermanentPlanStore(path.join(stateDirectory, 'plan.json'));
   }
 
-  async install(plan) {
+  async install(plan, { beforeApply = null } = {}) {
     if (!plan || (Object.hasOwn(plan, 'version') && plan.version !== 1)) {
       throw new TypeError('Unsupported permanent AWG plan version');
+    }
+    if (beforeApply !== null && typeof beforeApply !== 'function') {
+      throw new TypeError('Invalid permanent AWG pre-apply hook');
     }
     const wanted = validatePermanentPlan({ ...plan, version: 1 });
     const saved = await this.store.read();
@@ -56,6 +59,7 @@ class CellAwgPermanentDeployment {
     else if (JSON.stringify(saved) !== JSON.stringify(wanted)) {
       throw new Error('Different permanent AWG plan already reserved');
     }
+    if (beforeApply) await beforeApply(wanted);
     return this.resume();
   }
 

@@ -155,6 +155,33 @@ class CellAwgPermanentRevisionStore {
     }
   }
 
+  // Reserve revision zero before the first kernel change. Never replace an
+  // existing journal: it may already contain a Cell removal.
+  async initialize() {
+    const directory = path.dirname(this.filePath);
+    await fs.mkdir(directory, { recursive: true, mode: 0o700 });
+    const dirStat = await fs.lstat(directory);
+    if (!dirStat.isDirectory() || (process.platform !== 'win32'
+      && (dirStat.uid !== process.getuid() || (dirStat.mode & 0o077)))) {
+      throw new Error('Private permanent AWG revision directory required');
+    }
+    let handle;
+    try { handle = await fs.open(this.filePath, 'wx', 0o600); }
+    catch (error) {
+      if (error.code === 'EEXIST') return this.read();
+      throw error;
+    }
+    try {
+      await handle.writeFile(JSON.stringify(this.empty()));
+      await handle.sync();
+    } finally { await handle.close(); }
+    if (process.platform !== 'win32') {
+      const parent = await fs.open(directory, 'r');
+      try { await parent.sync(); } finally { await parent.close(); }
+    }
+    return this.empty();
+  }
+
   async prepare(nextPlan) {
     const state = await this.read();
     if (state.pending) throw new Error('Pending permanent AWG expansion requires recovery');

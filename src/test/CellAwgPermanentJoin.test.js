@@ -19,13 +19,19 @@ function fixture() {
     permanentDescriptor: descriptor, cellAddress: '10.90.0.2',
     awgPublicKey: key(), awgPresharedKey: connection.permanent.presharedKey };
   let saved = null, ready = false, retired = 0;
-  const deployment = { store: { read: async () => saved }, install: async plan => {
+  let journalInitialized = false;
+  const initialRevisionStore = { initialize: async () => { journalInitialized = true; } };
+  const deployment = { store: { read: async () => saved }, install: async (plan, options = {}) => {
     if (saved && saved.spec.owner.ownerTag !== plan.spec.owner.ownerTag) {
       throw new Error('identity changed');
     }
+    if (options.beforeApply) {
+      await options.beforeApply();
+      assert.equal(journalInitialized, true);
+    }
     saved ??= { ...plan, version: 1 };
   } };
-  return { descriptor, connection, record, deployment,
+  return { descriptor, connection, record, deployment, initialRevisionStore,
     setReady: value => { ready = value; }, readSaved: () => saved,
     gate: { verifyCell: async () => ready, verifyController: async () => ready },
     retirement: { retire: async () => { retired++; } },
@@ -52,7 +58,8 @@ test('controller join closes only the signed enrolled peer after permanent proof
   const args = { bootstrapStore: { read: async () => ({ invitations: [f.record] }) },
     invitationId: f.record.id, deployment: f.deployment, gate: f.gate,
     coordinator: f.coordinator, interfaceName: 'awgperm8', privateKey: key(),
-    keyManager: { derivePublicKey: async () => f.descriptor.serverPublicKey } };
+    keyManager: { derivePublicKey: async () => f.descriptor.serverPublicKey },
+    initialRevisionStore: f.initialRevisionStore };
   assert.deepEqual(await joinPermanentController(args),
     { status: 'waiting-for-permanent-path', temporaryRetained: true });
   assert.equal(f.retired(), 0);
@@ -70,7 +77,8 @@ test('controller join reserves one base when two cells registered before first j
     bootstrapStore: { read: async () => ({ invitations: [f.record, second] }) },
     invitationId: second.id, deployment: f.deployment, gate: f.gate,
     coordinator: f.coordinator, interfaceName: 'awgperm8', privateKey: key(),
-    keyManager: { derivePublicKey: async () => f.descriptor.serverPublicKey } });
+    keyManager: { derivePublicKey: async () => f.descriptor.serverPublicKey },
+    initialRevisionStore: f.initialRevisionStore });
   assert.deepEqual(result, { status: 'waiting-for-permanent-path', temporaryRetained: true });
   const peers = normalizeAwgConfig(f.readSaved().spec.owner.config).peers;
   assert.equal(peers.length, 1);

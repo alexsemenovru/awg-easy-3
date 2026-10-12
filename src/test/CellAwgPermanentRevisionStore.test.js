@@ -39,6 +39,8 @@ test('revision intent survives restart and commits only after caller confirms ke
   const { base, next } = await plans(), file = path.join(dir, 'revision.json');
   const store = new CellAwgPermanentRevisionStore(file, base);
   assert.deepEqual(await store.read(), store.empty());
+  assert.deepEqual(await store.initialize(), store.empty());
+  assert.deepEqual(await store.initialize(), store.empty());
   await store.prepare(next);
   const reopened = new CellAwgPermanentRevisionStore(file, base);
   const interrupted = await reopened.read();
@@ -49,6 +51,7 @@ test('revision intent survives restart and commits only after caller confirms ke
   assert.equal(committed.revision, 1);
   assert.deepEqual(committed.committed, next);
   assert.equal(committed.pending, null);
+  assert.deepEqual(await reopened.initialize(), committed);
   if (process.platform !== 'win32') assert.equal((await fs.stat(file)).mode & 0o077, 0);
 });
 

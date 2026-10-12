@@ -9,6 +9,7 @@ const crypto = require('node:crypto');
 const { generateOfficialProfile } = require('../lib/Awg3Config');
 const { permanentCellPlan } = require('../lib/CellAwgPermanentPlan');
 const { CellAwgPermanentDeployment, permanentPathFromPlan } = require('../lib/CellAwgPermanentDeployment');
+const { CellAwgPermanentRevisionStore } = require('../lib/CellAwgPermanentRevisionStore');
 
 const key = () => crypto.randomBytes(32).toString('base64');
 function plan() {
@@ -54,4 +55,22 @@ test('runtime wiring uses dedicated guarded journals for a saved permanent plan'
   assert.equal(runtime.interfaceName, 'awgperm8');
   assert.equal(path.dirname(runtime.lifecycle.file), dir);
   assert.equal(path.dirname(runtime.awg.file), dir);
+});
+
+test('pre-apply hook persists revision zero before any permanent path change', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cell-deploy-revision-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const original = plan();
+  const journal = new CellAwgPermanentRevisionStore(path.join(dir, 'revision.json'),
+    { ...original, version: 1 });
+  const deployment = new CellAwgPermanentDeployment({ stateDirectory: dir,
+    buildPath: () => ({ lifecycle: { load: async () => ({ phase: 'empty' }) },
+      initialize: async () => { assert.deepEqual(await journal.read(), journal.empty());
+        assert.equal((await fs.lstat(journal.filePath)).isFile(), true);
+        throw new Error('injected interruption'); },
+      recover: async () => { throw new Error('unexpected recovery'); } }) });
+  await assert.rejects(deployment.install(original,
+    { beforeApply: () => journal.initialize() }), /injected interruption/);
+  assert.deepEqual(await journal.read(), journal.empty());
+  assert.ok(await deployment.store.read());
 });
