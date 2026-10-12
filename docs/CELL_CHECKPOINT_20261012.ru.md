@@ -1,7 +1,7 @@
 # Узлы и Ячейки — checkpoint 12 октября 2026
 
 Ветка: `codex/cells-foundation`. Последний кодовый коммит этого этапа:
-`52271c50` (`Open controller revision runtime under installation lock`).
+`e3bb7d38` (`Jitter cell settings polls to avoid synchronized load`).
 Рабочий ARN не менялся. Тестовых VPS сейчас нет. Чужие незакоммиченные
 изменения в README, инсталляторе, приложении и UI не затрагивались.
 
@@ -31,7 +31,7 @@
   существующие runtime под одним lock для boot/join/синхронизации. Это не
   первоначальная продуктовая установка.
 
-`pnpm -C src test`: 600 тестов, 565 успешных, 35 пропущены по условиям
+`pnpm -C src test`: 601 тест, 566 успешных, 35 пропущены по условиям
 платформы, 0 ошибок. `pnpm -C src check` также прошёл.
 
 ## Что ещё отделяет от релиза
