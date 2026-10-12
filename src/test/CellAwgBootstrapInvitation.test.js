@@ -53,3 +53,18 @@ test('AWG invitation rejects invalid endpoints, internal addresses, keys and ext
     assert.throws(() => decodeAwgBootstrapInvitation(Buffer.from(JSON.stringify({ ...payload, ...patch })).toString('base64url'), 1001));
   }
 });
+
+test('bootstrap invitation reserves separate UDP port and tunnel addresses for permanent AWG', async () => {
+  const base = options();
+  const permanentDescriptor = { version: 1, endpointHost: base.endpointHost,
+    endpointPort: 53084, controllerAddress: '10.91.8.1', cellAddress: '10.91.8.2',
+    controlPort: 53083, serverPublicKey: base.serverPublicKey,
+    profile: base.profile };
+  assert.ok((await createAwgBootstrapInvitation({ ...base, permanentDescriptor }))
+    .record.permanentDescriptor);
+  for (const patch of [{ endpointPort: base.endpointPort },
+    { controllerAddress: base.controllerAddress }, { cellAddress: base.cellAddress }]) {
+    await assert.rejects(createAwgBootstrapInvitation({ ...base,
+      permanentDescriptor: { ...permanentDescriptor, ...patch } }), /resources overlap/);
+  }
+});

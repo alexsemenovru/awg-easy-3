@@ -79,6 +79,13 @@ async function createAwgBootstrapInvitation({ controllerKey, endpointHost, endpo
     endpointHost, endpointPort, registrationPort, controllerAddress, cellAddress,
     serverPublicKey, temporaryPrivateKey: temporaryKeys?.privateKey,
     temporaryPresharedKey: temporaryKeys?.presharedKey, profile });
+  const permanent = permanentDescriptor
+    ? validatePermanentDescriptor(permanentDescriptor) : null;
+  if (permanent && (permanent.endpointPort === payload.endpointPort
+    || [payload.controllerAddress, payload.cellAddress].some(address =>
+      address === permanent.controllerAddress || address === permanent.cellAddress))) {
+    throw new TypeError('Temporary and permanent AWG resources overlap');
+  }
   validateKey(temporaryKeys.publicKey, 'temporaryPublicKey');
   const code = Buffer.from(JSON.stringify(payload)).toString('base64url');
   if (code.length > MAX_CODE_LENGTH) invalid();
@@ -89,7 +96,7 @@ async function createAwgBootstrapInvitation({ controllerKey, endpointHost, endpo
     temporaryPublicKey: temporaryKeys.publicKey,
     temporaryPresharedKey: temporaryKeys.presharedKey,
     cellAddress: payload.cellAddress,
-    ...(permanentDescriptor ? { permanentDescriptor: validatePermanentDescriptor(permanentDescriptor) } : {}),
+    ...(permanent ? { permanentDescriptor: permanent } : {}),
   } };
 }
 
