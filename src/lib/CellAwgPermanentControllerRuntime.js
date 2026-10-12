@@ -56,7 +56,22 @@ async function openPermanentControllerRuntime({ stateDirectory, runner, keyManag
         { cause: error });
     }
   }
-  await revisionStore.read();
+  try { await revisionStore.read(); }
+  catch (error) {
+    const first = deployment.buildPath({ stateDirectory: deployment.stateDirectory,
+      plan: base, runner: deployment.runner });
+    if (!first || typeof first.protect !== 'function') {
+      throw new AggregateError([error],
+        'Invalid permanent revision journal; guarded recovery unavailable');
+    }
+    try { await first.protect(); }
+    catch (guardError) {
+      throw new AggregateError([error, guardError],
+        'Invalid permanent revision journal; guard recovery also failed');
+    }
+    throw new Error('Invalid permanent revision journal; control path guarded',
+      { cause: error });
+  }
   const expansionRuntime = new CellAwgPermanentExpansionRuntime({ deployment, revisionStore });
   const gate = new CellAwgPermanentRetirementGate({ deployment, revisionStore,
     ...(keyManager ? { keyManager } : {}) });

@@ -68,4 +68,9 @@ test('controller assembly opens only a reserved base and shares one revision jou
     keyManager, deployment }), /Missing permanent revision journal; base recovery failed/);
   assert.equal(guarded, true);
   await assert.rejects(fs.lstat(runtime.revisionStore.filePath), { code: 'ENOENT' });
+  await fs.writeFile(runtime.revisionStore.filePath, '{corrupt');
+  guarded = false;
+  await assert.rejects(openPermanentControllerRuntime({ stateDirectory: directory,
+    keyManager, deployment }), /Invalid permanent revision journal; control path guarded/);
+  assert.equal(guarded, true);
 });
