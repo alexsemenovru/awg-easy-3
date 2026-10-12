@@ -33,19 +33,22 @@ function permanentCellPlan({ connection, interfaceName, resolvedEndpointHost, ow
 
 async function permanentControllerPlan({ privateKey, descriptor, peers, interfaceName,
   keyManager, owner }) {
+  if (!Array.isArray(peers)) throw new TypeError('Permanent AWG peers required');
+  const orderedPeers = [...peers].sort((a, b) =>
+    String(a?.awgPublicKey).localeCompare(String(b?.awgPublicKey)));
   const rendered = await renderPermanentServerConfig({ privateKey, descriptor,
-    peers, ...(keyManager ? { keyManager } : {}) });
-  if (!peers.some(peer => peer.cellAddress === descriptor.cellAddress)) {
+    peers: orderedPeers, ...(keyManager ? { keyManager } : {}) });
+  if (!orderedPeers.some(peer => peer.cellAddress === descriptor.cellAddress)) {
     throw new TypeError('Signed cell address is absent from permanent AWG peers');
   }
   return {
     spec: { version: 1, owner: ownerFor({ interfaceName, config: rendered.config, owner }),
       addresses: [rendered.address] },
     policy: permanentControlPolicySnapshot({ role: 'controller', interfaceName,
-      descriptor, peerAddresses: peers.map(peer => peer.cellAddress) }),
+      descriptor, peerAddresses: orderedPeers.map(peer => peer.cellAddress) }),
     routeCommands: bootstrapServerRoutes({ interfaceName,
       controllerAddress: descriptor.controllerAddress,
-      peers: peers.map(peer => ({ phase: 'ready', cellAddress: peer.cellAddress })) }),
+      peers: orderedPeers.map(peer => ({ phase: 'ready', cellAddress: peer.cellAddress })) }),
   };
 }
 

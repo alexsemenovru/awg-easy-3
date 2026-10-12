@@ -38,6 +38,8 @@ test('expansion adds exactly one signed peer without changing server identity or
   assert.ok(after.peers.some(peer => peer.publickey === f.second.awgPublicKey));
   assert.equal(expanded.routeCommands.length, 2);
   assert.equal(expanded.policy.nftables.filter(item => item.rule).length, 10);
+  assert.deepEqual(await permanentControllerExpansionPlan({ currentPlan: f.initial,
+    records: [f.second, f.first], keyManager: f.keyManager }), expanded);
   assert.deepEqual(await permanentControllerExpansionPlan({ currentPlan: expanded,
     records: [f.second, f.first], keyManager: f.keyManager }), expanded);
 });

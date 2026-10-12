@@ -40,7 +40,10 @@ async function permanentControllerExpansionPlan({ currentPlan, records, keyManag
     throw new TypeError('Permanent controller descriptors disagree');
   }
   const before = normalizeAwgConfig(current.spec.owner.config);
-  const peers = entries.map(entry => entry.peer);
+  // The AWG renderer orders peers by public key. Keep policy and routes in
+  // that same order so signed readback is independent of invitation order.
+  const peers = entries.map(entry => entry.peer)
+    .sort((a, b) => a.awgPublicKey.localeCompare(b.awgPublicKey));
   const rendered = await renderPermanentServerConfig({ privateKey: before.interface.privatekey,
     descriptor, peers, ...(keyManager ? { keyManager } : {}) });
   const after = normalizeAwgConfig(rendered.config);

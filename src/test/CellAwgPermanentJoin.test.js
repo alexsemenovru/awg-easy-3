@@ -4,6 +4,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const { generateOfficialProfile } = require('../lib/Awg3Config');
+const { normalizeAwgConfig } = require('../lib/CellAwgSnapshot');
+const { permanentControllerPlan } = require('../lib/CellAwgPermanentPlan');
 const { joinPermanentCell, joinPermanentController } = require('../lib/CellAwgPermanentJoin');
 
 const key = () => crypto.randomBytes(32).toString('base64');
@@ -65,6 +67,64 @@ test('controller join explicitly rejects a second simultaneous consumed invitati
   await assert.rejects(joinPermanentController({
     bootstrapStore: { read: async () => ({ invitations: [f.record, second] }) },
     invitationId: f.record.id, deployment: f.deployment, gate: f.gate,
-    coordinator: f.coordinator, interfaceName: 'awgperm8', privateKey: key() }), /Multi-cell/);
+    coordinator: f.coordinator, interfaceName: 'awgperm8', privateKey: key() }), /one cell/);
   assert.equal(f.readSaved(), null);
+});
+
+test('second cell uses guarded additive revision, then retires only its temporary peer', async () => {
+  const f = fixture(), privateKey = key();
+  const keyManager = { derivePublicKey: async () => f.descriptor.serverPublicKey };
+  const base = { ...await permanentControllerPlan({ privateKey, descriptor: f.descriptor,
+    peers: [{ cellAddress: f.record.cellAddress, awgPublicKey: f.record.awgPublicKey,
+      awgPresharedKey: f.record.awgPresharedKey }], interfaceName: 'awgperm8',
+    keyManager }), version: 1 };
+  const second = { ...f.record, id: 'b'.repeat(32), cellAddress: '10.91.8.3',
+    awgPublicKey: key(), awgPresharedKey: key(),
+    permanentDescriptor: { ...f.descriptor, cellAddress: '10.91.8.3' } };
+  const deployment = { store: { read: async () => base },
+    install: async () => { throw new Error('base installation must not run'); } };
+  const revisionStore = {};
+  let current = base, changes = 0, retired = 0, ready = false;
+  const expansionRuntime = { deployment, revisionStore,
+    recoverCurrent: async () => current,
+    prepare: async plan => { current = plan; changes++; } };
+  const gate = { revisionStore, verifyController: async () => ready };
+  const args = { bootstrapStore: { read: async () => ({ invitations: [f.record, second] }) },
+    invitationId: second.id, deployment, gate,
+    coordinator: { close: async id => { assert.equal(id, second.id); retired++; } },
+    interfaceName: 'awgperm8', privateKey, keyManager, expansionRuntime };
+  assert.deepEqual(await joinPermanentController(args),
+    { status: 'waiting-for-permanent-path', temporaryRetained: true });
+  assert.equal(changes, 1); assert.equal(retired, 0);
+  assert.equal(normalizeAwgConfig(current.spec.owner.config).peers.length, 2);
+  ready = true;
+  assert.deepEqual(await joinPermanentController(args),
+    { status: 'ready', temporaryRetained: false });
+  assert.equal(changes, 1); assert.equal(retired, 1);
+  assert.equal(current.spec.owner.ownerTag, base.spec.owner.ownerTag);
+});
+
+test('second cell refuses a retirement gate not bound to the revision journal', async () => {
+  const f = fixture(), privateKey = key();
+  const keyManager = { derivePublicKey: async () => f.descriptor.serverPublicKey };
+  const base = { ...await permanentControllerPlan({ privateKey, descriptor: f.descriptor,
+    peers: [{ cellAddress: f.record.cellAddress, awgPublicKey: f.record.awgPublicKey,
+      awgPresharedKey: f.record.awgPresharedKey }], interfaceName: 'awgperm8',
+    keyManager }), version: 1 };
+  const second = { ...f.record, id: 'b'.repeat(32), cellAddress: '10.91.8.3',
+    awgPublicKey: key(), awgPresharedKey: key(),
+    permanentDescriptor: { ...f.descriptor, cellAddress: '10.91.8.3' } };
+  const deployment = { store: { read: async () => base }, install: async () => {} };
+  let attempted = false;
+  await assert.rejects(joinPermanentController({
+    bootstrapStore: { read: async () => ({ invitations: [f.record, second] }) },
+    invitationId: second.id, deployment,
+    gate: { verifyController: async () => true },
+    coordinator: { close: async () => { attempted = true; } },
+    interfaceName: 'awgperm8', privateKey, keyManager,
+    expansionRuntime: { deployment, revisionStore: {},
+      recoverCurrent: async () => { attempted = true; return base; },
+      prepare: async () => { attempted = true; } },
+  }), /revision-aware/);
+  assert.equal(attempted, false);
 });

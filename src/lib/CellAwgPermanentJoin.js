@@ -1,7 +1,10 @@
 'use strict';
 
-const { normalizeAwgConfig } = require('./CellAwgSnapshot');
+const { normalizeAwgConfig, matchesAwgConfig } = require('./CellAwgSnapshot');
 const { permanentCellPlan, permanentControllerPlan } = require('./CellAwgPermanentPlan');
+const { permanentControllerExpansionPlan } = require('./CellAwgPermanentExpansionPlan');
+
+const sameConfig = (a, b) => matchesAwgConfig(a, b) && matchesAwgConfig(b, a);
 
 function savedEndpoint(plan) {
   const peers = normalizeAwgConfig(plan.spec.owner.config).peers;
@@ -44,10 +47,11 @@ async function joinPermanentCell({ connectionStore, deployment, gate, retirement
   return { status: 'ready', temporaryRetained: false };
 }
 
-// First-cell path only. Expansion of an already running controller AWG peer
-// set requires a separate guarded multi-peer transaction, not reinstallation.
+// Caller holds the installation-wide lock. The second and later cells use the
+// durable additive revision path; a base installation is never reinstalled.
 async function joinPermanentController({ bootstrapStore, invitationId, deployment,
-  gate, coordinator, interfaceName, privateKey, keyManager }) {
+  gate, coordinator, interfaceName, privateKey, keyManager,
+  expansionRuntime = null }) {
   if (!bootstrapStore || typeof bootstrapStore.read !== 'function'
     || !deployment || typeof deployment.install !== 'function'
     || !deployment.store || typeof deployment.store.read !== 'function'
@@ -61,18 +65,48 @@ async function joinPermanentController({ bootstrapStore, invitationId, deploymen
     || !record.awgPublicKey || !record.awgPresharedKey) {
     throw new Error('Consumed permanent cell invitation required');
   }
-  if (records.some(item => item !== record && item.status === 'consumed'
-    && item.permanentDescriptor)) {
-    throw new Error('Multi-cell permanent AWG update is not yet supported');
-  }
+  const enrolled = records.filter(item => item.status === 'consumed'
+    && item.permanentDescriptor);
   const saved = await deployment.store.read();
-  const plan = await permanentControllerPlan({ privateKey,
-    descriptor: record.permanentDescriptor, interfaceName,
-    peers: [{ cellAddress: record.cellAddress, awgPublicKey: record.awgPublicKey,
-      awgPresharedKey: record.awgPresharedKey }],
-    ...(keyManager ? { keyManager } : {}),
-    ...(saved ? { owner: saved.spec.owner } : {}) });
-  await deployment.install(plan);
+  if (!saved) {
+    if (enrolled.length !== 1) {
+      throw new Error('Initial permanent AWG installation requires one cell');
+    }
+    const plan = await permanentControllerPlan({ privateKey,
+      descriptor: record.permanentDescriptor, interfaceName,
+      peers: [{ cellAddress: record.cellAddress, awgPublicKey: record.awgPublicKey,
+        awgPresharedKey: record.awgPresharedKey }],
+      ...(keyManager ? { keyManager } : {}) });
+    await deployment.install(plan);
+  } else if (enrolled.length === 1) {
+    // The first join may be retried after its plan was reserved. Preserve the
+    // pre-expansion path and require the exact previously owned identity.
+    const plan = await permanentControllerPlan({ privateKey,
+      descriptor: record.permanentDescriptor, interfaceName,
+      peers: [{ cellAddress: record.cellAddress, awgPublicKey: record.awgPublicKey,
+        awgPresharedKey: record.awgPresharedKey }],
+      ...(keyManager ? { keyManager } : {}), owner: saved.spec.owner });
+    await deployment.install(plan);
+  } else {
+    if (!expansionRuntime || expansionRuntime.deployment !== deployment
+      || !expansionRuntime.revisionStore
+      || typeof expansionRuntime.recoverCurrent !== 'function'
+      || typeof expansionRuntime.prepare !== 'function'
+      || gate.revisionStore !== expansionRuntime.revisionStore) {
+      throw new Error('Multi-cell join requires one revision-aware guarded runtime and gate');
+    }
+    const original = normalizeAwgConfig(saved.spec.owner.config);
+    if (saved.spec.owner.interfaceName !== interfaceName
+      || original.interface.privatekey !== privateKey) {
+      throw new Error('Permanent controller identity changed before expansion');
+    }
+    const current = await expansionRuntime.recoverCurrent();
+    const next = await permanentControllerExpansionPlan({ currentPlan: current,
+      records: enrolled, ...(keyManager ? { keyManager } : {}) });
+    if (!sameConfig(current.spec.owner.config, next.spec.owner.config)) {
+      await expansionRuntime.prepare(next);
+    }
+  }
   if (!await gate.verifyController(record)) {
     return { status: 'waiting-for-permanent-path', temporaryRetained: true };
   }
