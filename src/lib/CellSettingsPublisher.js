@@ -19,8 +19,18 @@ class CellSettingsPublisher {
     let raw;
     try {
       const stat = await fs.lstat(this.filePath);
-      if (!stat.isFile() || stat.size > 2 * 1024 * 1024) throw new Error('Invalid published settings file');
-      if (process.platform !== 'win32' && (stat.mode & 0o077)) throw new Error('Published settings permissions too broad');
+      if (!stat.isFile() || stat.nlink !== 1 || stat.size > 2 * 1024 * 1024) {
+        throw new Error('Invalid published settings file');
+      }
+      if (process.platform !== 'win32'
+        && (stat.uid !== process.getuid() || (stat.mode & 0o077))) {
+        throw new Error('Unsafe published settings owner or permissions');
+      }
+      const directory = await fs.lstat(path.dirname(this.filePath));
+      if (!directory.isDirectory() || (process.platform !== 'win32'
+        && (directory.uid !== process.getuid() || (directory.mode & 0o077)))) {
+        throw new Error('Private published settings directory required');
+      }
       raw = await fs.readFile(this.filePath, 'utf8');
     } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
     const state = JSON.parse(raw);
@@ -57,9 +67,22 @@ class CellSettingsPublisher {
     return { ...state, confirmed };
   }
 
+  async status() {
+    const state = await this.load();
+    const desiredRevision = state?.desired.revision ?? null;
+    const confirmedRevision = state?.confirmed?.desired.revision ?? null;
+    return Object.freeze({ desiredRevision, confirmedRevision,
+      awaitingAck: desiredRevision !== null && desiredRevision !== confirmedRevision });
+  }
+
   async save(state) {
     const dir = path.dirname(this.filePath);
     await fs.mkdir(dir, { recursive: true, mode: 0o700 });
+    const dirStat = await fs.lstat(dir);
+    if (!dirStat.isDirectory() || (process.platform !== 'win32'
+      && (dirStat.uid !== process.getuid() || (dirStat.mode & 0o077)))) {
+      throw new Error('Private published settings directory required');
+    }
     const temporary = path.join(dir, `.settings-publisher-${crypto.randomUUID()}.tmp`);
     let handle;
     try {
