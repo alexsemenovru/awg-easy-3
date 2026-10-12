@@ -3,6 +3,7 @@
 const path = require('node:path');
 const { buildCellArtifacts } = require('./CellArtifacts');
 const { CellRoutingGuard } = require('./CellRoutingGuard');
+const { CellNftPolicyReceipt } = require('./CellNftPolicyReceipt');
 const { matchesAwgConfig } = require('./CellAwgSnapshot');
 const { TABLE_NAME } = require('./NftablesPolicy');
 const { RuntimeApplier } = require('./RuntimeApplier');
@@ -16,14 +17,18 @@ class CellRuntimeAdapter {
   constructor({ server, runtimeDirectory, stateDirectory,
     geoDatabase = async () => ({}), runner = runProcess,
     runtime = new RuntimeApplier({ runtimeDirectory, runner }),
-    guard = null, verifyRuntime = null }) {
+    guard = null, policyReceipt = null, verifyRuntime = null }) {
     if (!guard && (typeof stateDirectory !== 'string' || !path.isAbsolute(stateDirectory)
       || (process.platform !== 'win32' && /^\/run(?:\/|$)/.test(stateDirectory)))) {
       throw new TypeError('Persistent absolute cell state directory required');
     }
     const ownedGuard = guard || new CellRoutingGuard({
       journalPath: path.join(stateDirectory, 'guard.json'), table: GUARD, runner });
+    const ownedReceipt = policyReceipt || (stateDirectory ? new CellNftPolicyReceipt({
+      filePath: path.join(stateDirectory, 'nft-receipt.json'), runner }) : null);
     if (!['recover', 'protect', 'release'].every(name => typeof ownedGuard[name] === 'function')
+      || ownedReceipt && !['assertKnown', 'recordCurrent', 'matchesCurrent']
+        .every(name => typeof ownedReceipt[name] === 'function')
       || verifyRuntime !== null && typeof verifyRuntime !== 'function') {
       throw new TypeError('Durable cell guard and runtime verifier required');
     }
@@ -32,6 +37,7 @@ class CellRuntimeAdapter {
     this.runner = runner;
     this.runtime = runtime;
     this.guard = ownedGuard;
+    this.policyReceipt = ownedReceipt;
     this.verifyRuntime = verifyRuntime || (artifacts => this.verifyApplied(artifacts));
   }
 
@@ -72,6 +78,7 @@ class CellRuntimeAdapter {
       ]);
       if (config !== artifacts.serverConfig || policy !== artifacts.nftables
         || !matchesAwgConfig(stripped.stdout, actual.stdout)) return false;
+      if (this.policyReceipt) return this.policyReceipt.matchesCurrent();
       await this.runner('nft', ['list', 'table', 'inet', TABLE_NAME]);
       return true;
     } catch { return false; }
@@ -96,9 +103,11 @@ class CellRuntimeAdapter {
     await this.guard.recover();
     await this.guard.protect([this.server.interfaceName]);
     await this.requireKnownPolicyBeforeReplacement();
+    if (this.policyReceipt) await this.policyReceipt.assertKnown();
     // Keep guard on ANY uncertain outcome, including rollback failure. A later
     // retry restores the last signed applied snapshot before removing it.
     await this.runtime.apply({ ...artifacts, interfaceActive: active });
+    if (this.policyReceipt) await this.policyReceipt.recordCurrent();
     await this.guard.release(() => this.verifyRuntime(artifacts));
   }
 }

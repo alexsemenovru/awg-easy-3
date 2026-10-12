@@ -89,6 +89,24 @@ test('cell runtime refuses an existing policy table without saved cell policy', 
   assert.deepEqual(events, ['guard-recover', 'guard-protect']);
 });
 
+test('cell runtime checks nft receipt before replacement and records readback before release', async () => {
+  const events = [];
+  const receipt = { assertKnown: async () => { events.push('receipt-check'); },
+    recordCurrent: async () => { events.push('receipt-record'); },
+    matchesCurrent: async () => { events.push('receipt-verify'); return true; } };
+  const adapter = new CellRuntimeAdapter({ server: server(), policyReceipt: receipt,
+    runner: async file => { if (file === 'ip') throw missing(); return { stdout: '' }; },
+    guard: guard(events), verifyRuntime: async () => receipt.matchesCurrent(),
+    runtime: runtime(async () => { events.push('apply'); }) });
+  await adapter.apply({ schema: 1, clients: [] });
+  assert.deepEqual(events, ['guard-recover', 'guard-protect', 'receipt-check',
+    'apply', 'receipt-record', 'guard-release-start', 'receipt-verify', 'guard-release']);
+  receipt.assertKnown = async () => { throw new Error('changed policy'); };
+  events.length = 0;
+  await assert.rejects(adapter.apply({ schema: 1, clients: [] }), /changed policy/);
+  assert.deepEqual(events, ['guard-recover', 'guard-protect']);
+});
+
 test('failed post-apply verification keeps the guard for signed settings retry', async () => {
   const events = [];
   const adapter = new CellRuntimeAdapter({ server: server(),
