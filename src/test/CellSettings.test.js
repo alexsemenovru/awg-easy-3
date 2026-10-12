@@ -70,6 +70,9 @@ test('default receiver enforces assignment schema before saving or applying', as
   await receiver.receive(signSettings({ cellKey, revision: 1,
     settings: { schema: 1, clients: [] } }, controller.privateKey));
   assert.deepEqual(applied, [{ schema: 1, clients: [] }]);
+  const saved = await receiver.load();
+  await fs.writeFile(file, JSON.stringify({ ...saved, extra: 'unexpected' }));
+  await assert.rejects(receiver.load(), /Invalid settings state/);
 });
 
 test('Linux receiver refuses linked state and a publicly accessible state directory',

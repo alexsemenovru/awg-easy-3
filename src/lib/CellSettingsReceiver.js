@@ -37,7 +37,12 @@ class CellSettingsReceiver {
       raw = await fs.readFile(this.filePath, 'utf8');
     } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
     const state = JSON.parse(raw);
-    if (state.version !== 1 || !state.received) throw new Error('Invalid settings state');
+    if (!state || typeof state !== 'object' || Array.isArray(state)
+      || Object.keys(state).sort().join(',') !== 'applied,received,version'
+      || state.version !== 1 || !state.received || (state.applied !== null
+        && (typeof state.applied !== 'object' || Array.isArray(state.applied)))) {
+      throw new Error('Invalid settings state');
+    }
     verifySettings(state.received, this.trust);
     if (state.applied) {
       verifySettings(state.applied, this.trust);
