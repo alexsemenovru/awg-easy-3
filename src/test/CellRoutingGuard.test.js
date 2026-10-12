@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { CellRoutingGuard } = require('../lib/CellRoutingGuard');
 const { routingGuardSnapshot } = require('../lib/CellNftOwnership');
-async function fixture(t) {
+async function fixture(t, table) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cell-guard-'));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   const kernel = { current: null, writes: 0, fail: false };
@@ -22,9 +22,18 @@ async function fixture(t) {
     kernel.current = objects.length ? { nftables: objects } : null;
     return { stdout: '' };
   };
-  const options = { journalPath: path.join(dir, 'guard.json'), runner };
+  const options = { journalPath: path.join(dir, 'guard.json'), runner,
+    ...(table ? { table } : {}) };
   return { guard: new CellRoutingGuard(options), fresh: () => new CellRoutingGuard(options), kernel, file: options.journalPath };
 }
+test('cell traffic guard retains its own table and journal across restart', async t => {
+  const { guard, fresh, kernel } = await fixture(t, 'awg_easy_3_cell_guard');
+  await guard.protect(['awg0']);
+  assert.equal(kernel.current.nftables[0].table.name, 'awg_easy_3_cell_guard');
+  assert.deepEqual((await fresh().recover()).interfaces, ['awg0']);
+  await fresh().release(async () => true);
+  assert.equal(kernel.current, null);
+});
 test('durable guard grows protection, requires explicit verified release, survives restart', async t => {
   const { guard, fresh, kernel } = await fixture(t);
   await guard.protect(['clients']); await guard.protect(['transit']);

@@ -37,7 +37,8 @@ function validate(value) {
 class CellRoutingGuard {
   constructor({ journalPath, runner = runProcess, table = DEFAULT_TABLE }) {
     if (typeof journalPath !== 'string' || !journalPath
-      || !['awg_easy_3_routing_guard', 'awg_easy_3_bootstrap_guard', 'awg_easy_3_control_guard'].includes(table)) {
+      || !['awg_easy_3_routing_guard', 'awg_easy_3_bootstrap_guard',
+        'awg_easy_3_control_guard', 'awg_easy_3_cell_guard'].includes(table)) {
       throw new TypeError('Guard journal and owned table required');
     }
     this.file = path.resolve(journalPath); this.runner = runner; this.table = table;

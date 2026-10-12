@@ -1,59 +1,104 @@
 'use strict';
+
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { spawnSync } = require('node:child_process');
-const { CellRuntimeAdapter, guardPolicy } = require('../lib/CellRuntimeAdapter');
+const path = require('node:path');
+const { CellRuntimeAdapter } = require('../lib/CellRuntimeAdapter');
+const { buildCellArtifacts } = require('../lib/CellArtifacts');
 const { generateOfficialProfile } = require('../lib/Awg3Config');
 
-const server = () => ({ interfaceName: 'awg0', wanInterface: 'eth0', privateKey: Buffer.alloc(32, 1).toString('base64'),
-  listenPort: 12345, address4: '10.8.0.1', ipv4Subnet: '10.8.0.0/24', profile: generateOfficialProfile() });
+const server = () => ({ interfaceName: 'awg0', wanInterface: 'eth0',
+  privateKey: Buffer.alloc(32, 1).toString('base64'), listenPort: 12345,
+  address4: '10.8.0.1', ipv4Subnet: '10.8.0.0/24', profile: generateOfficialProfile() });
+const missing = () => Object.assign(new Error('missing'), { code: 1 });
 
-test('cell runtime blocks traffic before changing peers and unblocks only on success', async () => {
-  const calls = [];
-  const runner = async (file, args, opts) => {
-    calls.push([file, ...args].join(' '));
-    if (args[0] === 'list' || file === 'ip') throw Object.assign(new Error('missing'), { code: 1 });
-    if (opts?.input) assert.match(opts.input, /priority -20/);
-    return { stdout: '' };
-  };
-  const adapter = new CellRuntimeAdapter({ server: server(), runner, runtime: { apply: async value => {
-    calls.push('apply'); assert.equal(value.interfaceActive, false);
-  } } });
+test('default cell guard requires explicit persistent state directory', () => {
+  assert.throws(() => new CellRuntimeAdapter({ server: server(),
+    runtimeDirectory: path.resolve('runtime') }), /Persistent absolute/);
+  assert.throws(() => new CellRuntimeAdapter({ server: server(),
+    stateDirectory: 'relative' }), /Persistent absolute/);
+  if (process.platform !== 'win32') {
+    assert.throws(() => new CellRuntimeAdapter({ server: server(),
+      stateDirectory: '/run/awg-easy-3' }), /Persistent absolute/);
+  }
+});
+function guard(events, { failRecover = false, verify = true } = {}) {
+  return { recover: async () => { events.push('guard-recover');
+    if (failRecover) throw new Error('Foreign or changed routing guard'); },
+  protect: async interfaces => { assert.deepEqual(interfaces, ['awg0']); events.push('guard-protect'); },
+  release: async check => { events.push('guard-release-start');
+    if (!verify || !await check()) throw new Error('Runtime not verified; guard retained');
+    events.push('guard-release'); } };
+}
+
+test('cell runtime protects before changing peers and releases only after readback', async () => {
+  const events = [];
+  const adapter = new CellRuntimeAdapter({ server: server(),
+    runner: async file => { if (file === 'ip') throw missing(); return { stdout: '' }; },
+    guard: guard(events), verifyRuntime: async () => { events.push('verify'); return true; },
+    runtime: { apply: async value => { events.push('apply');
+      assert.equal(value.interfaceActive, false); } } });
   await adapter.apply({ schema: 1, clients: [] });
-  assert.ok(calls.indexOf('nft -f -') < calls.indexOf('apply'));
-  assert.equal(calls.at(-1), 'nft delete table inet awg_easy_3_cell_guard');
+  assert.deepEqual(events, ['guard-recover', 'guard-protect', 'apply',
+    'guard-release-start', 'verify', 'guard-release']);
 });
 
-test('runtime failure retains guard; validation failure touches no system objects', async () => {
-  const calls = [];
-  const adapter = new CellRuntimeAdapter({ server: server(), runner: async (file, args) => {
-    calls.push([file, ...args].join(' '));
-    if (file === 'nft' && args[0] === 'list') {
-      throw Object.assign(new Error('missing'), { code: 1 });
-    }
-    return { stdout: '' };
-  }, runtime: { runtimeDirectory: '/cell-test', readOptional: async () => '[Interface]',
-    apply: async () => { throw new Error('apply failed'); } } });
+test('runtime failure retains durable guard; invalid settings touch no system objects', async () => {
+  const events = [];
+  const adapter = new CellRuntimeAdapter({ server: server(),
+    runner: async file => { events.push(file); if (file === 'ip') throw missing();
+      return { stdout: '' }; },
+    guard: guard(events), verifyRuntime: async () => true,
+    runtime: { apply: async () => { events.push('apply'); throw new Error('apply failed'); } } });
   await assert.rejects(adapter.apply({ shell: 'anything' }));
-  assert.equal(calls.length, 0);
+  assert.deepEqual(events, []);
   await assert.rejects(adapter.apply({ schema: 1, clients: [] }), /apply failed/);
-  assert.ok(!calls.some(call => call.startsWith('nft delete')));
+  assert.ok(events.includes('guard-protect'));
+  assert.ok(!events.includes('guard-release'));
 });
 
-test('cell runtime never adopts or replaces a pre-existing same-name guard table', async () => {
-  const calls = [];
-  const adapter = new CellRuntimeAdapter({ server: server(), runner: async (file, args) => {
-    calls.push([file, ...args].join(' '));
-    if (file === 'ip') throw Object.assign(new Error('missing'), { code: 1 });
-    return { stdout: '' };
-  }, runtime: { apply: async () => { throw new Error('must not apply'); } } });
-  await assert.rejects(adapter.apply({ schema: 1, clients: [] }), /ownership recovery/);
-  assert.deepEqual(calls, ['ip link show dev awg0', 'nft list table inet awg_easy_3_cell_guard']);
-  assert.doesNotMatch(guardPolicy('awg0'), /delete table/);
+test('cell runtime refuses a foreign same-name guard without applying settings', async () => {
+  const events = [];
+  const adapter = new CellRuntimeAdapter({ server: server(),
+    runner: async file => { if (file === 'ip') throw missing(); return { stdout: '' }; },
+    guard: guard(events, { failRecover: true }), verifyRuntime: async () => true,
+    runtime: { apply: async () => { events.push('apply'); } } });
+  await assert.rejects(adapter.apply({ schema: 1, clients: [] }), /Foreign or changed/);
+  assert.deepEqual(events, ['guard-recover']);
 });
 
-test('guard syntax validates in isolated Linux namespace', { skip: process.env.AWG_TEST_WSL !== '1' }, () => {
-  const result = spawnSync('wsl.exe', ['-d', 'Ubuntu', '-u', 'root', '--', 'unshare', '-n', 'nft', '-c', '-f', '-'],
-    { input: guardPolicy('awg0'), encoding: 'utf8', timeout: 20000 });
-  assert.equal(result.status, 0, result.stderr);
+test('failed post-apply verification keeps the guard for signed settings retry', async () => {
+  const events = [];
+  const adapter = new CellRuntimeAdapter({ server: server(),
+    runner: async file => { if (file === 'ip') throw missing(); return { stdout: '' }; },
+    guard: guard(events), verifyRuntime: async () => false,
+    runtime: { apply: async () => { events.push('apply'); } } });
+  await assert.rejects(adapter.apply({ schema: 1, clients: [] }), /Runtime not verified/);
+  assert.ok(events.includes('apply'));
+  assert.ok(!events.includes('guard-release'));
+});
+
+test('default verification compares persisted config, AWG readback and nft presence', async () => {
+  const settings = { schema: 1, clients: [] }, localServer = server();
+  const artifacts = buildCellArtifacts({ server: localServer, settings, geoDatabase: {} });
+  const stripped = artifacts.serverConfig.split('\n')
+    .filter(line => !line.startsWith('Address = ')).join('\n');
+  const directory = path.resolve('/cell-test');
+  let actual = stripped, nftPresent = true;
+  const adapter = new CellRuntimeAdapter({ server: localServer,
+    runtimeDirectory: directory, guard: guard([]),
+    runtime: { runtimeDirectory: directory,
+      readOptional: async file => file.endsWith('.conf') ? artifacts.serverConfig : artifacts.nftables,
+      apply: async () => {} },
+    runner: async (file, args) => {
+      if (file === 'awg-quick') return { stdout: stripped };
+      if (file === 'awg') return { stdout: actual };
+      if (file === 'nft' && nftPresent) return { stdout: '' };
+      throw missing();
+    } });
+  assert.equal(await adapter.verifyApplied(artifacts), true);
+  actual = actual.replace('ListenPort = 12345', 'ListenPort = 12346');
+  assert.equal(await adapter.verifyApplied(artifacts), false);
+  actual = stripped; nftPresent = false;
+  assert.equal(await adapter.verifyApplied(artifacts), false);
 });

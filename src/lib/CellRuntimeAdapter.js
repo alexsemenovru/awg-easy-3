@@ -2,29 +2,37 @@
 
 const path = require('node:path');
 const { buildCellArtifacts } = require('./CellArtifacts');
+const { CellRoutingGuard } = require('./CellRoutingGuard');
+const { matchesAwgConfig } = require('./CellAwgSnapshot');
+const { TABLE_NAME } = require('./NftablesPolicy');
 const { RuntimeApplier } = require('./RuntimeApplier');
 const { runProcess } = require('./ProcessRunner');
+
 const GUARD = 'awg_easy_3_cell_guard';
 
-function guardPolicy(interfaceName) {
-  if (typeof interfaceName !== 'string' || !/^[a-zA-Z0-9_.-]{1,15}$/.test(interfaceName)) {
-    throw new TypeError('Invalid cell interface');
-  }
-  return `table inet ${GUARD} {
-  chain input { type filter hook input priority -20; policy accept; iifname "${interfaceName}" drop; }
-  chain output { type filter hook output priority -20; policy accept; oifname "${interfaceName}" drop; }
-  chain forward { type filter hook forward priority -20; policy accept; iifname "${interfaceName}" drop; oifname "${interfaceName}" drop; }
-}\n`;
-}
-
-// Cell-only adapter, not enabled in the main panel. Server context is local/trusted.
+// Cell-only adapter, not enabled in the main panel. The product must pass a
+// persistent stateDirectory; /run is not suitable for the guard journal.
 class CellRuntimeAdapter {
-  constructor({ server, runtimeDirectory, geoDatabase = async () => ({}), runner = runProcess,
-    runtime = new RuntimeApplier({ runtimeDirectory, runner }) }) {
+  constructor({ server, runtimeDirectory, stateDirectory,
+    geoDatabase = async () => ({}), runner = runProcess,
+    runtime = new RuntimeApplier({ runtimeDirectory, runner }),
+    guard = null, verifyRuntime = null }) {
+    if (!guard && (typeof stateDirectory !== 'string' || !path.isAbsolute(stateDirectory)
+      || (process.platform !== 'win32' && /^\/run(?:\/|$)/.test(stateDirectory)))) {
+      throw new TypeError('Persistent absolute cell state directory required');
+    }
+    const ownedGuard = guard || new CellRoutingGuard({
+      journalPath: path.join(stateDirectory, 'guard.json'), table: GUARD, runner });
+    if (!['recover', 'protect', 'release'].every(name => typeof ownedGuard[name] === 'function')
+      || verifyRuntime !== null && typeof verifyRuntime !== 'function') {
+      throw new TypeError('Durable cell guard and runtime verifier required');
+    }
     this.server = structuredClone(server);
     this.geoDatabase = geoDatabase;
     this.runner = runner;
     this.runtime = runtime;
+    this.guard = ownedGuard;
+    this.verifyRuntime = verifyRuntime || (artifacts => this.verifyApplied(artifacts));
   }
 
   async validate(settings) {
@@ -32,8 +40,27 @@ class CellRuntimeAdapter {
     return settings;
   }
 
+  async verifyApplied(artifacts) {
+    if (!this.runtime.runtimeDirectory || typeof this.runtime.readOptional !== 'function') return false;
+    const directory = this.runtime.runtimeDirectory;
+    const interfaceName = this.server.interfaceName;
+    try {
+      const [config, policy, stripped, actual] = await Promise.all([
+        this.runtime.readOptional(path.join(directory, `${interfaceName}.conf`)),
+        this.runtime.readOptional(path.join(directory, 'rules.nft')),
+        this.runner('awg-quick', ['strip', path.join(directory, `${interfaceName}.conf`)]),
+        this.runner('awg', ['showconf', interfaceName]),
+      ]);
+      if (config !== artifacts.serverConfig || policy !== artifacts.nftables
+        || !matchesAwgConfig(stripped.stdout, actual.stdout)) return false;
+      await this.runner('nft', ['list', 'table', 'inet', TABLE_NAME]);
+      return true;
+    } catch { return false; }
+  }
+
   async apply(settings) {
-    const artifacts = buildCellArtifacts({ server: this.server, settings, geoDatabase: await this.geoDatabase() });
+    const artifacts = buildCellArtifacts({ server: this.server, settings,
+      geoDatabase: await this.geoDatabase() });
     let active;
     try {
       await this.runner('ip', ['link', 'show', 'dev', this.server.interfaceName]);
@@ -43,26 +70,17 @@ class CellRuntimeAdapter {
       active = false;
     }
     if (active && (!this.runtime.runtimeDirectory || typeof this.runtime.readOptional !== 'function'
-      || !await this.runtime.readOptional(path.join(this.runtime.runtimeDirectory, `${this.server.interfaceName}.conf`)))) {
+      || !await this.runtime.readOptional(path.join(this.runtime.runtimeDirectory,
+        `${this.server.interfaceName}.conf`)))) {
       throw new Error('Existing interface has no owned cell configuration; refusing to touch it');
     }
-    let exists;
-    try { await this.runner('nft', ['list', 'table', 'inet', GUARD]); exists = true; }
-    catch (error) {
-      if (error.code !== 1 && error.exitCode !== 1) throw error;
-      exists = false;
-    }
-    if (exists) {
-      throw new Error('Existing cell guard table requires explicit ownership recovery');
-    }
-    const input = guardPolicy(this.server.interfaceName);
-    await this.runner('nft', ['-c', '-f', '-'], { input });
-    await this.runner('nft', ['-f', '-'], { input });
+    await this.guard.recover();
+    await this.guard.protect([this.server.interfaceName]);
     // Keep guard on ANY uncertain outcome, including rollback failure. A later
-    // explicit retry/restore must apply a known snapshot before removing it.
+    // retry restores the last signed applied snapshot before removing it.
     await this.runtime.apply({ ...artifacts, interfaceActive: active });
-    await this.runner('nft', ['delete', 'table', 'inet', GUARD]);
+    await this.guard.release(() => this.verifyRuntime(artifacts));
   }
 }
 
-module.exports = { CellRuntimeAdapter, guardPolicy };
+module.exports = { CellRuntimeAdapter };

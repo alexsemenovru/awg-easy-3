@@ -85,7 +85,8 @@ async function serve() {
     const trust = await connectionStore.read();
     const runtimeFile = process.env.CELL_LAB_RUNTIME;
     const adapter = runtimeFile ? new CellRuntimeAdapter({ server: await read(runtimeFile),
-      runtimeDirectory: path.join(dir, 'runtime'), geoDatabase: async () => process.env.CELL_LAB_GEO ? read(process.env.CELL_LAB_GEO) : {} }) : null;
+      runtimeDirectory: path.join(dir, 'runtime'), stateDirectory: path.join(dir, 'cell-runtime-state'),
+      geoDatabase: async () => process.env.CELL_LAB_GEO ? read(process.env.CELL_LAB_GEO) : {} }) : null;
     const receiver = new CellSettingsReceiver(path.join(dir, 'received.json'), {
       ...trust, ...(adapter ? { validate: settings => adapter.validate(settings) } : {}),
       apply: async settings => {

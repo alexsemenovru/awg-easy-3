@@ -44,7 +44,8 @@ async function main() {
     geoPolicy: { mode: 'off', countries: [] } }] };
   const runtimeDirectory = '/tmp/cell-runtime';
   const geoDatabase = async () => ({ RU: { ipv4: ['198.51.100.2/32'], ipv6: ['fd99::2/128'] } });
-  const adapter = new CellRuntimeAdapter({ server, runtimeDirectory, geoDatabase });
+  const adapter = new CellRuntimeAdapter({ server, runtimeDirectory,
+    stateDirectory: runtimeDirectory, geoDatabase });
   await adapter.apply(settings);
   assert.equal(run('awg', ['show', server.interfaceName, 'peers']), clientKey);
   assert.throws(() => run('nft', ['list', 'table', 'inet', 'awg_easy_3_cell_guard']));
@@ -96,7 +97,8 @@ async function main() {
     }
     return runProcess(file, args, options);
   };
-  const failureAdapter = new CellRuntimeAdapter({ server, runner, runtimeDirectory });
+  const failureAdapter = new CellRuntimeAdapter({ server, runner, runtimeDirectory,
+    stateDirectory: runtimeDirectory });
   await assert.rejects(failureAdapter.apply({ schema: 1, clients: [] }), /injected/);
   assert.equal(run('awg', ['show', server.interfaceName, 'peers']), clientKey);
   assert.equal(await fs.readFile(`${runtimeDirectory}/${server.interfaceName}.conf`, 'utf8'), before);
