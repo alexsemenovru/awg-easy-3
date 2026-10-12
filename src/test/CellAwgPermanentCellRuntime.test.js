@@ -32,6 +32,8 @@ test('cell assembly binds bootstrap retirement and join to one permanent gate', 
   await assert.rejects(runtime.join({ interfaceName: 'awgperm8' }),
     /Signed permanent cell registration required/);
   connection = { status: 'registered' };
+  await assert.rejects(runtime.recoverBoot({ ensureTun: async () => {} }),
+    /resume join before boot/);
   runtime.gate.verifyCell = async value => { verified = value; return true; };
   await runtime.retirement.authorization();
   assert.equal(verified, connection);

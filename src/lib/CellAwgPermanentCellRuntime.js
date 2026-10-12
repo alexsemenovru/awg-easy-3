@@ -27,7 +27,13 @@ function createPermanentCellRuntime({ stateDirectory, connectionStore, bootstrap
   return Object.freeze({ deployment, gate, retirement,
     join: options => joinPermanentCell({ ...options, connectionStore, deployment, gate,
       retirement }),
-    recoverBoot: options => recoverPermanentBoot({ ...options, deployment, receiver }),
+    recoverBoot: async options => {
+      const result = await recoverPermanentBoot({ ...options, deployment, receiver });
+      if (!result.configured && (await connectionStore.read())?.status === 'registered') {
+        throw new Error('Registered cell has no permanent plan; resume join before boot');
+      }
+      return result;
+    },
   });
 }
 
