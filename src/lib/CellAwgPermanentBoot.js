@@ -9,7 +9,8 @@ async function recoverPermanentBoot({ deployment, expansionRuntime = null, recei
   if (!deployment || !deployment.store || typeof deployment.store.read !== 'function'
     || typeof deployment.resume !== 'function'
     || typeof deployment.buildPath !== 'function'
-    || expansionRuntime !== null && typeof expansionRuntime.recoverCurrent !== 'function'
+    || expansionRuntime !== null && (expansionRuntime.deployment !== deployment
+      || typeof expansionRuntime.recoverCurrent !== 'function')
     || receiver !== null && typeof receiver.restoreApplied !== 'function'
     || typeof ensureTun !== 'function') {
     throw new TypeError('Invalid permanent AWG boot dependencies');

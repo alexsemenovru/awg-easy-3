@@ -57,8 +57,17 @@ test('boot uses the committed expansion plan instead of stale first-cell plan', 
     buildPath: ({ plan }) => { seen.push(plan.id);
       return { verifyOperational: async () => plan === current }; } };
   const result = await recoverPermanentBoot({ deployment,
-    expansionRuntime: { recoverCurrent: async () => current },
+    expansionRuntime: { deployment, recoverCurrent: async () => current },
     ensureTun: async () => {} });
   assert.deepEqual(result, { configured: true, applied: null });
   assert.deepEqual(seen, ['expanded']);
+});
+
+test('boot refuses an expansion runtime assembled for another deployment', async () => {
+  const deployment = { store: { read: async () => ({}) },
+    resume: async () => {}, buildPath: () => ({ verifyOperational: async () => true }) };
+  await assert.rejects(recoverPermanentBoot({ deployment,
+    expansionRuntime: { deployment: {}, recoverCurrent: async () => ({}) },
+    ensureTun: async () => { throw new Error('must not reach TUN'); } }),
+  /Invalid permanent AWG boot dependencies/);
 });
