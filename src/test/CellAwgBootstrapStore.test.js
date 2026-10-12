@@ -68,6 +68,24 @@ test('bootstrap store rejects duplicate active address and peer and corrupt stat
   await assert.rejects(store.read(), /Invalid AWG bootstrap state/);
 });
 
+test('bootstrap store never overlaps active temporary addresses or reserved permanent addresses', async t => {
+  const { store, issued } = await fixture(t);
+  const descriptor = { version: 1, endpointHost: 'example.test', endpointPort: 53084,
+    controllerAddress: '10.91.8.1', cellAddress: '10.91.8.2', controlPort: 53083,
+    serverPublicKey: key(), profile: generateOfficialProfile() };
+  await store.reserve({ ...issued.record, permanentDescriptor: descriptor });
+  const second = { ...issued.record, id: crypto.randomBytes(16).toString('hex'),
+    temporaryPublicKey: key(), cellAddress: '10.90.0.3',
+    permanentDescriptor: { ...descriptor, cellAddress: '10.91.8.3' } };
+  await assert.rejects(store.reserve({ ...second, permanentDescriptor: descriptor }),
+    /Invalid AWG bootstrap state/);
+  await assert.rejects(store.reserve({ ...second, cellAddress: descriptor.cellAddress }),
+    /Invalid AWG bootstrap state/);
+  await assert.rejects(store.reserve({ ...second, cellAddress: descriptor.controllerAddress }),
+    /Invalid AWG bootstrap state/);
+  assert.equal((await store.read()).invitations.length, 1);
+});
+
 test('v2 registration durably binds a cell-owned permanent AWG key and PSK', async t => {
   const { store, controller, issued } = await fixture(t);
   await store.reserve(issued.record);

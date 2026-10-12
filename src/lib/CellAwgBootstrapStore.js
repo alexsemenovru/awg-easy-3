@@ -94,6 +94,16 @@ function validateState(input) {
     }
     return record;
   });
+  const permanentAddresses = new Set(), controllerAddresses = new Set();
+  for (const record of invitations) {
+    if (!record.permanentDescriptor || record.status === 'revoked') continue;
+    const descriptor = record.permanentDescriptor;
+    if (permanentAddresses.has(descriptor.cellAddress)) invalid();
+    permanentAddresses.add(descriptor.cellAddress);
+    controllerAddresses.add(descriptor.controllerAddress);
+  }
+  if ([...activeAddresses].some(address => permanentAddresses.has(address)
+    || controllerAddresses.has(address))) invalid();
   if (activeKeys.size > MAX_ACTIVE) invalid();
   return { version: 2, invitations };
 }
