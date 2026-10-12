@@ -6,6 +6,7 @@ const crypto = require('node:crypto');
 const { generateOfficialProfile } = require('../lib/Awg3Config');
 const { permanentControllerPlan } = require('../lib/CellAwgPermanentPlan');
 const { permanentControllerExpansionPlan } = require('../lib/CellAwgPermanentExpansionPlan');
+const { permanentControllerRemovalPlan } = require('../lib/CellAwgPermanentRemovalPlan');
 const { CellAwgPermanentExpansionRuntime } = require('../lib/CellAwgPermanentExpansionRuntime');
 
 const key = () => crypto.randomBytes(32).toString('base64');
@@ -123,4 +124,23 @@ test('third cell advances from the committed second-cell revision without reinst
   assert.equal(f.revision, 2);
   assert.equal(f.guarded, false);
   assert.deepEqual(await f.runtime.recoverCurrent(), later);
+});
+
+test('one-peer removal recovers under the same guard after interrupted policy update', async () => {
+  const { base, target, second, keyManager } = await plans();
+  const f = fixture(base, target);
+  await f.runtime.prepare(target);
+  const reduced = await permanentControllerRemovalPlan({ currentPlan: target,
+    record: second, keyManager });
+  f.setFailNft(true);
+  await assert.rejects(f.runtime.prepare(reduced), /injected nft failure/);
+  assert.equal(f.guarded, true);
+  assert.equal(f.revision, 1);
+  assert.deepEqual(f.pending, reduced);
+  f.simulateReboot();
+  f.setFailNft(false);
+  assert.deepEqual(await f.runtime.recoverCurrent(), reduced);
+  assert.equal(f.revision, 2);
+  assert.equal(f.guarded, false);
+  assert.deepEqual(f.lifeSpec.owner, reduced.spec.owner);
 });

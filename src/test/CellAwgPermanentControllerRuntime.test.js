@@ -35,15 +35,13 @@ test('controller assembly opens only a reserved base and shares one revision jou
   let baseOperational = false, guarded = false;
   const deployment = { stateDirectory: directory, runner: async () => {},
     store: original.store, install: async () => {},
-    resume: async () => { assert.equal(guarded, true);
-      if (!baseOperational) throw new Error('expanded state differs from base');
-      guarded = false; },
     buildPath: () => ({ protect: async () => { guarded = true; },
       verifyOperational: async () => baseOperational && !guarded }) };
   await assert.rejects(openPermanentControllerRuntime({ stateDirectory: directory,
-    keyManager, deployment }), /Missing permanent revision journal; base recovery failed/);
+    keyManager, deployment }), /Missing permanent revision journal; control path guarded/);
   assert.equal(guarded, true);
   baseOperational = true;
+  guarded = false;
   const runtime = await openPermanentControllerRuntime({ stateDirectory: directory,
     keyManager, deployment });
   assert.equal(runtime.expansionRuntime.deployment, runtime.deployment);
@@ -65,7 +63,7 @@ test('controller assembly opens only a reserved base and shares one revision jou
   baseOperational = false;
   guarded = false;
   await assert.rejects(openPermanentControllerRuntime({ stateDirectory: directory,
-    keyManager, deployment }), /Missing permanent revision journal; base recovery failed/);
+    keyManager, deployment }), /Missing permanent revision journal; control path guarded/);
   assert.equal(guarded, true);
   await assert.rejects(fs.lstat(runtime.revisionStore.filePath), { code: 'ENOENT' });
   await fs.writeFile(runtime.revisionStore.filePath, '{corrupt');

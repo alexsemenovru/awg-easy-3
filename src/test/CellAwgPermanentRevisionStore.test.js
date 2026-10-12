@@ -9,6 +9,7 @@ const crypto = require('node:crypto');
 const { generateOfficialProfile } = require('../lib/Awg3Config');
 const { permanentControllerPlan } = require('../lib/CellAwgPermanentPlan');
 const { permanentControllerExpansionPlan } = require('../lib/CellAwgPermanentExpansionPlan');
+const { permanentControllerRemovalPlan } = require('../lib/CellAwgPermanentRemovalPlan');
 const { CellAwgPermanentRevisionStore } = require('../lib/CellAwgPermanentRevisionStore');
 
 const key = () => crypto.randomBytes(32).toString('base64');
@@ -84,5 +85,46 @@ test('successive revisions preserve base peers and reject a false revision count
   const bad = await store.read();
   bad.committed = next;
   await fs.writeFile(file, JSON.stringify(bad), { mode: 0o600 });
+  await assert.rejects(store.read(), /Corrupt/);
+});
+
+test('legacy additive journal upgrades on guarded removal and accepts later addition', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cell-revision-remove-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const { base, next, second, keyManager } = await plans();
+  const file = path.join(dir, 'revision.json');
+  const store = new CellAwgPermanentRevisionStore(file, base);
+  await store.prepare(next); await store.commit();
+  assert.equal((await store.read()).version, 1);
+  const reduced = await permanentControllerRemovalPlan({ currentPlan: next,
+    record: second, keyManager });
+  await store.prepare(reduced);
+  const reopened = new CellAwgPermanentRevisionStore(file, base);
+  assert.equal((await reopened.read()).version, 2);
+  assert.deepEqual((await reopened.read()).pending, reduced);
+  const committed = await reopened.commit();
+  assert.equal(committed.revision, 2);
+  assert.deepEqual(committed.committed, reduced);
+  await store.prepare(next);
+  assert.equal((await store.commit()).revision, 3);
+  assert.equal((await store.read()).version, 2);
+});
+
+test('removal journal rejects changed remaining peer and controller identity', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cell-revision-remove-bad-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const { base, next, second, keyManager } = await plans();
+  const store = new CellAwgPermanentRevisionStore(path.join(dir, 'revision.json'), base);
+  await store.prepare(next); await store.commit();
+  const reduced = await permanentControllerRemovalPlan({ currentPlan: next,
+    record: second, keyManager });
+  const changed = structuredClone(reduced);
+  changed.spec.owner.ownerTag = changeTag(reduced.spec.owner.ownerTag);
+  await assert.rejects(store.prepare(changed), /changes ownership/);
+  await store.prepare(reduced);
+  const bad = await store.read();
+  bad.pending = base;
+  bad.pending.spec.owner.config = bad.committed.spec.owner.config;
+  await fs.writeFile(store.filePath, JSON.stringify(bad));
   await assert.rejects(store.read(), /Corrupt/);
 });

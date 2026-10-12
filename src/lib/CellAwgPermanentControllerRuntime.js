@@ -30,29 +30,30 @@ async function openPermanentControllerRuntime({ stateDirectory, runner, keyManag
   catch (error) { if (error.code === 'ENOENT') missing = true; else throw error; }
   if (missing) {
     // A lost revision journal must never be interpreted as revision zero.
-    // Guard first, then recover only the exact reserved base. A missing
-    // journal after expansion leaves the inter-server path blocked.
+    // Create revision zero only if the exact base is already operational.
+    // Reapplying the base after a removal could resurrect a revoked Cell.
     const first = deployment.buildPath({ stateDirectory: deployment.stateDirectory,
       plan: base, runner: deployment.runner });
     if (!first || typeof first.protect !== 'function'
-      || typeof first.verifyOperational !== 'function'
-      || typeof deployment.resume !== 'function') {
-      throw new TypeError('Permanent base recovery requires guarded path');
+      || typeof first.verifyOperational !== 'function') {
+      throw new TypeError('Permanent base initialization requires guarded path');
     }
-    await first.protect();
-    try {
-      await deployment.resume();
-      if (!await first.verifyOperational()) {
-        throw new Error('Permanent base path not verified');
+    if (!await first.verifyOperational()) {
+      try { await first.protect(); }
+      catch (guardError) {
+        throw new AggregateError([guardError],
+          'Missing permanent revision journal; guard also failed');
       }
-      await revisionStore.write(revisionStore.empty());
-    } catch (error) {
+      throw new Error('Missing permanent revision journal; control path guarded');
+    }
+    try { await revisionStore.write(revisionStore.empty()); }
+    catch (error) {
       try { await first.protect(); }
       catch (guardError) {
         throw new AggregateError([error, guardError],
-          'Missing permanent revision journal; guard recovery also failed');
+          'Permanent revision initialization and guard both failed');
       }
-      throw new Error('Missing permanent revision journal; base recovery failed',
+      throw new Error('Permanent revision initialization failed; control path guarded',
         { cause: error });
     }
   }

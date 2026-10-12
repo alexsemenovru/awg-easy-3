@@ -25,6 +25,24 @@ function additive(before, after) {
   return b;
 }
 
+function onePeerTransition(before, after) {
+  const a = validatePermanentPlan(before), b = validatePermanentPlan(after);
+  const ao = a.spec.owner, bo = b.spec.owner;
+  const old = normalizeAwgConfig(ao.config), next = normalizeAwgConfig(bo.config);
+  if (ao.interfaceName !== bo.interfaceName || ao.ownerTag !== bo.ownerTag
+    || ao.mtu !== bo.mtu || !same(a.spec.addresses, b.spec.addresses)
+    || !same(old.interface, next.interface)) {
+    throw new Error('Permanent AWG revision changes ownership');
+  }
+  const delta = next.peers.length - old.peers.length;
+  if (Math.abs(delta) !== 1 || (delta === 1
+    ? old.peers.some(peer => !next.peers.some(candidate => same(peer, candidate)))
+    : next.peers.some(peer => !old.peers.some(candidate => same(peer, candidate))))) {
+    throw new Error('Permanent AWG revision must add or remove exactly one peer');
+  }
+  return b;
+}
+
 function extendsBase(base, committed, revision) {
   const a = validatePermanentPlan(base), b = validatePermanentPlan(committed);
   const ao = a.spec.owner, bo = b.spec.owner;
@@ -34,6 +52,18 @@ function extendsBase(base, committed, revision) {
     || !same(old.interface, next.interface)
     || next.peers.length !== old.peers.length + revision
     || old.peers.some(peer => !next.peers.some(candidate => same(peer, candidate)))) {
+    throw new Error('Permanent AWG committed revision differs from base identity');
+  }
+  return b;
+}
+
+function sameBaseIdentity(base, committed) {
+  const a = validatePermanentPlan(base), b = validatePermanentPlan(committed);
+  const ao = a.spec.owner, bo = b.spec.owner;
+  const old = normalizeAwgConfig(ao.config), next = normalizeAwgConfig(bo.config);
+  if (ao.interfaceName !== bo.interfaceName || ao.ownerTag !== bo.ownerTag
+    || ao.mtu !== bo.mtu || !same(a.spec.addresses, b.spec.addresses)
+    || !same(old.interface, next.interface)) {
     throw new Error('Permanent AWG committed revision differs from base identity');
   }
   return b;
@@ -57,17 +87,22 @@ class CellAwgPermanentRevisionStore {
   validate(state) {
     if (!state || typeof state !== 'object' || Array.isArray(state)
       || Object.keys(state).sort().join(',') !== 'baseFingerprint,committed,pending,revision,version'
-      || state.version !== 1 || state.baseFingerprint !== this.baseFingerprint
+      || ![1, 2].includes(state.version) || state.baseFingerprint !== this.baseFingerprint
       || !Number.isSafeInteger(state.revision) || state.revision < 0
       || (state.revision === 0) !== (state.committed === null)) {
       throw new Error('Invalid permanent AWG revision journal');
     }
     let previous = this.base;
     if (state.committed !== null) {
-      previous = extendsBase(this.base, state.committed, state.revision);
+      previous = state.version === 1
+        ? extendsBase(this.base, state.committed, state.revision)
+        : sameBaseIdentity(this.base, state.committed);
     }
-    if (state.pending !== null) additive(previous, state.pending);
-    const normalized = { version: 1, baseFingerprint: this.baseFingerprint,
+    if (state.pending !== null) {
+      if (state.version === 1) additive(previous, state.pending);
+      else onePeerTransition(previous, state.pending);
+    }
+    const normalized = { version: state.version, baseFingerprint: this.baseFingerprint,
       revision: state.revision, committed: state.committed === null ? null : previous,
       pending: state.pending === null ? null : validatePermanentPlan(state.pending) };
     if (Buffer.byteLength(JSON.stringify(normalized)) > MAX_BYTES) {
@@ -123,8 +158,11 @@ class CellAwgPermanentRevisionStore {
   async prepare(nextPlan) {
     const state = await this.read();
     if (state.pending) throw new Error('Pending permanent AWG expansion requires recovery');
-    const pending = additive(state.committed || this.base, nextPlan);
-    await this.write({ ...state, pending });
+    const previous = state.committed || this.base;
+    const pending = onePeerTransition(previous, nextPlan);
+    const oldCount = normalizeAwgConfig(previous.spec.owner.config).peers.length;
+    const newCount = normalizeAwgConfig(pending.spec.owner.config).peers.length;
+    await this.write({ ...state, version: newCount < oldCount ? 2 : state.version, pending });
     return pending;
   }
 
