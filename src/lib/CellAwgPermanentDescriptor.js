@@ -32,4 +32,13 @@ function validatePermanentDescriptor(value) {
     serverPublicKey: value.serverPublicKey, profile });
 }
 
-module.exports = { validatePermanentDescriptor };
+function permanentControllerIdentity(value) {
+  const descriptor = validatePermanentDescriptor(value);
+  const profile = Object.fromEntries(Object.keys(descriptor.profile).sort()
+    .map(key => [key, descriptor.profile[key]]));
+  return JSON.stringify([descriptor.endpointHost, descriptor.endpointPort,
+    descriptor.controllerAddress, descriptor.controlPort,
+    descriptor.serverPublicKey, profile]);
+}
+
+module.exports = { validatePermanentDescriptor, permanentControllerIdentity };

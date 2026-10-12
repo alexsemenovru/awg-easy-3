@@ -83,6 +83,8 @@ test('bootstrap store never overlaps active temporary addresses or reserved perm
     /Invalid AWG bootstrap state/);
   await assert.rejects(store.reserve({ ...second, cellAddress: descriptor.controllerAddress }),
     /Invalid AWG bootstrap state/);
+  await assert.rejects(store.reserve({ ...second, permanentDescriptor: {
+    ...second.permanentDescriptor, endpointPort: 53085 } }), /Invalid AWG bootstrap state/);
   assert.equal((await store.read()).invitations.length, 1);
 });
 

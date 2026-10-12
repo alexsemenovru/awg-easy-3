@@ -3,15 +3,14 @@
 const { validateAwgOwnership } = require('./CellAwgOwnership');
 const { normalizeAwgConfig } = require('./CellAwgSnapshot');
 const { specification } = require('./CellAwgLifecycle');
-const { validatePermanentDescriptor } = require('./CellAwgPermanentDescriptor');
+const { validatePermanentDescriptor, permanentControllerIdentity } =
+  require('./CellAwgPermanentDescriptor');
 const { renderPermanentServerConfig } = require('./CellAwgPermanentConfig');
 const { permanentControlPolicySnapshot } = require('./CellAwgPermanentControlPolicy');
 const { bootstrapServerRoutes } = require('./CellAwgBootstrapRoutes');
 const { validatePermanentPlan } = require('./CellAwgPermanentPlanStore');
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-const canonicalProfile = profile => JSON.stringify(Object.fromEntries(
-  Object.keys(profile).sort().map(key => [key, profile[key]])));
 
 async function permanentControllerExpansionPlan({ currentPlan, records, keyManager }) {
   const current = validatePermanentPlan(currentPlan);
@@ -31,12 +30,8 @@ async function permanentControllerExpansionPlan({ currentPlan, records, keyManag
       awgPublicKey: record.awgPublicKey, awgPresharedKey: record.awgPresharedKey } };
   });
   const descriptor = entries[0].descriptor;
-  const identity = entry => {
-    const d = entry.descriptor;
-    return [d.endpointHost, d.endpointPort, d.controllerAddress, d.controlPort,
-      d.serverPublicKey, canonicalProfile(d.profile)];
-  };
-  if (entries.some(entry => !same(identity(entry), identity(entries[0])))) {
+  const identity = permanentControllerIdentity(descriptor);
+  if (entries.some(entry => permanentControllerIdentity(entry.descriptor) !== identity)) {
     throw new TypeError('Permanent controller descriptors disagree');
   }
   const before = normalizeAwgConfig(current.spec.owner.config);

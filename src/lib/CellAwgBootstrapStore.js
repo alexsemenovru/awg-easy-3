@@ -8,7 +8,8 @@ const { validateKey } = require('./AwgKeyManager');
 const { privateAddress } = require('./CellTunnelControlTransport');
 const { verifyRegistration } = require('./CellRegistration');
 const { verifyAwgRegistration } = require('./CellAwgRegistration');
-const { validatePermanentDescriptor } = require('./CellAwgPermanentDescriptor');
+const { validatePermanentDescriptor, permanentControllerIdentity } =
+  require('./CellAwgPermanentDescriptor');
 
 const queues = new Map();
 const MAX_RECORDS = 1024;
@@ -95,9 +96,13 @@ function validateState(input) {
     return record;
   });
   const permanentAddresses = new Set(), controllerAddresses = new Set();
+  let controllerIdentity = null;
   for (const record of invitations) {
     if (!record.permanentDescriptor || record.status === 'revoked') continue;
     const descriptor = record.permanentDescriptor;
+    const currentIdentity = permanentControllerIdentity(descriptor);
+    if (controllerIdentity !== null && controllerIdentity !== currentIdentity) invalid();
+    controllerIdentity = currentIdentity;
     if (permanentAddresses.has(descriptor.cellAddress)) invalid();
     permanentAddresses.add(descriptor.cellAddress);
     controllerAddresses.add(descriptor.controllerAddress);
