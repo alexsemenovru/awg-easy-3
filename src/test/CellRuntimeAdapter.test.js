@@ -30,6 +30,8 @@ function guard(events, { failRecover = false, verify = true } = {}) {
     if (!verify || !await check()) throw new Error('Runtime not verified; guard retained');
     events.push('guard-release'); } };
 }
+const runtime = apply => ({ runtimeDirectory: path.resolve('cell-runtime'),
+  tableExists: async () => false, readOptional: async () => null, apply });
 
 test('cell boot restores durable guard before accepting any signed settings', async () => {
   const events = [];
@@ -44,8 +46,8 @@ test('cell runtime protects before changing peers and releases only after readba
   const adapter = new CellRuntimeAdapter({ server: server(),
     runner: async file => { if (file === 'ip') throw missing(); return { stdout: '' }; },
     guard: guard(events), verifyRuntime: async () => { events.push('verify'); return true; },
-    runtime: { apply: async value => { events.push('apply');
-      assert.equal(value.interfaceActive, false); } } });
+    runtime: runtime(async value => { events.push('apply');
+      assert.equal(value.interfaceActive, false); }) });
   await adapter.apply({ schema: 1, clients: [] });
   assert.deepEqual(events, ['guard-recover', 'guard-protect', 'apply',
     'guard-release-start', 'verify', 'guard-release']);
@@ -57,7 +59,7 @@ test('runtime failure retains durable guard; invalid settings touch no system ob
     runner: async file => { events.push(file); if (file === 'ip') throw missing();
       return { stdout: '' }; },
     guard: guard(events), verifyRuntime: async () => true,
-    runtime: { apply: async () => { events.push('apply'); throw new Error('apply failed'); } } });
+    runtime: runtime(async () => { events.push('apply'); throw new Error('apply failed'); }) });
   await assert.rejects(adapter.apply({ shell: 'anything' }));
   assert.deepEqual(events, []);
   await assert.rejects(adapter.apply({ schema: 1, clients: [] }), /apply failed/);
@@ -70,9 +72,21 @@ test('cell runtime refuses a foreign same-name guard without applying settings',
   const adapter = new CellRuntimeAdapter({ server: server(),
     runner: async file => { if (file === 'ip') throw missing(); return { stdout: '' }; },
     guard: guard(events, { failRecover: true }), verifyRuntime: async () => true,
-    runtime: { apply: async () => { events.push('apply'); } } });
+    runtime: runtime(async () => { events.push('apply'); }) });
   await assert.rejects(adapter.apply({ schema: 1, clients: [] }), /Foreign or changed/);
   assert.deepEqual(events, ['guard-recover']);
+});
+
+test('cell runtime refuses an existing policy table without saved cell policy', async () => {
+  const events = [];
+  const adapter = new CellRuntimeAdapter({ server: server(),
+    runner: async file => { if (file === 'ip') throw missing(); return { stdout: '' }; },
+    guard: guard(events), verifyRuntime: async () => true,
+    runtime: { ...runtime(async () => { events.push('apply'); }),
+      tableExists: async () => true } });
+  await assert.rejects(adapter.apply({ schema: 1, clients: [] }),
+    /no saved cell policy/);
+  assert.deepEqual(events, ['guard-recover', 'guard-protect']);
 });
 
 test('failed post-apply verification keeps the guard for signed settings retry', async () => {
@@ -80,7 +94,7 @@ test('failed post-apply verification keeps the guard for signed settings retry',
   const adapter = new CellRuntimeAdapter({ server: server(),
     runner: async file => { if (file === 'ip') throw missing(); return { stdout: '' }; },
     guard: guard(events), verifyRuntime: async () => false,
-    runtime: { apply: async () => { events.push('apply'); } } });
+    runtime: runtime(async () => { events.push('apply'); }) });
   await assert.rejects(adapter.apply({ schema: 1, clients: [] }), /Runtime not verified/);
   assert.ok(events.includes('apply'));
   assert.ok(!events.includes('guard-release'));

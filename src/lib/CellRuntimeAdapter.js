@@ -45,6 +45,20 @@ class CellRuntimeAdapter {
     await this.guard.protect([this.server.interfaceName]);
   }
 
+  async requireKnownPolicyBeforeReplacement() {
+    if (typeof this.runtime.tableExists !== 'function'
+      || typeof this.runtime.readOptional !== 'function'
+      || !this.runtime.runtimeDirectory) {
+      throw new Error('Cell runtime cannot verify existing nft policy ownership');
+    }
+    if (!await this.runtime.tableExists()) return;
+    const saved = await this.runtime.readOptional(
+      path.join(this.runtime.runtimeDirectory, 'rules.nft'));
+    if (!saved || !saved.includes(`table inet ${TABLE_NAME} {`)) {
+      throw new Error('Existing AWG-Easy nft table has no saved cell policy; refusing replacement');
+    }
+  }
+
   async verifyApplied(artifacts) {
     if (!this.runtime.runtimeDirectory || typeof this.runtime.readOptional !== 'function') return false;
     const directory = this.runtime.runtimeDirectory;
@@ -81,6 +95,7 @@ class CellRuntimeAdapter {
     }
     await this.guard.recover();
     await this.guard.protect([this.server.interfaceName]);
+    await this.requireKnownPolicyBeforeReplacement();
     // Keep guard on ANY uncertain outcome, including rollback failure. A later
     // retry restores the last signed applied snapshot before removing it.
     await this.runtime.apply({ ...artifacts, interfaceActive: active });
