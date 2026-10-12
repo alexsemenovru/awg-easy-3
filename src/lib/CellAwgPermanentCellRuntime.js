@@ -6,6 +6,7 @@ const { CellAwgBootstrapCellRetirement } = require('./CellAwgBootstrapCellRetire
 const { joinPermanentCell } = require('./CellAwgPermanentJoin');
 const { recoverPermanentBoot } = require('./CellAwgPermanentBoot');
 const { syncCellSettings } = require('./CellControlService');
+const { CellSettingsPoller } = require('./CellSettingsPoller');
 
 // Component assembly for one Cell. The temporary-path retirement rechecks
 // exactly the same permanent-path gate that the join uses. The caller still
@@ -27,6 +28,18 @@ function createPermanentCellRuntime({ stateDirectory, connectionStore, bootstrap
     firewall: bootstrap.firewall, routes: bootstrap.routes, guard: bootstrap.guard,
     interfaceName: temporaryInterfaceName,
     verifyPermanent: connection => gate.verifyCell(connection) });
+  const syncSettings = async ({ identityStore } = {}) => {
+    const connection = await connectionStore.read();
+    if (connection?.status !== 'registered' || !connection.controllerPath) {
+      throw new Error('Registered cell has no signed permanent control path');
+    }
+    if (!await gate.verifyCell(connection)) {
+      throw new Error('Permanent AWG control path is not operational');
+    }
+    return sync({ connectionStore, identityStore, receiver,
+      host: connection.controllerPath.controllerAddress,
+      port: connection.controllerPath.controlPort, transport: 'tunnel' });
+  };
   return Object.freeze({ deployment, gate, retirement,
     join: options => joinPermanentCell({ ...options, connectionStore, deployment, gate,
       retirement }),
@@ -38,18 +51,9 @@ function createPermanentCellRuntime({ stateDirectory, connectionStore, bootstrap
       }
       return result;
     },
-    syncSettings: async ({ identityStore } = {}) => {
-      const connection = await connectionStore.read();
-      if (connection?.status !== 'registered' || !connection.controllerPath) {
-        throw new Error('Registered cell has no signed permanent control path');
-      }
-      if (!await gate.verifyCell(connection)) {
-        throw new Error('Permanent AWG control path is not operational');
-      }
-      return sync({ connectionStore, identityStore, receiver,
-        host: connection.controllerPath.controllerAddress,
-        port: connection.controllerPath.controlPort, transport: 'tunnel' });
-    },
+    syncSettings,
+    createPoller: ({ identityStore, ...options } = {}) => new CellSettingsPoller({
+      ...options, sync: () => syncSettings({ identityStore }) }),
   });
 }
 

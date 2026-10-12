@@ -70,4 +70,10 @@ test('cell settings sync uses only the registered permanent AWG address after pa
   assert.deepEqual(await runtime.syncSettings({ identityStore }), { status: 'no-settings' });
   assert.deepEqual(calls, [{ connectionStore, identityStore, receiver,
     host: '10.89.0.1', port: 54321, transport: 'tunnel' }]);
+  let poller;
+  poller = runtime.createPoller({ identityStore,
+    onStatus: status => { if (status.state === 'connected') poller.controller.abort(); } });
+  await poller.start();
+  assert.equal(calls.length, 2);
+  assert.equal(poller.status.state, 'stopped');
 });
