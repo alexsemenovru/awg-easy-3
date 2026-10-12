@@ -120,3 +120,16 @@ test('Linux guard journal rejects public permissions and symbolic links', { skip
   const writes = kernel.writes;
   await assert.rejects(guard.recover(), /Unsafe/); assert.equal(kernel.writes, writes);
 });
+test('Linux guard journal rejects hard links and a public state directory', { skip: process.platform === 'win32' }, async t => {
+  const { guard, file, kernel } = await fixture(t);
+  await guard.protect(['clients']);
+  const alias = `${file}.alias`;
+  await fs.link(file, alias);
+  const writes = kernel.writes;
+  await assert.rejects(guard.recover(), /Unsafe/);
+  assert.equal(kernel.writes, writes);
+  await fs.unlink(alias);
+  await fs.chmod(path.dirname(file), 0o755);
+  await assert.rejects(guard.save({ version: 1, interfaces: ['clients'], pending: null }),
+    /Private guard journal directory required/);
+});

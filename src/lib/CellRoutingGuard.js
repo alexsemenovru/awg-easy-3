@@ -53,7 +53,11 @@ class CellRoutingGuard {
   async load() {
     try {
       const info = await fs.lstat(this.file);
-      if (!info.isFile() || info.size > 65536 || (process.platform !== 'win32' && (info.mode & 0o077))) throw new Error('Unsafe guard journal');
+      if (!info.isFile() || info.nlink !== 1 || info.size > 65536
+        || (process.platform !== 'win32'
+          && (info.uid !== process.getuid() || (info.mode & 0o077)))) {
+        throw new Error('Unsafe guard journal');
+      }
       return validate(JSON.parse(await fs.readFile(this.file, 'utf8')));
     } catch (error) {
       if (error.code === 'ENOENT') return { version: 1, interfaces: [], pending: null };
@@ -63,6 +67,11 @@ class CellRoutingGuard {
   async save(value) {
     const data = JSON.stringify(validate(value)), directory = path.dirname(this.file);
     await fs.mkdir(directory, { recursive: true, mode: 0o700 });
+    const dirInfo = await fs.lstat(directory);
+    if (!dirInfo.isDirectory() || (process.platform !== 'win32'
+      && (dirInfo.uid !== process.getuid() || (dirInfo.mode & 0o077)))) {
+      throw new Error('Private guard journal directory required');
+    }
     const temporary = path.join(directory, `.guard-${crypto.randomUUID()}.tmp`);
     try {
       const handle = await fs.open(temporary, 'wx', 0o600);
