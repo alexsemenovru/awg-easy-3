@@ -16,6 +16,8 @@ const { signAwgRegistration } = require('../lib/CellAwgRegistration');
 const { identity } = require('../lib/CellRegistration');
 const { permanentControllerPlan } = require('../lib/CellAwgPermanentPlan');
 const { permanentControllerExpansionPlan } = require('../lib/CellAwgPermanentExpansionPlan');
+const { CellAwgPermanentRetirementGate } = require('../lib/CellAwgPermanentRetirementGate');
+const { joinPermanentController } = require('../lib/CellAwgPermanentJoin');
 const { normalizeAwgConfig } = require('../lib/CellAwgSnapshot');
 
 const key = () => crypto.randomBytes(32).toString('base64');
@@ -66,4 +68,22 @@ test('two signed registrations compile one additive permanent controller path', 
   assert.equal(after.length, 2);
   assert.ok(after.some(peer => peer.publickey === before[0].publickey));
   assert.equal(expanded.spec.owner.ownerTag, base.spec.owner.ownerTag);
+  let committed = null, closed = null;
+  const revisionStore = { read: async () => ({ pending: null, committed }) };
+  const deployment = { stateDirectory: directory, runner: async () => {},
+    store: { read: async () => base },
+    install: async () => { throw new Error('must not reinstall first plan'); },
+    buildPath: () => ({ verifyOperational: async () => true }) };
+  const gate = new CellAwgPermanentRetirementGate({ deployment, revisionStore,
+    keyManager, verifierFactory: () => ({ verify: async () => true }) });
+  const expansionRuntime = { deployment, revisionStore,
+    recoverCurrent: async () => committed || base,
+    prepare: async plan => { committed = plan; } };
+  assert.deepEqual(await joinPermanentController({ bootstrapStore: store,
+    invitationId: records[1].id, deployment, gate, expansionRuntime,
+    coordinator: { close: async id => { closed = id; } },
+    interfaceName: 'awgperm8', privateKey, keyManager }),
+  { status: 'ready', temporaryRetained: false });
+  assert.equal(closed, records[1].id);
+  assert.deepEqual(committed, expanded);
 });
