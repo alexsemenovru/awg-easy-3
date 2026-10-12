@@ -24,8 +24,18 @@ test('cell assembly binds bootstrap retirement and join to one permanent gate', 
   let connection = null, verified = null;
   const connectionStore = { read: async () => connection };
   const receiver = { restoreApplied: async () => { throw new Error('unexpected settings restore'); } };
+  assert.throws(() => createPermanentCellRuntime({ stateDirectory: directory,
+    connectionStore, bootstrap: bootstrap(), temporaryInterfaceName: 'awgjoin8',
+    receiver, clientRuntime: {} }), /settings receiver required/);
   const runtime = createPermanentCellRuntime({ stateDirectory: directory,
     connectionStore, bootstrap: bootstrap(), temporaryInterfaceName: 'awgjoin8', receiver });
+  const events = [];
+  const protectedRuntime = createPermanentCellRuntime({ stateDirectory: directory,
+    connectionStore, bootstrap: bootstrap(), temporaryInterfaceName: 'awgjoin8', receiver,
+    clientRuntime: { prepareBoot: async () => { events.push('guard'); } } });
+  assert.deepEqual(await protectedRuntime.recoverBoot({ ensureTun: async () => {
+    throw new Error('unexpected TUN preflight'); } }), { configured: false, applied: null });
+  assert.deepEqual(events, ['guard']);
   assert.equal(runtime.retirement.connection, connectionStore);
   assert.deepEqual(await runtime.recoverBoot({ ensureTun: async () => {
     throw new Error('unexpected TUN preflight'); } }), { configured: false, applied: null });

@@ -33,12 +33,14 @@ test('boot restores the path before last acknowledged cell settings', async () =
     resume: async () => { events.push('path'); },
     buildPath: () => ({ verifyOperational: async () => operational }) };
   const receiver = { restoreApplied: async () => { events.push('settings'); return { applied: 7 }; } };
-  const args = { deployment, receiver, ensureTun: async () => { events.push('tun'); } };
+  const args = { deployment, receiver,
+    protectClientTraffic: async () => { events.push('guard'); },
+    ensureTun: async () => { events.push('tun'); } };
   await assert.rejects(recoverPermanentBoot(args), /not operational/);
-  assert.deepEqual(events, ['tun', 'path']);
+  assert.deepEqual(events, ['guard', 'tun', 'path']);
   operational = true;
   assert.deepEqual(await recoverPermanentBoot(args), { configured: true, applied: 7 });
-  assert.deepEqual(events, ['tun', 'path', 'tun', 'path', 'settings']);
+  assert.deepEqual(events, ['guard', 'tun', 'path', 'guard', 'tun', 'path', 'settings']);
 });
 
 test('unconfigured controller boot does not load TUN or invent a permanent plan', async () => {
@@ -47,6 +49,18 @@ test('unconfigured controller boot does not load TUN or invent a permanent plan'
   assert.deepEqual(await recoverPermanentBoot({ deployment,
     ensureTun: async () => { throw new Error('unexpected'); } }),
   { configured: false, applied: null });
+});
+
+test('cell boot protects client traffic even when permanent plan is missing', async () => {
+  const events = [];
+  const deployment = { store: { read: async () => { events.push('plan'); return null; } },
+    resume: async () => { throw new Error('unexpected'); },
+    buildPath: () => { throw new Error('unexpected'); } };
+  assert.deepEqual(await recoverPermanentBoot({ deployment,
+    protectClientTraffic: async () => { events.push('guard'); },
+    ensureTun: async () => { throw new Error('unexpected TUN'); } }),
+  { configured: false, applied: null });
+  assert.deepEqual(events, ['guard', 'plan']);
 });
 
 test('boot uses the committed expansion plan instead of stale first-cell plan', async () => {

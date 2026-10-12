@@ -5,16 +5,18 @@ const { ensureTunDevice } = require('./CellTunPreflight');
 // One boot step under the installation-wide lock. Listener startup remains
 // with the host service, after this function returns successfully.
 async function recoverPermanentBoot({ deployment, expansionRuntime = null, receiver = null,
-  ensureTun = ensureTunDevice }) {
+  ensureTun = ensureTunDevice, protectClientTraffic = null }) {
   if (!deployment || !deployment.store || typeof deployment.store.read !== 'function'
     || typeof deployment.resume !== 'function'
     || typeof deployment.buildPath !== 'function'
     || expansionRuntime !== null && (expansionRuntime.deployment !== deployment
       || typeof expansionRuntime.recoverCurrent !== 'function')
     || receiver !== null && typeof receiver.restoreApplied !== 'function'
-    || typeof ensureTun !== 'function') {
+    || typeof ensureTun !== 'function'
+    || protectClientTraffic !== null && typeof protectClientTraffic !== 'function') {
     throw new TypeError('Invalid permanent AWG boot dependencies');
   }
+  if (protectClientTraffic) await protectClientTraffic();
   const plan = await deployment.store.read();
   if (!plan) return { configured: false, applied: null };
   await ensureTun();

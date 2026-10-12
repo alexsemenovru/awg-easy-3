@@ -40,6 +40,11 @@ class CellRuntimeAdapter {
     return settings;
   }
 
+  async prepareBoot() {
+    await this.guard.recover();
+    await this.guard.protect([this.server.interfaceName]);
+  }
+
   async verifyApplied(artifacts) {
     if (!this.runtime.runtimeDirectory || typeof this.runtime.readOptional !== 'function') return false;
     const directory = this.runtime.runtimeDirectory;

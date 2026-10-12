@@ -31,6 +31,14 @@ function guard(events, { failRecover = false, verify = true } = {}) {
     events.push('guard-release'); } };
 }
 
+test('cell boot restores durable guard before accepting any signed settings', async () => {
+  const events = [];
+  const adapter = new CellRuntimeAdapter({ server: server(),
+    guard: guard(events), runtime: { apply: async () => { events.push('apply'); } } });
+  await adapter.prepareBoot();
+  assert.deepEqual(events, ['guard-recover', 'guard-protect']);
+});
+
 test('cell runtime protects before changing peers and releases only after readback', async () => {
   const events = [];
   const adapter = new CellRuntimeAdapter({ server: server(),
