@@ -6,6 +6,7 @@ const crypto = require('node:crypto');
 const { nftFingerprint } = require('./CellNftOwnership');
 const { runProcess } = require('./ProcessRunner');
 const { TABLE_NAME } = require('./NftablesPolicy');
+const MAX_NFT_READBACK_BYTES = 64 * 1024 * 1024;
 
 const valid = value => value && value.version === 1 && value.table === TABLE_NAME
   && typeof value.fingerprint === 'string' && /^[a-f0-9]{64}$/.test(value.fingerprint)
@@ -80,7 +81,8 @@ class CellNftPolicyReceipt {
     }
     if (!found) return null;
     return nftFingerprint(JSON.parse((await this.runner('nft',
-      ['-j', 'list', 'table', 'inet', TABLE_NAME])).stdout), TABLE_NAME);
+      ['-j', 'list', 'table', 'inet', TABLE_NAME],
+      { maxOutputBytes: MAX_NFT_READBACK_BYTES })).stdout), TABLE_NAME);
   }
 
   async assertKnown() {

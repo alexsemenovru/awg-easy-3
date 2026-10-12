@@ -11,10 +11,11 @@ test('cell nft receipt detects changed kernel policy and never adopts an existin
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-nft-receipt-'));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   let table = null;
-  const runner = async (file, args) => {
+  const runner = async (file, args, options) => {
     assert.equal(file, 'nft');
     if (args[2] === 'tables') return { stdout: JSON.stringify({ nftables: table
       ? [{ table: { family: 'inet', name: 'awg_easy_3' } }] : [] }) };
+    assert.ok(options.maxOutputBytes >= 32 * 1024 * 1024);
     return { stdout: JSON.stringify(table) };
   };
   const receipt = new CellNftPolicyReceipt({
