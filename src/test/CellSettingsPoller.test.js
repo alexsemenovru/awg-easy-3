@@ -9,6 +9,7 @@ test('poller retains service across failures and backs off without exposing erro
   const delays = [], statuses = [];
   let poller;
   poller = new CellSettingsPoller({ intervalMs: 1000, maxBackoffMs: 5000,
+    random: () => 0.5,
     now: () => clock++,
     sync: async () => { attempts++;
       if (attempts <= 2) throw new Error('secret client address'); },
@@ -56,4 +57,14 @@ test('stop requested on first status prevents the initial network poll', async (
     onStatus: status => { if (status.state === 'polling') poller.controller.abort(); } });
   await poller.start();
   assert.equal(attempts, 0);
+});
+
+test('poll jitter spreads retries while respecting the configured ceiling', async () => {
+  let poller, delay;
+  poller = new CellSettingsPoller({ intervalMs: 4000, maxBackoffMs: 5000,
+    random: () => 0.999,
+    sync: async () => { throw new Error('offline'); },
+    sleep: async ms => { delay = ms; poller.controller.abort(); } });
+  await poller.start();
+  assert.ok(delay > 4000 && delay <= 5000);
 });

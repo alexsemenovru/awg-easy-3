@@ -13,14 +13,16 @@ function wait(ms, signal) {
 // assignment: CellSettingsReceiver keeps the last acknowledged version.
 class CellSettingsPoller {
   constructor({ sync, intervalMs = 10000, maxBackoffMs = 300000,
-    onStatus = () => {}, now = Date.now, sleep = wait } = {}) {
+    onStatus = () => {}, now = Date.now, sleep = wait,
+    random = Math.random } = {}) {
     if (typeof sync !== 'function' || typeof onStatus !== 'function'
       || typeof now !== 'function' || typeof sleep !== 'function'
+      || typeof random !== 'function'
       || !Number.isSafeInteger(intervalMs) || intervalMs < 1000
       || !Number.isSafeInteger(maxBackoffMs) || maxBackoffMs < intervalMs) {
       throw new TypeError('Invalid cell settings poller');
     }
-    Object.assign(this, { sync, intervalMs, maxBackoffMs, onStatus, now, sleep });
+    Object.assign(this, { sync, intervalMs, maxBackoffMs, onStatus, now, sleep, random });
     this.running = null;
     this.controller = null;
     this.status = Object.freeze({ state: 'idle', lastSuccessAt: null,
@@ -61,7 +63,12 @@ class CellSettingsPoller {
       if (signal.aborted) break;
       const delay = failures === 0 ? this.intervalMs
         : Math.min(this.maxBackoffMs, this.intervalMs * 2 ** Math.min(failures - 1, 30));
-      await this.sleep(delay, signal);
+      const sample = this.random();
+      if (!Number.isFinite(sample) || sample < 0 || sample >= 1) {
+        throw new Error('Invalid settings poll jitter source');
+      }
+      await this.sleep(Math.max(1000, Math.min(this.maxBackoffMs,
+        Math.round(delay * (0.75 + 0.5 * sample)))), signal);
     }
   }
 
