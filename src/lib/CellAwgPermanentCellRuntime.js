@@ -5,16 +5,18 @@ const { CellAwgPermanentRetirementGate } = require('./CellAwgPermanentRetirement
 const { CellAwgBootstrapCellRetirement } = require('./CellAwgBootstrapCellRetirement');
 const { joinPermanentCell } = require('./CellAwgPermanentJoin');
 const { recoverPermanentBoot } = require('./CellAwgPermanentBoot');
+const { syncCellSettings } = require('./CellControlService');
 
 // Component assembly for one Cell. The temporary-path retirement rechecks
 // exactly the same permanent-path gate that the join uses. The caller still
 // owns the cross-process installation lock and the temporary AWG lifecycle.
 function createPermanentCellRuntime({ stateDirectory, connectionStore, bootstrap,
-  temporaryInterfaceName, receiver, clientRuntime, runner } = {}) {
+  temporaryInterfaceName, receiver, clientRuntime, runner,
+  sync = syncCellSettings } = {}) {
   if (!connectionStore || typeof connectionStore.read !== 'function'
     || !receiver || typeof receiver.restoreApplied !== 'function'
     || !clientRuntime || typeof clientRuntime.prepareBoot !== 'function'
-    || !bootstrap || typeof bootstrap !== 'object') {
+    || !bootstrap || typeof bootstrap !== 'object' || typeof sync !== 'function') {
     throw new TypeError('Cell connection, bootstrap and settings receiver required');
   }
   const deployment = new CellAwgPermanentDeployment({ stateDirectory,
@@ -35,6 +37,18 @@ function createPermanentCellRuntime({ stateDirectory, connectionStore, bootstrap
         throw new Error('Registered cell has no permanent plan; resume join before boot');
       }
       return result;
+    },
+    syncSettings: async ({ identityStore } = {}) => {
+      const connection = await connectionStore.read();
+      if (connection?.status !== 'registered' || !connection.controllerPath) {
+        throw new Error('Registered cell has no signed permanent control path');
+      }
+      if (!await gate.verifyCell(connection)) {
+        throw new Error('Permanent AWG control path is not operational');
+      }
+      return sync({ connectionStore, identityStore, receiver,
+        host: connection.controllerPath.controllerAddress,
+        port: connection.controllerPath.controlPort, transport: 'tunnel' });
     },
   });
 }

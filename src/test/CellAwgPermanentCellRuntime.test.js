@@ -44,7 +44,30 @@ test('cell assembly binds bootstrap retirement and join to one permanent gate', 
   await assert.rejects(runtime.recoverBoot({ ensureTun: async () => {} }),
     /resume join before boot/);
   assert.deepEqual(events, ['guard', 'guard']);
+  await assert.rejects(runtime.syncSettings({ identityStore: {} }),
+    /no signed permanent control path/);
   runtime.gate.verifyCell = async value => { verified = value; return true; };
   await runtime.retirement.authorization();
   assert.equal(verified, connection);
+});
+
+test('cell settings sync uses only the registered permanent AWG address after path verification', async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-cell-sync-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const connection = { status: 'registered', controllerPath: {
+    controllerAddress: '10.89.0.1', controlPort: 54321 } };
+  const connectionStore = { read: async () => connection };
+  const receiver = { restoreApplied: async () => ({ applied: null }) };
+  const identityStore = {}, calls = [];
+  const runtime = createPermanentCellRuntime({ stateDirectory: directory,
+    connectionStore, bootstrap: bootstrap(), temporaryInterfaceName: 'awgjoin8',
+    receiver, clientRuntime: { prepareBoot: async () => {} },
+    sync: async options => { calls.push(options); return { status: 'no-settings' }; } });
+  runtime.gate.verifyCell = async () => false;
+  await assert.rejects(runtime.syncSettings({ identityStore }), /not operational/);
+  assert.equal(calls.length, 0);
+  runtime.gate.verifyCell = async seen => seen === connection;
+  assert.deepEqual(await runtime.syncSettings({ identityStore }), { status: 'no-settings' });
+  assert.deepEqual(calls, [{ connectionStore, identityStore, receiver,
+    host: '10.89.0.1', port: 54321, transport: 'tunnel' }]);
 });
