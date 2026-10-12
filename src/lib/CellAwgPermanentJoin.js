@@ -72,9 +72,8 @@ async function joinPermanentController({ bootstrapStore, invitationId, deploymen
     && item.permanentDescriptor);
   const saved = await deployment.store.read();
   if (!saved) {
-    if (enrolled.length !== 1) {
-      throw new Error('Initial permanent AWG installation requires one cell');
-    }
+    // More than one invitation may be consumed before the first permanent
+    // join runs. Reserve only this cell as the base; later joins expand it.
     const plan = await permanentControllerPlan({ privateKey,
       descriptor: record.permanentDescriptor, interfaceName,
       peers: [{ cellAddress: record.permanentDescriptor.cellAddress,

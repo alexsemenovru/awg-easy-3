@@ -61,14 +61,20 @@ test('controller join closes only the signed enrolled peer after permanent proof
   assert.equal(f.retired(), 1);
 });
 
-test('controller join explicitly rejects a second simultaneous consumed invitation', async () => {
+test('controller join reserves one base when two cells registered before first join', async () => {
   const f = fixture();
-  const second = { ...f.record, id: 'b'.repeat(32), cellAddress: '10.90.0.3' };
-  await assert.rejects(joinPermanentController({
+  const second = { ...f.record, id: 'b'.repeat(32), cellAddress: '10.90.0.3',
+    awgPublicKey: key(), awgPresharedKey: key(),
+    permanentDescriptor: { ...f.descriptor, cellAddress: '10.91.8.3' } };
+  const result = await joinPermanentController({
     bootstrapStore: { read: async () => ({ invitations: [f.record, second] }) },
-    invitationId: f.record.id, deployment: f.deployment, gate: f.gate,
-    coordinator: f.coordinator, interfaceName: 'awgperm8', privateKey: key() }), /one cell/);
-  assert.equal(f.readSaved(), null);
+    invitationId: second.id, deployment: f.deployment, gate: f.gate,
+    coordinator: f.coordinator, interfaceName: 'awgperm8', privateKey: key(),
+    keyManager: { derivePublicKey: async () => f.descriptor.serverPublicKey } });
+  assert.deepEqual(result, { status: 'waiting-for-permanent-path', temporaryRetained: true });
+  const peers = normalizeAwgConfig(f.readSaved().spec.owner.config).peers;
+  assert.equal(peers.length, 1);
+  assert.equal(peers[0].publickey, second.awgPublicKey);
 });
 
 test('second cell uses guarded additive revision, then retires only its temporary peer', async () => {
