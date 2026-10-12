@@ -1,7 +1,7 @@
 # Узлы и Ячейки — checkpoint 12 октября 2026
 
 Ветка: `codex/cells-foundation`. Последний кодовый коммит этого этапа:
-`e3bb7d38` (`Jitter cell settings polls to avoid synchronized load`).
+`1f097deb` (`Allow bounded GeoIP nft policy readback beyond default output cap`).
 Рабочий ARN не менялся. Тестовых VPS сейчас нет. Чужие незакоммиченные
 изменения в README, инсталляторе, приложении и UI не затрагивались.
 
