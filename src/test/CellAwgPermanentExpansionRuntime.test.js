@@ -3,11 +3,15 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
 const { generateOfficialProfile } = require('../lib/Awg3Config');
 const { permanentControllerPlan } = require('../lib/CellAwgPermanentPlan');
 const { permanentControllerExpansionPlan } = require('../lib/CellAwgPermanentExpansionPlan');
 const { permanentControllerRemovalPlan } = require('../lib/CellAwgPermanentRemovalPlan');
 const { CellAwgPermanentExpansionRuntime } = require('../lib/CellAwgPermanentExpansionRuntime');
+const { CellAwgPermanentRevisionStore } = require('../lib/CellAwgPermanentRevisionStore');
 
 const key = () => crypto.randomBytes(32).toString('base64');
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -29,7 +33,7 @@ async function plans() {
   return { base, target, first, second, keyManager };
 }
 
-function fixture(base, target) {
+function fixture(base, target, providedRevisionStore = null) {
   let lifeSpec = structuredClone(base.spec), awgOwner = structuredClone(base.spec.owner);
   let routeList = structuredClone(base.routeCommands), policy = structuredClone(base.policy);
   let guarded = false, failNft = false, linkPresent = true;
@@ -66,11 +70,11 @@ function fixture(base, target) {
       && same(policy, plan.policy),
   });
   const deployment = { store: { read: async () => base }, buildPath };
-  const revisionStore = { read: async () => ({ revision, committed, pending }),
+  const revisionStore = providedRevisionStore || { read: async () => ({ revision, committed, pending }),
     prepare: async next => { pending = next; },
     commit: async () => { committed = pending; pending = null; revision++; } };
   const runtime = new CellAwgPermanentExpansionRuntime({ deployment, revisionStore });
-  return { runtime, events, setFailNft: value => { failNft = value; },
+  return { runtime, deployment, events, setFailNft: value => { failNft = value; },
     get guarded() { return guarded; }, get revision() { return revision; },
     get pending() { return pending; }, get lifeSpec() { return lifeSpec; },
     get target() { return target; },
@@ -143,4 +147,29 @@ test('one-peer removal recovers under the same guard after interrupted policy up
   assert.equal(f.revision, 2);
   assert.equal(f.guarded, false);
   assert.deepEqual(f.lifeSpec.owner, reduced.spec.owner);
+});
+
+test('on-disk removal intent survives runtime restart after interrupted policy update', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-remove-restart-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const { base, target, second, keyManager } = await plans();
+  const file = path.join(dir, 'revision.json');
+  const store = new CellAwgPermanentRevisionStore(file, base);
+  const f = fixture(base, target, store);
+  await f.runtime.prepare(target);
+  const reduced = await permanentControllerRemovalPlan({ currentPlan: target,
+    record: second, keyManager });
+  f.setFailNft(true);
+  await assert.rejects(f.runtime.prepare(reduced), /injected nft failure/);
+  assert.deepEqual((await store.read()).pending, reduced);
+  assert.equal(f.guarded, true);
+  f.simulateReboot();
+  f.setFailNft(false);
+  const reopened = new CellAwgPermanentExpansionRuntime({ deployment: f.deployment,
+    revisionStore: new CellAwgPermanentRevisionStore(file, base) });
+  assert.deepEqual(await reopened.recoverCurrent(), reduced);
+  assert.equal((await store.read()).version, 2);
+  assert.equal((await store.read()).revision, 2);
+  assert.equal((await store.read()).pending, null);
+  assert.equal(f.guarded, false);
 });
