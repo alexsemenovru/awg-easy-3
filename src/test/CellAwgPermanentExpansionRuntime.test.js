@@ -25,7 +25,7 @@ async function plans() {
       awgPresharedKey: first.awgPresharedKey }], interfaceName: 'awgperm8', keyManager }), version: 1 };
   const target = await permanentControllerExpansionPlan({ currentPlan: base,
     records: [first, second], keyManager });
-  return { base, target };
+  return { base, target, first, second, keyManager };
 }
 
 function fixture(base, target) {
@@ -108,4 +108,19 @@ test('expansion refuses preparing a different plan while another intent is pendi
   await assert.rejects(f.runtime.prepare(target), /injected/);
   await assert.rejects(f.runtime.prepare({ ...target, routeCommands: [] }), /Another/);
   assert.equal(f.guarded, true);
+});
+
+test('third cell advances from the committed second-cell revision without reinstalling base', async () => {
+  const { base, target, first, second, keyManager } = await plans();
+  const f = fixture(base, target);
+  await f.runtime.prepare(target);
+  const third = { ...second, cellAddress: '10.91.8.4', awgPublicKey: key(),
+    awgPresharedKey: key(), permanentDescriptor: {
+      ...second.permanentDescriptor, cellAddress: '10.91.8.4' } };
+  const later = await permanentControllerExpansionPlan({ currentPlan: target,
+    records: [third, first, second], keyManager });
+  assert.deepEqual(await f.runtime.prepare(later), { ready: true, revision: 2 });
+  assert.equal(f.revision, 2);
+  assert.equal(f.guarded, false);
+  assert.deepEqual(await f.runtime.recoverCurrent(), later);
 });
