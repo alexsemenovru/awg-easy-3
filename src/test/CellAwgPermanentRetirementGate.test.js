@@ -17,7 +17,7 @@ function fixture() {
   const connection = { status: 'registered', permanent: { privateKey: key(),
     presharedKey: key() }, controllerPath: descriptor };
   const record = { status: 'consumed', permanentDescriptor: descriptor,
-    cellAddress: descriptor.cellAddress, awgPublicKey: key(),
+    cellAddress: '10.90.0.2', awgPublicKey: key(),
     awgPresharedKey: connection.permanent.presharedKey };
   const keyManager = { derivePublicKey: async () => serverPublicKey };
   return { descriptor, connection, record, keyManager };
@@ -49,7 +49,8 @@ test('cell retirement gate binds signed descriptor and private identity to exact
 test('controller retirement gate refuses another AWG peer or changed signed cell address', async () => {
   const f = fixture(), privateKey = key();
   const plan = await permanentControllerPlan({ privateKey, descriptor: f.descriptor,
-    peers: [{ cellAddress: f.record.cellAddress, awgPublicKey: f.record.awgPublicKey,
+    peers: [{ cellAddress: f.record.permanentDescriptor.cellAddress,
+      awgPublicKey: f.record.awgPublicKey,
       awgPresharedKey: f.record.awgPresharedKey }], interfaceName: 'awgperm8',
     keyManager: f.keyManager });
   const { gate, calls } = gateFor(plan, f.keyManager);
@@ -57,17 +58,21 @@ test('controller retirement gate refuses another AWG peer or changed signed cell
   assert.equal(calls[0].peerPublicKey, f.record.awgPublicKey);
   assert.equal(calls[0].role, 'controller');
   assert.equal(await gate.verifyController({ ...f.record, awgPublicKey: key() }), false);
-  assert.equal(await gate.verifyController({ ...f.record, cellAddress: '10.91.8.9' }), false);
+  assert.equal(await gate.verifyController({ ...f.record,
+    permanentDescriptor: { ...f.descriptor, cellAddress: '10.91.8.9' } }), false);
+  assert.equal(await gate.verifyController({ ...f.record,
+    cellAddress: f.descriptor.cellAddress }), false);
   assert.equal(calls.length, 1);
 });
 
 test('controller retirement uses only committed expansion revision for the new cell', async () => {
   const f = fixture(), privateKey = key();
   const base = await permanentControllerPlan({ privateKey, descriptor: f.descriptor,
-    peers: [{ cellAddress: f.record.cellAddress, awgPublicKey: f.record.awgPublicKey,
+    peers: [{ cellAddress: f.record.permanentDescriptor.cellAddress,
+      awgPublicKey: f.record.awgPublicKey,
       awgPresharedKey: f.record.awgPresharedKey }], interfaceName: 'awgperm8',
     keyManager: f.keyManager });
-  const second = { ...f.record, cellAddress: '10.91.8.3', awgPublicKey: key(),
+  const second = { ...f.record, cellAddress: '10.90.0.3', awgPublicKey: key(),
     awgPresharedKey: key(), permanentDescriptor: { ...f.descriptor, cellAddress: '10.91.8.3' } };
   const expanded = await permanentControllerExpansionPlan({ currentPlan: { ...base, version: 1 },
     records: [f.record, second], keyManager: f.keyManager });

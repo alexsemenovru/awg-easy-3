@@ -73,13 +73,13 @@ class CellAwgPermanentRetirementGate {
     let expected, descriptor;
     try {
       descriptor = validatePermanentDescriptor(record.permanentDescriptor);
-      if (descriptor.cellAddress !== record.cellAddress) return false;
+      if (descriptor.cellAddress === record.cellAddress) return false;
       const parsed = normalizeAwgConfig(saved.plan.spec.owner.config);
       const peers = parsed.peers.map(peer => ({
         cellAddress: peer.allowedips.length === 1 ? peer.allowedips[0].split('/')[0] : null,
         awgPublicKey: peer.publickey, awgPresharedKey: peer.presharedkey,
       }));
-      if (!peers.some(peer => peer.cellAddress === record.cellAddress
+      if (!peers.some(peer => peer.cellAddress === descriptor.cellAddress
         && peer.awgPublicKey === record.awgPublicKey
         && peer.awgPresharedKey === record.awgPresharedKey)) return false;
       expected = await permanentControllerPlan({ privateKey: parsed.interface.privatekey,

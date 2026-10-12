@@ -24,10 +24,10 @@ async function permanentControllerExpansionPlan({ currentPlan, records, keyManag
       throw new TypeError('Consumed signed permanent peer required');
     }
     const descriptor = validatePermanentDescriptor(record.permanentDescriptor);
-    if (record.cellAddress !== descriptor.cellAddress) {
-      throw new TypeError('Permanent peer address differs from signed descriptor');
+    if (record.cellAddress === descriptor.cellAddress) {
+      throw new TypeError('Temporary and permanent peer addresses overlap');
     }
-    return { descriptor, peer: { cellAddress: record.cellAddress,
+    return { descriptor, peer: { cellAddress: descriptor.cellAddress,
       awgPublicKey: record.awgPublicKey, awgPresharedKey: record.awgPresharedKey } };
   });
   const descriptor = entries[0].descriptor;

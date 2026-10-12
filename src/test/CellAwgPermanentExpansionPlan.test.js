@@ -14,14 +14,14 @@ async function fixture() {
   const descriptor = { version: 1, endpointHost: '198.51.100.42', endpointPort: 53084,
     controllerAddress: '10.91.8.1', cellAddress: '10.91.8.2', controlPort: 53083,
     serverPublicKey, profile: generateOfficialProfile() };
-  const first = { status: 'consumed', cellAddress: '10.91.8.2',
+  const first = { status: 'consumed', cellAddress: '10.90.0.2',
     awgPublicKey: key(), awgPresharedKey: key(), permanentDescriptor: descriptor };
-  const second = { status: 'consumed', cellAddress: '10.91.8.3',
+  const second = { status: 'consumed', cellAddress: '10.90.0.3',
     awgPublicKey: key(), awgPresharedKey: key(), permanentDescriptor: {
       ...descriptor, cellAddress: '10.91.8.3' } };
   const keyManager = { derivePublicKey: async () => serverPublicKey };
   const initial = await permanentControllerPlan({ privateKey, descriptor,
-    peers: [{ cellAddress: first.cellAddress, awgPublicKey: first.awgPublicKey,
+    peers: [{ cellAddress: first.permanentDescriptor.cellAddress, awgPublicKey: first.awgPublicKey,
       awgPresharedKey: first.awgPresharedKey }], interfaceName: 'awgperm8', keyManager });
   return { initial: { ...initial, version: 1 }, first, second, keyManager };
 }
@@ -55,7 +55,7 @@ test('expansion refuses changed old peer, changed protocol profile and skipped p
       ...f.second.permanentDescriptor, profile: generateOfficialProfile() } }] }), /disagree/);
   await assert.rejects(permanentControllerExpansionPlan({ ...args,
     records: [f.second] }), /changes existing/);
-  const third = { ...f.second, cellAddress: '10.91.8.4', awgPublicKey: key(),
+  const third = { ...f.second, cellAddress: '10.90.0.4', awgPublicKey: key(),
     permanentDescriptor: { ...f.second.permanentDescriptor, cellAddress: '10.91.8.4' } };
   await assert.rejects(permanentControllerExpansionPlan({ ...args,
     records: [f.first, f.second, third] }), /changes existing/);

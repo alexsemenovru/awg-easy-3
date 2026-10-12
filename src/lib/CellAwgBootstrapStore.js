@@ -45,7 +45,10 @@ function validateRecord(value) {
   const base = ['version', 'id', 'status', 'phase', 'createdAt', 'expiresAt', 'secretHash',
     'temporaryPublicKey', 'temporaryPresharedKey', 'cellAddress'];
   if (Object.hasOwn(value, 'permanentDescriptor')) {
-    try { validatePermanentDescriptor(value.permanentDescriptor); } catch { invalid(); }
+    try {
+      const descriptor = validatePermanentDescriptor(value.permanentDescriptor);
+      if (descriptor.cellAddress === value.cellAddress) invalid();
+    } catch { invalid(); }
     base.push('permanentDescriptor');
   }
   if (value.status === 'consumed') {

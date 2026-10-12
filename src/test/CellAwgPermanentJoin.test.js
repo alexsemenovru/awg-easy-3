@@ -16,7 +16,7 @@ function fixture() {
   const connection = { status: 'registered', permanent: { privateKey: key(),
     presharedKey: key() }, controllerPath: descriptor };
   const record = { id: 'a'.repeat(32), status: 'consumed', phase: 'ready',
-    permanentDescriptor: descriptor, cellAddress: descriptor.cellAddress,
+    permanentDescriptor: descriptor, cellAddress: '10.90.0.2',
     awgPublicKey: key(), awgPresharedKey: connection.permanent.presharedKey };
   let saved = null, ready = false, retired = 0;
   const deployment = { store: { read: async () => saved }, install: async plan => {
@@ -63,7 +63,7 @@ test('controller join closes only the signed enrolled peer after permanent proof
 
 test('controller join explicitly rejects a second simultaneous consumed invitation', async () => {
   const f = fixture();
-  const second = { ...f.record, id: 'b'.repeat(32), cellAddress: '10.91.8.3' };
+  const second = { ...f.record, id: 'b'.repeat(32), cellAddress: '10.90.0.3' };
   await assert.rejects(joinPermanentController({
     bootstrapStore: { read: async () => ({ invitations: [f.record, second] }) },
     invitationId: f.record.id, deployment: f.deployment, gate: f.gate,
@@ -75,10 +75,11 @@ test('second cell uses guarded additive revision, then retires only its temporar
   const f = fixture(), privateKey = key();
   const keyManager = { derivePublicKey: async () => f.descriptor.serverPublicKey };
   const base = { ...await permanentControllerPlan({ privateKey, descriptor: f.descriptor,
-    peers: [{ cellAddress: f.record.cellAddress, awgPublicKey: f.record.awgPublicKey,
+    peers: [{ cellAddress: f.record.permanentDescriptor.cellAddress,
+      awgPublicKey: f.record.awgPublicKey,
       awgPresharedKey: f.record.awgPresharedKey }], interfaceName: 'awgperm8',
     keyManager }), version: 1 };
-  const second = { ...f.record, id: 'b'.repeat(32), cellAddress: '10.91.8.3',
+  const second = { ...f.record, id: 'b'.repeat(32), cellAddress: '10.90.0.3',
     awgPublicKey: key(), awgPresharedKey: key(),
     permanentDescriptor: { ...f.descriptor, cellAddress: '10.91.8.3' } };
   const deployment = { store: { read: async () => base },
@@ -108,10 +109,11 @@ test('second cell refuses a retirement gate not bound to the revision journal', 
   const f = fixture(), privateKey = key();
   const keyManager = { derivePublicKey: async () => f.descriptor.serverPublicKey };
   const base = { ...await permanentControllerPlan({ privateKey, descriptor: f.descriptor,
-    peers: [{ cellAddress: f.record.cellAddress, awgPublicKey: f.record.awgPublicKey,
+    peers: [{ cellAddress: f.record.permanentDescriptor.cellAddress,
+      awgPublicKey: f.record.awgPublicKey,
       awgPresharedKey: f.record.awgPresharedKey }], interfaceName: 'awgperm8',
     keyManager }), version: 1 };
-  const second = { ...f.record, id: 'b'.repeat(32), cellAddress: '10.91.8.3',
+  const second = { ...f.record, id: 'b'.repeat(32), cellAddress: '10.90.0.3',
     awgPublicKey: key(), awgPresharedKey: key(),
     permanentDescriptor: { ...f.descriptor, cellAddress: '10.91.8.3' } };
   const deployment = { store: { read: async () => base }, install: async () => {} };

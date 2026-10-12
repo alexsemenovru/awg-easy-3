@@ -65,6 +65,9 @@ async function joinPermanentController({ bootstrapStore, invitationId, deploymen
     || !record.awgPublicKey || !record.awgPresharedKey) {
     throw new Error('Consumed permanent cell invitation required');
   }
+  if (record.cellAddress === record.permanentDescriptor.cellAddress) {
+    throw new Error('Temporary and permanent cell addresses overlap');
+  }
   const enrolled = records.filter(item => item.status === 'consumed'
     && item.permanentDescriptor);
   const saved = await deployment.store.read();
@@ -74,7 +77,8 @@ async function joinPermanentController({ bootstrapStore, invitationId, deploymen
     }
     const plan = await permanentControllerPlan({ privateKey,
       descriptor: record.permanentDescriptor, interfaceName,
-      peers: [{ cellAddress: record.cellAddress, awgPublicKey: record.awgPublicKey,
+      peers: [{ cellAddress: record.permanentDescriptor.cellAddress,
+        awgPublicKey: record.awgPublicKey,
         awgPresharedKey: record.awgPresharedKey }],
       ...(keyManager ? { keyManager } : {}) });
     await deployment.install(plan);
@@ -83,7 +87,8 @@ async function joinPermanentController({ bootstrapStore, invitationId, deploymen
     // pre-expansion path and require the exact previously owned identity.
     const plan = await permanentControllerPlan({ privateKey,
       descriptor: record.permanentDescriptor, interfaceName,
-      peers: [{ cellAddress: record.cellAddress, awgPublicKey: record.awgPublicKey,
+      peers: [{ cellAddress: record.permanentDescriptor.cellAddress,
+        awgPublicKey: record.awgPublicKey,
         awgPresharedKey: record.awgPresharedKey }],
       ...(keyManager ? { keyManager } : {}), owner: saved.spec.owner });
     await deployment.install(plan);

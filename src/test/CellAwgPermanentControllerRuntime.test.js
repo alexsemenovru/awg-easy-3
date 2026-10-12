@@ -24,10 +24,10 @@ test('controller assembly opens only a reserved base and shares one revision jou
     controllerAddress: '10.91.8.1', cellAddress: '10.91.8.2', controlPort: 53083,
     serverPublicKey, profile: generateOfficialProfile() };
   const keyManager = { derivePublicKey: async () => serverPublicKey };
-  const first = { status: 'consumed', cellAddress: descriptor.cellAddress,
+  const first = { status: 'consumed', cellAddress: '10.90.0.2',
     awgPublicKey: key(), awgPresharedKey: key(), permanentDescriptor: descriptor };
   const plan = await permanentControllerPlan({ privateKey: key(), descriptor,
-    peers: [{ cellAddress: first.cellAddress, awgPublicKey: first.awgPublicKey,
+    peers: [{ cellAddress: first.permanentDescriptor.cellAddress, awgPublicKey: first.awgPublicKey,
       awgPresharedKey: first.awgPresharedKey }],
     interfaceName: 'awgperm8', keyManager });
   const original = new CellAwgPermanentDeployment({ stateDirectory: directory });
@@ -54,7 +54,7 @@ test('controller assembly opens only a reserved base and shares one revision jou
   await assert.rejects(runtime.join({ bootstrapStore: { read: async () => ({ invitations: [] }) },
     invitationId: 'a'.repeat(32), coordinator: { close: async () => {} },
     interfaceName: 'awgperm8', privateKey: key() }), /Consumed permanent cell invitation required/);
-  const second = { status: 'consumed', cellAddress: '10.91.8.3',
+  const second = { status: 'consumed', cellAddress: '10.90.0.3',
     awgPublicKey: key(), awgPresharedKey: key(), permanentDescriptor: {
       ...descriptor, cellAddress: '10.91.8.3' } };
   const expanded = await permanentControllerExpansionPlan({ currentPlan: { ...plan, version: 1 },

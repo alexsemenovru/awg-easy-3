@@ -19,13 +19,13 @@ async function plans() {
     controllerAddress: '10.91.8.1', cellAddress: '10.91.8.2', controlPort: 53083,
     serverPublicKey, profile: generateOfficialProfile() };
   const keyManager = { derivePublicKey: async () => serverPublicKey };
-  const first = { status: 'consumed', cellAddress: '10.91.8.2',
+  const first = { status: 'consumed', cellAddress: '10.90.0.2',
     awgPublicKey: key(), awgPresharedKey: key(), permanentDescriptor: descriptor };
-  const second = { status: 'consumed', cellAddress: '10.91.8.3',
+  const second = { status: 'consumed', cellAddress: '10.90.0.3',
     awgPublicKey: key(), awgPresharedKey: key(), permanentDescriptor: {
       ...descriptor, cellAddress: '10.91.8.3' } };
   const base = { ...await permanentControllerPlan({ privateKey, descriptor,
-    peers: [{ cellAddress: first.cellAddress, awgPublicKey: first.awgPublicKey,
+    peers: [{ cellAddress: first.permanentDescriptor.cellAddress, awgPublicKey: first.awgPublicKey,
       awgPresharedKey: first.awgPresharedKey }], interfaceName: 'awgperm8', keyManager }), version: 1 };
   const next = await permanentControllerExpansionPlan({ currentPlan: base,
     records: [first, second], keyManager });
@@ -75,7 +75,7 @@ test('successive revisions preserve base peers and reject a false revision count
   const file = path.join(dir, 'revision.json');
   const store = new CellAwgPermanentRevisionStore(file, base);
   await store.prepare(next); await store.commit();
-  const third = { ...second, cellAddress: '10.91.8.4', awgPublicKey: key(),
+  const third = { ...second, cellAddress: '10.90.0.4', awgPublicKey: key(),
     permanentDescriptor: { ...second.permanentDescriptor, cellAddress: '10.91.8.4' } };
   const later = await permanentControllerExpansionPlan({ currentPlan: next,
     records: [first, second, third], keyManager });

@@ -15,13 +15,13 @@ async function plans() {
   const descriptor = { version: 1, endpointHost: '198.51.100.42', endpointPort: 53084,
     controllerAddress: '10.91.8.1', cellAddress: '10.91.8.2', controlPort: 53083,
     serverPublicKey: publicKey, profile: generateOfficialProfile() };
-  const first = { status: 'consumed', cellAddress: '10.91.8.2', awgPublicKey: key(),
+  const first = { status: 'consumed', cellAddress: '10.90.0.2', awgPublicKey: key(),
     awgPresharedKey: key(), permanentDescriptor: descriptor };
-  const second = { status: 'consumed', cellAddress: '10.91.8.3', awgPublicKey: key(),
+  const second = { status: 'consumed', cellAddress: '10.90.0.3', awgPublicKey: key(),
     awgPresharedKey: key(), permanentDescriptor: { ...descriptor, cellAddress: '10.91.8.3' } };
   const keyManager = { derivePublicKey: async () => publicKey };
   const base = { ...await permanentControllerPlan({ privateKey, descriptor,
-    peers: [{ cellAddress: first.cellAddress, awgPublicKey: first.awgPublicKey,
+    peers: [{ cellAddress: first.permanentDescriptor.cellAddress, awgPublicKey: first.awgPublicKey,
       awgPresharedKey: first.awgPresharedKey }], interfaceName: 'awgperm8', keyManager }), version: 1 };
   const target = await permanentControllerExpansionPlan({ currentPlan: base,
     records: [first, second], keyManager });
@@ -114,7 +114,7 @@ test('third cell advances from the committed second-cell revision without reinst
   const { base, target, first, second, keyManager } = await plans();
   const f = fixture(base, target);
   await f.runtime.prepare(target);
-  const third = { ...second, cellAddress: '10.91.8.4', awgPublicKey: key(),
+  const third = { ...second, cellAddress: '10.90.0.4', awgPublicKey: key(),
     awgPresharedKey: key(), permanentDescriptor: {
       ...second.permanentDescriptor, cellAddress: '10.91.8.4' } };
   const later = await permanentControllerExpansionPlan({ currentPlan: target,
