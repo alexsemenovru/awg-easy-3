@@ -12,6 +12,7 @@ const { CellNftTransaction } = require('./CellNftTransaction');
 const { CellRouteTransaction } = require('./CellRouteTransaction');
 const { CellAwgBootstrapCellProvisioner } = require('./CellAwgBootstrapCellProvisioner');
 const { prepareCellInitialInstallation } = require('./CellInitialInstallation');
+const { openCellInitialRegistration } = require('./CellInitialRegistration');
 
 // Concrete first-install assembly. No host command runs while it is opened;
 // begin()/resume() remain under the installation-wide lock. This is not yet
@@ -52,8 +53,10 @@ async function openCellBootstrapInstallationHost({ stateDirectory, interfaceName
     connectionStore, lifecycle, permanentPlanStore, provisioner, identityStore,
     resources, ...(preflight ? { preflight } : {}), ...(withLock ? { withLock } : {}) },
   prepareStateDirectory);
+  const registration = openCellInitialRegistration({ stateDirectory, connectionStore,
+    provisioner, ...(withLock ? { withLock } : {}) });
   return Object.freeze({ initial, identityStore, connectionStore,
-    permanentPlanStore, bootstrap, provisioner });
+    permanentPlanStore, bootstrap, provisioner, registration });
 }
 
 module.exports = { openCellBootstrapInstallationHost };

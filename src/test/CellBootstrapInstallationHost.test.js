@@ -26,6 +26,7 @@ test('real Cell first-install components share one private state root without to
   assert.equal(host.provisioner.interfaceName, 'awgjoin0');
   assert.equal(typeof host.initial.begin, 'function');
   assert.equal(typeof host.initial.resume, 'function');
+  assert.equal(typeof host.registration.register, 'function');
 });
 
 test('Cell installation assembly rejects incomplete resource reservations before preparing storage', async () => {
