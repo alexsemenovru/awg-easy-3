@@ -140,3 +140,15 @@ test('product entry point validates dependencies before preparing its private st
   assert.equal(typeof host.resume, 'function');
   assert.deepEqual(prepared, [stateDirectory]);
 });
+
+test('initial installation rejects a connection store bound to a different Cell identity', async () => {
+  const stateDirectory = path.resolve('cell-state');
+  const identityStore = { load: async () => ({}), create: async () => ({}) };
+  assert.throws(() => openCellInitialInstallation({ stateDirectory,
+    identityStore, connectionStore: { identityStore: {}, read: async () => null, begin: async () => {} },
+    lifecycle: { load: async () => ({ phase: 'empty' }) },
+    permanentPlanStore: { read: async () => null },
+    provisioner: { initialize: async () => {}, recover: async () => {} },
+    resources: { interfaceNames: ['awgjoin0'], udpPorts: [51820], nftTables: ['awg_easy_3_bootstrap'] },
+  }), /dependencies required/);
+});

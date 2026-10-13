@@ -19,6 +19,7 @@ function openCellInitialInstallation({ stateDirectory, connectionStore, lifecycl
     || !permanentPlanStore || typeof permanentPlanStore.read !== 'function'
     || !provisioner || !['initialize', 'recover'].every(name => typeof provisioner[name] === 'function')
     || !identityStore || !['load', 'create'].every(name => typeof identityStore[name] === 'function')
+    || (connectionStore.identityStore && connectionStore.identityStore !== identityStore)
     || !resources || typeof resources !== 'object'
     || typeof preflight !== 'function' || typeof withLock !== 'function') {
     throw new TypeError('Initial Cell installation dependencies required');
