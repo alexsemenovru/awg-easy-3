@@ -13,6 +13,7 @@ const { CellRouteTransaction } = require('./CellRouteTransaction');
 const { CellAwgBootstrapCellProvisioner } = require('./CellAwgBootstrapCellProvisioner');
 const { prepareCellInitialInstallation } = require('./CellInitialInstallation');
 const { openCellInitialRegistration } = require('./CellInitialRegistration');
+const { openCellPermanentJoinHost } = require('./CellPermanentJoinHost');
 
 // Concrete first-install assembly. No host command runs while it is opened;
 // begin()/resume() remain under the installation-wide lock. This is not yet
@@ -22,9 +23,14 @@ async function openCellBootstrapInstallationHost({ stateDirectory, interfaceName
   if (typeof stateDirectory !== 'string' || !path.isAbsolute(stateDirectory)
     || !/^[a-zA-Z0-9_.-]{1,15}$/.test(interfaceName)
     || !resources || !Array.isArray(resources.interfaceNames)
-    || !resources.interfaceNames.includes(interfaceName)
+    || resources.interfaceNames.length !== 3
+    || resources.interfaceNames[0] !== interfaceName
+    || new Set(resources.interfaceNames).size !== 3
+    || resources.interfaceNames.some(name => !/^[a-zA-Z0-9_.-]{1,15}$/.test(name))
     || !Array.isArray(resources.nftTables)
-    || !['awg_easy_3_bootstrap', 'awg_easy_3_bootstrap_guard']
+    || !['awg_easy_3_bootstrap', 'awg_easy_3_bootstrap_guard',
+      'awg_easy_3_control', 'awg_easy_3_control_guard',
+      'awg_easy_3', 'awg_easy_3_cell_guard']
       .every(name => resources.nftTables.includes(name))
     || !Array.isArray(resources.udpPorts) || resources.udpPorts.length === 0
     || typeof runner !== 'function') {
@@ -55,8 +61,12 @@ async function openCellBootstrapInstallationHost({ stateDirectory, interfaceName
   prepareStateDirectory);
   const registration = openCellInitialRegistration({ stateDirectory, connectionStore,
     provisioner, ...(withLock ? { withLock } : {}) });
+  const permanentJoin = openCellPermanentJoinHost({ stateDirectory,
+    interfaceName: resources.interfaceNames[1],
+    temporaryInterfaceName: interfaceName, connectionStore, bootstrap, runner,
+    ...(withLock ? { withLock } : {}) });
   return Object.freeze({ initial, identityStore, connectionStore,
-    permanentPlanStore, bootstrap, provisioner, registration });
+    permanentPlanStore, bootstrap, provisioner, registration, permanentJoin });
 }
 
 module.exports = { openCellBootstrapInstallationHost };

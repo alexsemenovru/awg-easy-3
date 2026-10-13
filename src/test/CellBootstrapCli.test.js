@@ -32,17 +32,20 @@ test('Cell CLI reads invitation only from stdin and prints no secret', async () 
   assert.ok(!printed.includes(suppliedCode));
 });
 
-test('Cell CLI supports bounded recovery and registration without stdin', async () => {
+test('Cell CLI supports bounded recovery, registration and join without stdin', async () => {
   const calls = [];
   let printed = '';
   const openHost = async () => ({ initial: { resume: async () => { calls.push('resume'); return { ready: true }; } },
-    registration: { register: async () => { calls.push('register'); return { status: 'registered' }; } } });
-  for (const command of ['resume', 'register']) {
+    registration: { register: async () => { calls.push('register'); return { status: 'registered' }; } },
+    permanentJoin: { join: async () => { calls.push('join');
+      return { status: 'waiting-for-permanent-path' }; } } });
+  for (const command of ['resume', 'register', 'join']) {
     await runCellBootstrapCli({ args: [command], env: environment(), input: null,
       output: { write: value => { printed += value; } }, openHost });
   }
-  assert.deepEqual(calls, ['resume', 'register']);
-  assert.equal(printed, '{"status":"bootstrap-ready"}\n{"status":"registered"}\n');
+  assert.deepEqual(calls, ['resume', 'register', 'join']);
+  assert.equal(printed, '{"status":"bootstrap-ready"}\n{"status":"registered"}\n'
+    + '{"status":"waiting-for-permanent-path"}\n');
 });
 
 test('Cell CLI rejects oversized invitations before opening host state', async () => {

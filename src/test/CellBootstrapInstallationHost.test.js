@@ -5,9 +5,10 @@ const path = require('node:path');
 const test = require('node:test');
 const { openCellBootstrapInstallationHost } = require('../lib/CellBootstrapInstallationHost');
 
-const resources = () => ({ interfaceNames: ['awgjoin0', 'awgctl0'],
+const resources = () => ({ interfaceNames: ['awgjoin0', 'awgctl0', 'awg0'],
   udpPorts: [51822, 51823], nftTables: ['awg_easy_3_bootstrap',
-    'awg_easy_3_bootstrap_guard', 'awg_easy_3_control'] });
+    'awg_easy_3_bootstrap_guard', 'awg_easy_3_control',
+    'awg_easy_3_control_guard', 'awg_easy_3', 'awg_easy_3_cell_guard'] });
 
 test('real Cell first-install components share one private state root without touching the host', async () => {
   const stateDirectory = path.resolve('private-cell-state');
@@ -27,6 +28,7 @@ test('real Cell first-install components share one private state root without to
   assert.equal(typeof host.initial.begin, 'function');
   assert.equal(typeof host.initial.resume, 'function');
   assert.equal(typeof host.registration.register, 'function');
+  assert.equal(typeof host.permanentJoin.join, 'function');
 });
 
 test('Cell installation assembly rejects incomplete resource reservations before preparing storage', async () => {

@@ -48,18 +48,24 @@ async function readInvitation(input) {
 async function runCellBootstrapCli({ args, env, input, output,
   openHost = openCellBootstrapInstallationHost } = {}) {
   if (!Array.isArray(args) || args.length !== 1
-    || !['begin', 'resume', 'register'].includes(args[0])) {
-    throw new Error('Usage: cell-cli.js begin|resume|register');
+    || !['begin', 'resume', 'register', 'join'].includes(args[0])) {
+    throw new Error('Usage: cell-cli.js begin|resume|register|join');
   }
   const config = configFromEnvironment(env);
   const code = args[0] === 'begin' ? await readInvitation(input) : null;
   const host = await openHost(config);
   const result = args[0] === 'begin' ? await host.initial.begin(code)
     : args[0] === 'resume' ? await host.initial.resume()
-      : await host.registration.register();
+      : args[0] === 'register' ? await host.registration.register()
+        : await host.permanentJoin.join();
   if (args[0] === 'register') {
     if (result?.status !== 'registered') throw new Error('Cell registration not complete');
     output.write('{"status":"registered"}\n');
+  } else if (args[0] === 'join') {
+    if (!['ready', 'waiting-for-permanent-path'].includes(result?.status)) {
+      throw new Error('Permanent Cell join did not reach a known state');
+    }
+    output.write(`${JSON.stringify({ status: result.status })}\n`);
   } else {
     if (result?.ready !== true) throw new Error('Cell bootstrap not ready');
     output.write('{"status":"bootstrap-ready"}\n');
