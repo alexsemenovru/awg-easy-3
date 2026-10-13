@@ -120,4 +120,6 @@ AWG 3.1, Docker, la importación en AmneziaVPN para Android, IPv4/IPv6, el aisla
 
 ## Licencia y atribución
 
+El trabajo aún no publicado y los próximos pasos se documentan en [DEVELOPMENT.ru.md](DEVELOPMENT.ru.md) (en ruso); todavía no forman parte de la versión pública.
+
 El material adaptado heredado se distribuye bajo **CC BY-NC-SA 4.0**. Consulte [LICENSE](LICENSE), [NOTICE](NOTICE) y [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Este proyecto no está afiliado ni respaldado por AmneziaVPN.

@@ -118,4 +118,6 @@ The pinned AWG 3.1 engine, Docker deployment, AmneziaVPN Android import, IPv4/IP
 
 ## License and attribution
 
+Work in progress and the roadmap are tracked in [DEVELOPMENT.ru.md](DEVELOPMENT.ru.md) (Russian); these changes are not part of the published release yet.
+
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for design notes and [NOTICE](NOTICE) for attribution.

@@ -162,4 +162,6 @@ sudo ./install.sh --host vpn.example.com --port 51820 --panel-port 51821 --lang 
 
 ## Лицензия и авторство
 
+Невыпущенные наработки и дальнейший план перечислены в [DEVELOPMENT.ru.md](DEVELOPMENT.ru.md); они пока не входят в публичный релиз.
+
 Унаследованный адаптированный материал распространяется по **CC BY-NC-SA 4.0**. См. [LICENSE](LICENSE) и [NOTICE](NOTICE). Проект не связан с AmneziaVPN и не одобрен её разработчиками.

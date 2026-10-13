@@ -120,4 +120,6 @@ sudo awg-easy-3 export-client "Home admin"
 
 ## مجوز و انتساب
 
+کارهای منتشرنشده و گام‌های بعدی در [DEVELOPMENT.ru.md](DEVELOPMENT.ru.md) (به روسی) آمده‌اند؛ این موارد هنوز بخشی از انتشار عمومی نیستند.
+
 مطالب اقتباس‌شدهٔ به‌ارث‌رسیده تحت مجوز **CC BY-NC-SA 4.0** منتشر می‌شوند. [LICENSE](LICENSE)، [NOTICE](NOTICE) و [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) را ببینید. این پروژه وابسته به AmneziaVPN نیست و تأیید رسمی آن را ندارد.

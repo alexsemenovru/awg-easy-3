@@ -120,4 +120,6 @@ AWG 3.1、Docker 部署、AmneziaVPN Android 导入、IPv4/IPv6、Home/Guest 隔
 
 ## 许可与署名
 
+未发布的开发成果及后续计划见 [DEVELOPMENT.ru.md](DEVELOPMENT.ru.md)（俄语）；它们尚未包含在公开版本中。
+
 继承并改编的材料按 **CC BY-NC-SA 4.0** 发布。请参阅 [LICENSE](LICENSE)、[NOTICE](NOTICE) 和 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。本项目与 AmneziaVPN 没有关联，也未获其官方认可。
