@@ -15,7 +15,8 @@
   "packageManager": "pnpm@11.19.0",
   "dependencies": {
     "bcryptjs": "2.4.3",
-    "qrcode": "1.5.4"
+    "qrcode": "1.5.4",
+    "transliteration": "2.3.5"
   },
   "engines": {
     "node": ">=18"

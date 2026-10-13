@@ -20,7 +20,7 @@ window.awgApi = (() => {
   const clientPath = (id) => `/api/v1/clients/${encodeURIComponent(id)}`;
   return Object.freeze({
     session: (signal) => request('/api/v1/session', { signal, cache: 'no-store' }),
-    login: (password) => request('/api/v1/session', json('POST', { password })),
+    login: (password, code) => request('/api/v1/session', json('POST', { password, code })),
     logout: () => request('/api/v1/session', json('DELETE')),
     clients: () => request('/api/v1/clients'),
     network: () => request('/api/v1/network'),
@@ -31,6 +31,9 @@ window.awgApi = (() => {
     deleteClient: (id) => request(clientPath(id), json('DELETE')),
     exportUrl: (id, format) => `${clientPath(id)}/export?format=${encodeURIComponent(format)}`,
     exportText: (id, format) => request(`${clientPath(id)}/export?format=${encodeURIComponent(format)}`),
-    changePassword: (currentPassword, newPassword) => request('/api/v1/password', json('PUT', { currentPassword, newPassword })),
+    changePassword: (currentPassword, newPassword, code) => request('/api/v1/password', json('PUT', { currentPassword, newPassword, code })),
+    beginTotp: (password, code) => request('/api/v1/totp/setup', json('POST', { password, code })),
+    confirmTotp: (password, code) => request('/api/v1/totp/confirm', json('POST', { password, code })),
+    setAuthMode: (mode, password, code, newPassword) => request('/api/v1/auth-mode', json('PUT', { mode, password, code, newPassword })),
   });
 })();

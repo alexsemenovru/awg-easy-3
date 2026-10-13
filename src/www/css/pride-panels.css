@@ -1,0 +1,13 @@
+/* Decorative glass bars over slow colour glows; no effect on panel controls. */
+body::before, body::after { display: none; }
+#glass-background { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; background: #05010a; contain: strict; }
+#glass-background .glow { position: absolute; top: 50%; left: 50%; width: 160vmax; height: 160vmax; margin: -80vmax 0 0 -80vmax; border-radius: 50%; will-change: transform; }
+#glass-background .glow-1 { background: radial-gradient(circle, rgb(255 0 80 / .55) 0%, rgb(255 140 0 / .35) 25%, rgb(255 235 0 / .15) 45%, transparent 70%); animation: glass-drift-a 22s ease-in-out infinite alternate; }
+#glass-background .glow-2 { background: radial-gradient(circle, rgb(0 85 255 / .55) 0%, rgb(0 179 0 / .30) 30%, transparent 70%); animation: glass-drift-b 28s ease-in-out infinite alternate; }
+#glass-background .glow-3 { background: radial-gradient(circle, rgb(139 0 255 / .50) 0%, rgb(255 0 80 / .25) 30%, transparent 70%); animation: glass-drift-c 34s ease-in-out infinite alternate; }
+@keyframes glass-drift-a { from { transform: translate3d(-30%, -25%, 0) scale(1); } to { transform: translate3d(30%, 25%, 0) scale(1.15); } }
+@keyframes glass-drift-b { from { transform: translate3d(35%, -20%, 0) scale(1.1); } to { transform: translate3d(-25%, 30%, 0) scale(1); } }
+@keyframes glass-drift-c { from { transform: translate3d(-20%, 35%, 0) scale(1); } to { transform: translate3d(25%, -30%, 0) scale(1.2); } }
+#glass-background .bars-layer { position: absolute; inset: 0; z-index: 2; background: repeating-linear-gradient(to right, rgb(255 255 255 / .10) 0, rgb(255 255 255 / .10) 1px, rgb(255 255 255 / .02) 1px, rgb(255 255 255 / .02) calc(5% - 1px), rgb(0 0 0 / .35) calc(5% - 1px), rgb(0 0 0 / .35) 5%); }
+@media (hover: hover) and (pointer: fine) and (min-width: 1024px) { #glass-background .bars-layer { backdrop-filter: blur(10px) saturate(160%); -webkit-backdrop-filter: blur(10px) saturate(160%); } }
+@media (prefers-reduced-motion: reduce) { #glass-background .glow { animation: none; will-change: auto; } }

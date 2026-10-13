@@ -1,6 +1,7 @@
 'use strict';
 
 const { clientTraffic } = require('./ClientTraffic');
+const { transliterate } = require('transliteration');
 
 class ApiError extends Error {
   constructor(statusCode, message) {
@@ -9,6 +10,17 @@ class ApiError extends Error {
     this.statusCode = statusCode;
   }
 }
+
+const authError = (error) => {
+  if (error instanceof ApiError) return error;
+  if (error.message === 'Invalid credentials' || error.message === 'Current password is incorrect') {
+    return new ApiError(403, 'Invalid credentials');
+  }
+  if (error.message === 'TOTP setup expired' || error.message === 'Set up codes first'
+    || error.message === 'Use SSH reset to create a new password') return new ApiError(400, error.message);
+  if (error.message === 'Disable existing codes before setting up new ones') return new ApiError(409, error.message);
+  return error;
+};
 
 const publicClient = (client) => Object.freeze({
   id: client.id,
@@ -28,14 +40,14 @@ const defaultQrGenerator = (value) => require('qrcode').toString(value, {
 const exportFileName = (name) => {
   // Android AWG uses the file stem as a tunnel name (ASCII, at most 15 characters).
   // This affects only the download, never the saved/displayed client name.
-  const normalized = String(name ?? '').normalize('NFKC').trim()
+  const normalized = transliterate(String(name ?? '').normalize('NFKC').trim())
     .replace(/[^a-zA-Z0-9_=+.-]+/g, '_').replace(/^[_.]+|[_.]+$/g, '').slice(0, 15).replace(/\.+$/g, '');
   if (/^(con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\.|$)/i.test(normalized)) return 'AWG-client.conf';
   return `${normalized || 'AWG-client'}.conf`;
 };
 
 class ApiService {
-  constructor({ store, passwordManager, sessionManager, clientManager, diagnostics, geoStatus = () => ({}), qrGenerator = defaultQrGenerator } = {}) {
+  constructor({ store, passwordManager, sessionManager, clientManager, diagnostics, geoStatus = () => ({}), qrGenerator = defaultQrGenerator, clock = () => Date.now() } = {}) {
     if (!store || typeof store.load !== 'function') throw new TypeError('store must provide load');
     if (!passwordManager || typeof passwordManager.verify !== 'function'
       || typeof passwordManager.changePassword !== 'function') {
@@ -57,14 +69,48 @@ class ApiService {
     this.qrGenerator = qrGenerator;
     this.diagnostics = diagnostics;
     this.geoStatus = geoStatus;
+    this.clock = clock;
+    this.failedLogins = 0;
+    this.loginBlockedUntil = 0;
+    this.authQueue = Promise.resolve();
   }
 
-  async login(password, { secureCookie = false } = {}) {
-    if (!(await this.passwordManager.verify(password))) throw new ApiError(401, 'Invalid credentials');
-    const token = await this.sessionManager.create();
-    return Object.freeze({
-      authenticated: true,
-      cookie: this.sessionManager.cookie(token, { secure: secureCookie }),
+  serializeAuth(action) {
+    const result = this.authQueue.then(action);
+    this.authQueue = result.catch(() => {});
+    return result;
+  }
+
+  async limitedAuth(action) {
+    return this.serializeAuth(async () => {
+      if (this.clock() < this.loginBlockedUntil) throw new ApiError(429, 'Too many attempts. Try again later.');
+      try {
+        const result = await action();
+        this.failedLogins = 0;
+        this.loginBlockedUntil = 0;
+        return result;
+      } catch (error) {
+        if (error.statusCode === 401 || error.message === 'Invalid credentials'
+          || error.message === 'Current password is incorrect') {
+          this.failedLogins += 1;
+          if (this.failedLogins >= 5) {
+            this.loginBlockedUntil = this.clock() + Math.min(24 * 60 * 60_000,
+              30_000 * 2 ** Math.min(12, this.failedLogins - 5));
+          }
+        }
+        throw error;
+      }
+    });
+  }
+
+  async login(password, code, { secureCookie = false } = {}) {
+    return this.limitedAuth(async () => {
+      const valid = this.passwordManager.authenticate
+        ? await this.passwordManager.authenticate(password, code)
+        : await this.passwordManager.verify(password);
+      if (!valid) throw new ApiError(401, 'Invalid credentials');
+      const token = await this.sessionManager.create();
+      return Object.freeze({ authenticated: true, cookie: this.sessionManager.cookie(token, { secure: secureCookie }) });
     });
   }
 
@@ -77,6 +123,7 @@ class ApiService {
     return Object.freeze({
       authenticated: await this.sessionManager.verify(token),
       language: state?.server?.uiLanguage ?? 'en',
+      authMode: state?.auth?.mode ?? 'password',
     });
   }
 
@@ -160,18 +207,39 @@ class ApiService {
     throw new ApiError(400, 'Unknown export format');
   }
 
-  async changePassword(token, currentPassword, newPassword, { secureCookie = false } = {}) {
+  async changePassword(token, currentPassword, newPassword, code, { secureCookie = false } = {}) {
     await this.authorize(token);
     try {
-      await this.passwordManager.changePassword(currentPassword, newPassword);
+      await this.limitedAuth(() => this.passwordManager.changePassword(currentPassword, newPassword, code));
     } catch (error) {
-      if (error.message === 'Current password is incorrect') throw new ApiError(403, error.message);
-      throw error;
+      throw authError(error);
     }
     return Object.freeze({
       success: true,
       cookie: this.sessionManager.clearCookie({ secure: secureCookie }),
     });
+  }
+
+  async beginTotp(token, proof) {
+    await this.authorize(token);
+    let setup;
+    try { setup = await this.limitedAuth(() => this.passwordManager.beginTotp(proof)); }
+    catch (error) { throw authError(error); }
+    return Object.freeze({ secret: setup.secret, qrSvg: await this.qrGenerator(setup.uri) });
+  }
+
+  async confirmTotp(token, password, code) {
+    await this.authorize(token);
+    try { await this.limitedAuth(() => this.passwordManager.confirmTotp(password, code)); }
+    catch (error) { throw authError(error); }
+    return Object.freeze({ success: true, cookie: this.sessionManager.clearCookie() });
+  }
+
+  async setAuthMode(token, mode, proof, newPassword) {
+    await this.authorize(token);
+    try { await this.limitedAuth(() => this.passwordManager.setMode(mode, proof, newPassword)); }
+    catch (error) { throw authError(error); }
+    return Object.freeze({ success: true, cookie: this.sessionManager.clearCookie() });
   }
 
   logout({ secureCookie = false } = {}) {

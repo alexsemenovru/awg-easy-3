@@ -66,9 +66,21 @@ test('logs in with a generic failure and an HTTP-only cookie', async () => {
   await assert.rejects(service.login('wrong'), (error) => error.statusCode === 401 && /Invalid credentials/.test(error.message));
 });
 
+test('limits repeated authentication failures without disclosing a code or password', async () => {
+  const { service } = fixture();
+  let now = 0;
+  service.clock = () => now;
+  for (let index = 0; index < 5; index += 1) {
+    await assert.rejects(service.login('wrong'), error => error.statusCode === 401);
+  }
+  await assert.rejects(service.login('correct-password'), error => error.statusCode === 429);
+  now += 30_001;
+  assert.equal((await service.login('correct-password')).authenticated, true);
+});
+
 test('exposes the configured UI language without exposing secrets', async () => {
   const { service } = fixture();
-  assert.deepEqual(await service.session('bad-token'), { authenticated: false, language: 'fa' });
+  assert.deepEqual(await service.session('bad-token'), { authenticated: false, language: 'fa', authMode: 'password' });
 });
 
 test('never exposes client key material in list or mutations', async () => {
@@ -109,7 +121,10 @@ test('returns exports only through the explicit authenticated endpoint', async (
 test('creates safe readable conf filenames', () => {
   assert.equal(exportFileName(' Honor 50 '), 'Honor_50.conf');
   assert.equal(exportFileName('Home admin'), 'Home_admin.conf');
-  assert.equal(exportFileName(' Алексей: телефон '), 'AWG-client.conf');
+  assert.equal(exportFileName(' Алексей: телефон '), 'Aleksey_telefon.conf');
+  assert.equal(exportFileName('Миша'), 'Misha.conf');
+  assert.equal(exportFileName('علی'), 'aaly.conf');
+  assert.equal(exportFileName('你好'), 'Ni_Hao.conf');
   assert.equal(exportFileName('///'), 'AWG-client.conf');
   assert.equal(exportFileName('a'.repeat(80)), `${'a'.repeat(15)}.conf`);
   assert.equal(exportFileName(null), 'AWG-client.conf');

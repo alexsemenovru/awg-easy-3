@@ -6,6 +6,7 @@
 .ip-summary{color:#91a6bf;font-size:.8rem;padding:0 0 12px;overflow-wrap:anywhere}
 .ip-summary[data-i18n="disabled"]{color:#f3ce88}
 .access-settings{border-top:1px solid #1d3045}
+.auth-settings{border-top:1px solid #1d3045;margin-top:20px;padding-top:20px;display:grid;gap:15px}.auth-settings p{color:#91a6bf;font-size:.85rem;line-height:1.45}.auth-settings form{display:grid;gap:12px}.totp-qr{width:min(220px,100%);background:#fff;padding:8px;border-radius:10px}.totp-qr img{display:block;width:100%;height:auto}
 .access-settings>summary{cursor:pointer;color:#b8c8da;font-size:.88rem;font-weight:650;padding:12px 0;min-height:44px}
 .access-settings>summary:hover{color:#edf4ff}
 .access-settings>summary:focus-visible,.diagnostics>summary:focus-visible{outline:2px solid #39aaff;outline-offset:3px;border-radius:4px}
@@ -16,3 +17,4 @@
 .geo-form{display:grid;gap:10px;margin-top:16px;padding-top:16px;border-top:1px solid #21374c}
 .geo-form label{display:grid;gap:6px;min-width:0}.geo-form input,.geo-form select{width:100%;min-width:0;box-sizing:border-box}
 .geo-form p{font-size:.8rem;line-height:1.5;color:#91a6bf;margin:0}.geo-form .geo-message{color:#f3ce88}
+.client-grid{align-items:start}

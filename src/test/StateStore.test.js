@@ -74,8 +74,17 @@ test('atomically saves and loads state without losing secrets', async (t) => {
 
 test('rejects unsupported versions instead of attempting migration', () => {
   const state = fixture();
-  state.version = 3;
+  state.version = 4;
   assert.throws(() => validateState(state), /Unsupported state version/);
+});
+
+test('rejects TOTP configuration in formats an old panel could read', () => {
+  const state = fixture();
+  state.auth.mode = 'password_totp';
+  state.auth.totpSecret = 'A'.repeat(32);
+  assert.throws(() => validateState(state), /requires state version 3/);
+  state.version = 3;
+  assert.equal(validateState(state).auth.mode, 'password_totp');
 });
 
 test('GeoIP upgrades persisted format without changing keys and never silently downgrades', async (t) => {

@@ -21,8 +21,10 @@ Se requiere un VPS Linux nativo `amd64`, `/dev/net/tun`, acceso root, un gestor 
 ```bash
 git clone https://github.com/alexsemenovru/awg-easy-3.git
 cd awg-easy-3
-sudo ./install.sh --host IP_PUBLICA_O_DOMINIO --lang es
+sudo ./install.sh --lang es
 ```
+
+En una instalación interactiva puede elegir la IPv4 pública detectada (recomendada), otra IPv4 o un dominio. Para instalaciones desatendidas, use `--host IP_PUBLICA_O_DOMINIO`; es obligatorio si no se detecta una IP pública.
 
 Para importar `vpn://`, use **[AmneziaVPN 5.0.0.5 o posterior](https://github.com/amnezia-vpn/amnezia-client/releases)**, también disponible para Android en [Google Play](https://play.google.com/store/apps/details?id=org.amnezia.vpn). Como alternativa, importe el archivo `.conf` descargado en **AmneziaWG 3.1**. La sección de compatibilidad detalla la versión Android probada, el acceso al panel por IPv6 y otros clientes.
 
@@ -71,7 +73,7 @@ También están disponibles `start`, `stop`, `restart`, `settings`, `logs`, `dia
 - DNS AdGuard predeterminado: `94.140.14.14`, `94.140.15.15`, `2a10:50c0::ad1:ff` y `2a10:50c0::ad2:ff`.
 - IPv6 automático mediante ULA y NAT66 limitado cuando el VPS dispone de IPv6.
 - Descubrimiento mDNS y UPnP/SSDP solo para Home. UPnP IGD, NAT-PMP, PCP y cualquier apertura automática de puertos no se admiten de forma intencionada. La visibilidad depende de que la aplicación cliente admita multicast en la interfaz VPN.
-- Panel disponible solo dentro de la VPN en `http://10.8.0.1:51821` y en su dirección IPv6 interna cuando esté disponible.
+- Panel disponible solo dentro de la VPN en `http://10.8.0.1:51821` y en su dirección IPv6 interna cuando esté disponible. Opcionalmente admite códigos TOTP de una aplicación: solo contraseña (predeterminado), contraseña y código, o solo código. Este último no constituye por sí solo una autenticación de dos factores. `reset-password` por SSH desactiva los códigos y cierra todas las sesiones.
 - Tabla nftables dedicada y reglas `awg0` limitadas; no se limpia la configuración ajena.
 - Sin migración desde 2.x, copias de seguridad, roles ni backend WireGuard heredado.
 - El enrutamiento selectivo GeoIP queda aplazado hasta contar con un diseño del lado del servidor.

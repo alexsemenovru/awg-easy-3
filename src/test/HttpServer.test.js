@@ -51,6 +51,9 @@ const fixture = async (t) => {
       value: format === 'native-config' ? '[Interface]' : 'vpn://share',
     }),
     changePassword: async () => ({ cookie: 'awg_easy_3_session=; Max-Age=0' }),
+    beginTotp: async (token, proof) => { calls.push(['beginTotp', token, proof]); return { secret: 'A'.repeat(32), qrSvg: '<svg/>' }; },
+    confirmTotp: async (token, password, code) => { calls.push(['confirmTotp', token, password, code]); return { cookie: 'awg_easy_3_session=; Max-Age=0' }; },
+    setAuthMode: async (token, mode, proof, next) => { calls.push(['setAuthMode', token, mode, proof, next]); return { cookie: 'awg_easy_3_session=; Max-Age=0' }; },
   };
   const server = new HttpServer({ api });
   const address = await server.listen({ host: '127.0.0.1', port: 0 });
@@ -92,6 +95,28 @@ test('supports policy mutation and explicit export routes', async (t) => {
   assert.equal(native.headers['cache-control'], 'no-store');
   assert.equal(native.headers['x-content-type-options'], 'nosniff');
   assert.equal(exported.headers['content-type'], 'text/plain; charset=utf-8');
+});
+
+test('routes authenticator enrollment and mode changes through authenticated same-origin APIs', async (t) => {
+  const { calls, port } = await fixture(t);
+  const cookie = 'awg_easy_3_session=valid';
+  const setup = await request(port, 'POST', '/api/v1/totp/setup', { cookie, body: { password: 'old' } });
+  assert.equal(setup.status, 200);
+  assert.equal(JSON.parse(setup.body).secret, 'A'.repeat(32));
+  const confirm = await request(port, 'POST', '/api/v1/totp/confirm', { cookie, body: { password: 'old', code: '123456' } });
+  assert.equal(confirm.status, 200);
+  assert.match(confirm.headers['set-cookie'][0], /Max-Age=0/);
+  const mode = await request(port, 'PUT', '/api/v1/auth-mode', { cookie,
+    body: { mode: 'totp', password: 'old', code: '987654' } });
+  assert.equal(mode.status, 200);
+  assert.deepEqual(calls, [
+    ['beginTotp', 'valid', { password: 'old' }],
+    ['confirmTotp', 'valid', 'old', '123456'],
+    ['setAuthMode', 'valid', 'totp', { password: 'old', code: '987654' }, undefined],
+  ]);
+  const rejected = await request(port, 'POST', '/api/v1/totp/setup', { cookie, body: { password: 'old' },
+    headers: { Origin: 'http://attacker.example' } });
+  assert.equal(rejected.status, 403);
 });
 
 test('serves an origin-relative web-app manifest without caching credentials or embedding a host', async (t) => {

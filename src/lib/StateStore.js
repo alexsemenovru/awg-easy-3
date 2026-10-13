@@ -11,6 +11,7 @@ const { normalizeGeoPolicy } = require('./GeoIpPolicy');
 
 const STATE_VERSION = 1;
 const GEO_STATE_VERSION = 2;
+const AUTH_STATE_VERSION = 3;
 
 const requiredString = (value, field) => {
   if (typeof value !== 'string' || value.trim() === '' || /[\r\n]/.test(value)) {
@@ -45,8 +46,8 @@ const validateState = (input) => {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     throw new TypeError('State must be a JSON object');
   }
-  if (![STATE_VERSION, GEO_STATE_VERSION].includes(input.version)) {
-    throw new Error(`Unsupported state version: ${input.version ?? 'missing'}; expected 1 or 2`);
+  if (![STATE_VERSION, GEO_STATE_VERSION, AUTH_STATE_VERSION].includes(input.version)) {
+    throw new Error(`Unsupported state version: ${input.version ?? 'missing'}; expected 1, 2 or 3`);
   }
   if (!input.server || typeof input.server !== 'object' || Array.isArray(input.server)) {
     throw new TypeError('server must be an object');
@@ -103,6 +104,27 @@ const validateState = (input) => {
     passwordHash: requiredString(input.auth.passwordHash, 'auth.passwordHash'),
     sessionSecret: requiredString(input.auth.sessionSecret, 'auth.sessionSecret'),
   };
+  const mode = input.auth.mode ?? 'password';
+  if (!['password', 'password_totp', 'totp'].includes(mode)) throw new TypeError('Invalid authentication mode');
+  if (mode !== 'password' || input.auth.totpSecret !== undefined || input.auth.pendingTotp !== undefined) {
+    if (input.version !== AUTH_STATE_VERSION) throw new TypeError('TOTP requires state version 3');
+  }
+  if (mode !== 'password' && !input.auth.totpSecret) throw new TypeError('TOTP mode requires a secret');
+  if (input.auth.totpSecret !== undefined) {
+    if (!/^[A-Z2-7]{32}$/.test(input.auth.totpSecret)) throw new TypeError('Invalid TOTP secret');
+    auth.totpSecret = input.auth.totpSecret;
+  }
+  if (input.auth.lastTotpStep !== undefined) {
+    if (!Number.isSafeInteger(input.auth.lastTotpStep) || input.auth.lastTotpStep < 0) throw new TypeError('Invalid TOTP step');
+    auth.lastTotpStep = input.auth.lastTotpStep;
+  }
+  if (input.auth.pendingTotp !== undefined) {
+    const pending = input.auth.pendingTotp;
+    if (!pending || !/^[A-Z2-7]{32}$/.test(pending.secret)
+      || !Number.isSafeInteger(pending.createdAt) || pending.createdAt < 0) throw new TypeError('Invalid pending TOTP setup');
+    auth.pendingTotp = { secret: pending.secret, createdAt: pending.createdAt };
+  }
+  if (mode !== 'password') auth.mode = mode;
 
   const clients = input.clients.map((inputClient, index) => {
     if (!inputClient || typeof inputClient !== 'object' || Array.isArray(inputClient)) {
@@ -136,7 +158,7 @@ const validateState = (input) => {
 
   // Keep the format upgrade sticky: older panels ignore geoPolicy but reject v2.
   // Merely updating without enabling GeoIP retains the legacy format.
-  const version = input.version === GEO_STATE_VERSION
+  const version = input.version === AUTH_STATE_VERSION ? AUTH_STATE_VERSION : input.version === GEO_STATE_VERSION
     || clients.some(client => client.geoPolicy && client.geoPolicy.mode !== 'off')
     ? GEO_STATE_VERSION : STATE_VERSION;
   return deepFreeze({ version, auth, server, clients });
@@ -202,6 +224,7 @@ class StateStore {
 }
 
 module.exports = {
+  AUTH_STATE_VERSION,
   STATE_VERSION,
   StateStore,
   validateState,

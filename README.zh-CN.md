@@ -21,8 +21,10 @@
 ```bash
 git clone https://github.com/alexsemenovru/awg-easy-3.git
 cd awg-easy-3
-sudo ./install.sh --host 公网IP或域名 --lang zh-cn
+sudo ./install.sh --lang zh-cn
 ```
+
+交互式安装可选择检测到的公网 IPv4（推荐）、其他 IPv4 或域名。无人值守安装请使用 `--host 公网IP或域名`；如果无法检测公网 IP，则必须明确指定此参数。
 
 导入 `vpn://` 链接可使用 **[AmneziaVPN 5.0.0.5 或更高版本](https://github.com/amnezia-vpn/amnezia-client/releases)**，Android 版也可从 [Google Play](https://play.google.com/store/apps/details?id=org.amnezia.vpn) 获取。也可以将下载的 `.conf` 文件导入 **AmneziaWG 3.1**。下方兼容性章节列出了经过测试的 Android 版本、IPv6 面板访问情况及其他客户端。
 
@@ -71,7 +73,7 @@ sudo awg-easy-3 export-client "Home admin"
 - 默认 AdGuard DNS：`94.140.14.14`、`94.140.15.15`、`2a10:50c0::ad1:ff`、`2a10:50c0::ad2:ff`。
 - VPS 支持 IPv6 时自动配置 ULA 和限定范围的 NAT66。
 - 仅为 Home 提供 mDNS 和 UPnP/SSDP 服务发现。明确不支持 UPnP IGD、NAT-PMP、PCP 以及任何自动开放或映射端口的功能。应用能否发现服务取决于客户端是否在 VPN 接口上支持组播。
-- 面板仅可在 VPN 内通过 `http://10.8.0.1:51821` 及其可用的内部 IPv6 地址访问。
+- 面板仅可在 VPN 内通过 `http://10.8.0.1:51821` 及其可用的内部 IPv6 地址访问。可选验证器 TOTP 动态码，支持仅密码（默认）、密码加动态码或仅动态码；仅动态码本身并不是双因素认证。通过 SSH 执行 `reset-password` 会关闭动态码并结束全部会话。
 - 使用独立 nftables 表和范围严格的 `awg0` 规则，不清除其他服务的规则。
 - 不提供 2.x 迁移、备份恢复、用户角色或旧版 WireGuard 后端。
 - GeoIP 选择性路由推迟到具备合适的服务端设计之后。

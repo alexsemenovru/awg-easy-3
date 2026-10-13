@@ -58,10 +58,12 @@ const setup = async () => {
     address6: `fd00::${id === 'a' ? 2 : 3}`, networkGroup: 'home', enabled: true,
     ipv4Enabled: true, ipv6Enabled: true, ipv6Available: true }));
   let failure;
+  let loginFailure;
   let refreshFailure = false;
   const calls = [];
   const api = {
     session: async () => ({ authenticated: true, language: 'en' }),
+    login: async () => { if (loginFailure) throw loginFailure; },
     clients: async () => { if (refreshFailure) throw new Error('Refresh failed'); return rows.map((row) => ({ ...row })); },
     network: async () => ({}),
     updateClient: async (id, changes) => {
@@ -80,6 +82,7 @@ const setup = async () => {
     window: { addEventListener: () => {},
       awgConnection: ({ load, onSession }) => ({ start: () => load().then(onSession), retry() {}, stop() {} }),
       awgApi: api, awgI18n: { t: (key) => key, translate: () => {}, setLanguage: () => {} },
+      awgGeoClient: { attach: ({ node, save }) => { node.saveGeo = save; } },
       awgDiagnostics: { paintRates: () => {}, createPoller: () => ({ stop() {}, start() {} }) } },
     document, CSS: { escape: (id) => id }, localStorage: { getItem: () => null },
     setTimeout: () => 0, clearTimeout: () => {},
@@ -88,6 +91,7 @@ const setup = async () => {
   return {
     document, calls, card: (index = 0) => container.cards[index],
     fail: (code) => { failure = Object.assign(new Error('Request rejected'), { code }); },
+    failLogin: () => { loginFailure = Object.assign(new Error('Invalid credentials'), { status: 401 }); },
     failRefresh: () => { refreshFailure = true; },
     change: async (selector, checked) => {
       const control = container.cards[0].querySelector(selector);
@@ -97,6 +101,15 @@ const setup = async () => {
     },
   };
 };
+
+test('wrong panel password shows a translated visible error', async () => {
+  const f = await setup();
+  f.failLogin();
+  await f.document.querySelector('#login-form').handlers.submit({ preventDefault() {} });
+  const notice = f.document.querySelector('#notice');
+  assert.equal(notice.textContent, 'invalidPassword');
+  assert.equal(notice.className, 'notice error');
+});
 
 test('card sections start closed and retain independent open states through family updates', async () => {
   const f = await setup();
@@ -148,4 +161,25 @@ test('closed settings stay closed when a Home/Guest change refreshes the cards',
   assert.equal(f.card().querySelector('.status').textContent, 'Guest');
   assert.equal(f.card().querySelector('.access-settings').open, false);
   assert.strictEqual(f.document.activeElement, f.card().querySelector('.group-toggle'));
+  assert.equal(f.document.querySelector('#notice').textContent, 'accessApplied');
+});
+
+test('successful IP-family mutation confirms application, rejected mutation never confirms success', async () => {
+  const f = await setup();
+  await f.change('.ipv6-toggle', false);
+  assert.equal(f.document.querySelector('#notice').textContent, 'accessApplied');
+  f.fail('CURRENT_PANEL_PATH');
+  await f.change('.ipv4-toggle', false);
+  assert.equal(f.document.querySelector('#notice').textContent, 'CURRENT_PANEL_PATH');
+  assert.equal(f.document.querySelector('#notice').className, 'notice error');
+});
+
+test('GeoIP save confirms success only after the API accepts the policy', async () => {
+  const f = await setup();
+  await f.card().saveGeo({ mode: 'block', countries: ['RU'] });
+  assert.equal(f.document.querySelector('#notice').textContent, 'geoApplied');
+  f.fail('GEO_UNAVAILABLE');
+  await assert.rejects(f.card().saveGeo({ mode: 'allow', countries: ['RU'] }));
+  assert.equal(f.document.querySelector('#notice').className, 'notice error');
+  assert.notEqual(f.document.querySelector('#notice').textContent, 'geoApplied');
 });

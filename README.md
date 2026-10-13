@@ -21,8 +21,10 @@ Requirements: an amd64 Linux VPS, `/dev/net/tun`, root access, a supported packa
 ```bash
 git clone https://github.com/alexsemenovru/awg-easy-3.git
 cd awg-easy-3
-sudo ./install.sh --host PUBLIC_IP_OR_DOMAIN --lang en
+sudo ./install.sh --lang en
 ```
+
+In an interactive terminal, the installer offers the detected public IPv4 (recommended), another IPv4, or a DNS name. For unattended installation, use `--host PUBLIC_IP_OR_DOMAIN`; if public IP detection fails, an explicit host is required.
 
 For `vpn://` import, use **[AmneziaVPN 5.0.0.5 or later](https://github.com/amnezia-vpn/amnezia-client/releases)**, also available on Android via [Google Play](https://play.google.com/store/apps/details?id=org.amnezia.vpn). Alternatively, import the downloaded `.conf` in **AmneziaWG 3.1**. See the compatibility section below for the tested Android build, IPv6 panel access and other clients.
 
@@ -65,7 +67,7 @@ Common commands include `sudo awg-easy-3 start|stop|restart|status|settings|logs
 - Requested AdGuard IPv4/IPv6 DNS defaults.
 - Automatic IPv6 ULA + scoped NAT66 when VPS IPv6 is usable.
 - Home-only mDNS and UPnP/SSDP discovery. UPnP IGD, NAT-PMP, PCP and every form of automatic port opening are intentionally unsupported. Visibility depends on client applications supporting multicast on the VPN interface.
-- VPN-only panel at `http://10.8.0.1:51821` and its internal IPv6 address when available, with one password.
+- VPN-only panel at `http://10.8.0.1:51821` and its internal IPv6 address when available. Optional authenticator-app codes support password-only (default), password + code, or code-only sign-in. Codes require a Home connection and use a local TOTP secret; `reset-password` over SSH disables them and ends all sessions. Code-only is not two-factor authentication by itself.
 - Dedicated nftables table, narrowly tagged `awg0` rules in Docker's
   `DOCKER-USER` chain when required, and no public Web UI port.
 - Pinned `linux/amd64` base images and official AWG source revisions.

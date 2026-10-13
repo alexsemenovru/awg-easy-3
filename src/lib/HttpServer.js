@@ -95,7 +95,7 @@ class HttpServer {
       if (request.method === 'GET') return sendJson(response, 200, await this.api.session(token));
       if (request.method === 'POST') {
         const body = await readJson(request);
-        const result = await this.api.login(body.password);
+        const result = await this.api.login(body.password, body.code);
         response.setHeader('Set-Cookie', result.cookie);
         return sendJson(response, 200, { authenticated: true });
       }
@@ -147,7 +147,22 @@ class HttpServer {
 
     if (url.pathname === '/api/v1/password' && request.method === 'PUT') {
       const body = await readJson(request);
-      const result = await this.api.changePassword(token, body.currentPassword, body.newPassword);
+      const result = await this.api.changePassword(token, body.currentPassword, body.newPassword, body.code);
+      response.setHeader('Set-Cookie', result.cookie);
+      return sendJson(response, 200, { success: true });
+    }
+    if (url.pathname === '/api/v1/totp/setup' && request.method === 'POST') {
+      return sendJson(response, 200, await this.api.beginTotp(token, await readJson(request)));
+    }
+    if (url.pathname === '/api/v1/totp/confirm' && request.method === 'POST') {
+      const body = await readJson(request);
+      const result = await this.api.confirmTotp(token, body.password, body.code);
+      response.setHeader('Set-Cookie', result.cookie);
+      return sendJson(response, 200, { success: true });
+    }
+    if (url.pathname === '/api/v1/auth-mode' && request.method === 'PUT') {
+      const body = await readJson(request);
+      const result = await this.api.setAuthMode(token, body.mode, { password: body.password, code: body.code }, body.newPassword);
       response.setHeader('Set-Cookie', result.cookie);
       return sendJson(response, 200, { success: true });
     }

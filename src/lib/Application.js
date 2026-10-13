@@ -118,7 +118,13 @@ class Application {
     });
     this.state = state;
     try {
-      const passwordManager = new PasswordManager({ store: this.store });
+      let stateQueue = Promise.resolve();
+      const serializeOperation = (operation) => {
+        const result = stateQueue.then(operation);
+        stateQueue = result.catch(() => {});
+        return result;
+      };
+      const passwordManager = new PasswordManager({ store: this.store, serializeOperation });
       const sessionManager = new SessionManager({ store: this.store });
       this.discovery = this.discoveryFactory();
       await this.discovery.start(state);
@@ -127,6 +133,7 @@ class Application {
         applier: this.applier,
         geoDatabase: () => this.geo.current?.database ?? {},
         onStateChanged: (nextState) => this.discovery.refresh(nextState),
+        serializeOperation,
       });
       this.geo.install = (snapshot, commit) => clientManager.installGeoSnapshot(snapshot, commit);
       const diagnostics = new ClientDiagnostics({ store: this.store, runner: this.runner });

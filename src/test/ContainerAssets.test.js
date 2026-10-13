@@ -26,7 +26,7 @@ test('pins amd64 base images and official AWG source revisions', () => {
 
 test('installs only the minimal Node runtime dependency set', () => {
   const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'src', 'package.json'), 'utf8'));
-  assert.deepEqual(Object.keys(packageJson.dependencies).sort(), ['bcryptjs', 'qrcode']);
+  assert.deepEqual(Object.keys(packageJson.dependencies).sort(), ['bcryptjs', 'qrcode', 'transliteration']);
   assert.equal(packageJson.devDependencies, undefined);
 });
 

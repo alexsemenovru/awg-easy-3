@@ -43,6 +43,7 @@ test('ships a self-contained UI with every required control', () => {
   assert.match(html, /rel="apple-touch-icon"/);
   assert.match(html, /id="connection-view"[^>]+aria-live="polite"/);
   assert.match(html, /id="login-view" class="card login-card hidden"/);
+  assert.ok(html.indexOf('id="notice"') < html.indexOf('id="app-view"'), 'login errors must not be inside the hidden app view');
   assert.ok(html.indexOf('/js/connection.js') < html.indexOf('/js/app.js'));
   assert.match(html, /name="apple-mobile-web-app-capable" content="yes"/);
   assert.match(html, /name="apple-mobile-web-app-title" content="AWG-Easy 3"/);
@@ -58,6 +59,11 @@ test('ships a self-contained UI with every required control', () => {
   assert.match(html, /Guest/);
   assert.doesNotMatch(html, /РФ напрямую/);
   assert.match(html, /id="geo-status"/);
+});
+
+test('client cards do not stretch to a neighbouring expanded diagnostics card', () => {
+  const css = fs.readFileSync(path.join(www, 'css', 'app.css'), 'utf8');
+  assert.match(css, /\.client-grid\s*\{\s*align-items\s*:\s*start\s*\}/);
 });
 
 test('keeps the IP mode visible outside collapsed access settings and read-only diagnostics', () => {

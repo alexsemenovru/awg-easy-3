@@ -11,8 +11,68 @@ valid_port() {
 # is therefore not a TTY. Stdin remains the authoritative interaction signal.
 is_interactive() { [ -t 0 ]; }
 has_command() { command -v "$1" >/dev/null 2>&1; }
-
 AWG_HOST_VALUE=${AWG_HOST:-}
+
+is_public_ipv4() {
+  printf '%s\n' "$1" | awk -F. '
+    NF != 4 { exit 1 }
+    { for (i = 1; i <= 4; i++) if ($i !~ /^[0-9]+$/ || $i > 255) exit 1 }
+    $1 == 0 || $1 == 10 || $1 == 127 || $1 >= 224 { exit 1 }
+    $1 == 100 && $2 >= 64 && $2 <= 127 { exit 1 }
+    $1 == 169 && $2 == 254 { exit 1 }
+    $1 == 172 && $2 >= 16 && $2 <= 31 { exit 1 }
+    $1 == 192 && ($2 == 168 || ($2 == 0 && $3 == 0)) { exit 1 }
+    $1 == 198 && ($2 == 18 || $2 == 19) { exit 1 }
+    { exit 0 }
+  '
+}
+
+valid_endpoint_host() {
+  [ -n "$1" ] && [ "${#1}" -le 253 ] || return 1
+  case "$1" in *[!A-Za-z0-9.-]*|.*|*.|*..*) return 1 ;; esac
+  # IPv4 literals must be complete and usable; DNS labels cannot start/end with a hyphen.
+  case "$1" in
+    *[!0-9.]* )
+      old_ifs=$IFS; IFS=.; set -- $1; IFS=$old_ifs
+      for label do case "$label" in ''|-*|*-) return 1 ;; esac; done
+      return 0 ;;
+    *) is_public_ipv4 "$1" ;;
+  esac
+}
+
+choose_endpoint_host() {
+  if [ -n "$AWG_HOST_VALUE" ]; then
+    valid_endpoint_host "$AWG_HOST_VALUE" || die "invalid --host/AWG_HOST; supply a public IPv4 address or DNS name"
+    return 0
+  fi
+  detected=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{ for (i=1;i<=NF;i++) if ($i=="src") { print $(i+1); exit } }')
+  if ! is_public_ipv4 "$detected"; then detected=''; fi
+  if ! is_interactive; then
+    [ -n "$detected" ] || die "unable to detect a public IPv4 address; use --host PUBLIC_IP_OR_DOMAIN"
+    AWG_HOST_VALUE=$detected
+    return 0
+  fi
+  if [ -n "$detected" ]; then
+    printf 'Detected public IPv4: %s\n' "$detected" >&2
+    printf '  1) Use detected IP (recommended)\n  2) Enter another public IPv4\n  3) Enter a DNS name\n' >&2
+    printf 'Choose endpoint [1]: ' >&2
+  else
+    printf 'Could not detect a public IPv4 on the default route.\n' >&2
+    printf '  2) Enter a public IPv4\n  3) Enter a DNS name\n' >&2
+    printf 'Choose endpoint [2]: ' >&2
+  fi
+  read -r choice || die "endpoint selection was cancelled"
+  case "$choice" in
+    ''|1) [ -n "$detected" ] || die "no public IP was detected"; AWG_HOST_VALUE=$detected; return 0 ;;
+    2) printf 'Public IPv4 address: ' >&2; read -r AWG_HOST_VALUE || die "endpoint input was cancelled"
+       is_public_ipv4 "$AWG_HOST_VALUE" || die "invalid public IPv4 address" ;;
+    3) printf 'DNS name: ' >&2; read -r AWG_HOST_VALUE || die "endpoint input was cancelled"
+       valid_endpoint_host "$AWG_HOST_VALUE" || die "invalid DNS name"
+       case "$AWG_HOST_VALUE" in *[!0-9.]*) ;; *) die "enter a DNS name, not an IPv4 address" ;; esac ;;
+    *) die "invalid endpoint choice" ;;
+  esac
+}
+
 AWG_PORT_VALUE=${AWG_PORT-}
 AWG_PANEL_PORT_VALUE=${AWG_PANEL_PORT:-51821}
 AWG_LANG_VALUE=${AWG_LANG:-en}
@@ -36,6 +96,7 @@ while [ "$#" -gt 0 ]; do
       printf '       sudo ./install.sh --reinstall [installation options]\n'
       printf '\nMissing runtime packages are installed with the system package manager.\n'
       printf 'Without --port or AWG_PORT, a random free UDP port from 20000 to 60000 is chosen.\n'
+       printf 'Without --host, interactive installation offers the detected public IPv4 or a custom IP/domain.\n'
       printf 'When the default panel TCP port is occupied, an interactive terminal suggests a free alternative.\n'
       printf 'Uninstall and reinstall permanently delete every AWG-Easy 3 client and setting.\n'
       exit 0
@@ -380,12 +441,8 @@ if [ ! -c /dev/net/tun ]; then
 fi
 [ -c /dev/net/tun ] || die "/dev/net/tun is unavailable on this VPS"
 
-if [ -z "$AWG_HOST_VALUE" ]; then
-  AWG_HOST_VALUE=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{ for (i=1;i<=NF;i++) if ($i=="src") { print $(i+1); exit } }')
-fi
-[ -n "$AWG_HOST_VALUE" ] || die "unable to detect the public endpoint; use --host PUBLIC_IP_OR_DOMAIN"
-
 [ ! -e data/state.json ] || die "AWG-Easy 3 is already initialized in $SCRIPT_DIR/data"
+choose_endpoint_host
 
 port_in_use() {
   protocol=$1

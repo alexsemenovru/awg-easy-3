@@ -21,6 +21,7 @@ class ClientManager {
     idGenerator = crypto.randomUUID,
     onStateChanged = () => {},
     geoDatabase = () => ({}),
+    serializeOperation,
   } = {}) {
     if (!store || typeof store.load !== 'function' || typeof store.save !== 'function') {
       throw new TypeError('store must provide load and save methods');
@@ -41,9 +42,11 @@ class ClientManager {
     this.onStateChanged = onStateChanged;
     this.geoDatabase = geoDatabase;
     this.queue = Promise.resolve();
+    this.serializeOperation = serializeOperation;
   }
 
   serialize(operation) {
+    if (this.serializeOperation) return this.serializeOperation(operation);
     const result = this.queue.then(operation, operation);
     this.queue = result.catch(() => {});
     return result;

@@ -1,0 +1,20 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+test('scopes the glass-bar background and respects reduced motion without blocking content', () => {
+  const css = fs.readFileSync(path.join(__dirname, '../www/css/pride-panels.css'), 'utf8');
+  const html = fs.readFileSync(path.join(__dirname, '../www/index.html'), 'utf8');
+  assert.match(html, /pride-panels\.css\?v=/);
+  assert.match(html, /id="glass-background" aria-hidden="true"/);
+  assert.equal((html.match(/class="glow glow-[123]"/g) || []).length, 3);
+  assert.match(html, /class="bars-layer"/);
+  assert.match(css, /pointer-events: none/);
+  assert.match(css, /prefers-reduced-motion: reduce/);
+  assert.match(css, /animation: none/);
+  assert.match(css, /\(hover: hover\) and \(pointer: fine\) and \(min-width: 1024px\)/);
+  assert.match(css, /repeating-linear-gradient/);
+  assert.doesNotMatch(css, /\.pride-stripe|filter: blur\(5px\)/);
+  assert.doesNotMatch(css, /https?:|\.panel\s*\{|body\s*\{[^}]*overflow/);
+});

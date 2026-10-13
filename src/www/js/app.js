@@ -23,6 +23,29 @@
   let pendingDelete;
   let lastDiagnostics = [];
   let geoCountries = [];
+  let authMode = 'password';
+  const applyAuthMode = (mode) => {
+    const previousMode = authMode;
+    authMode = ['password', 'password_totp', 'totp'].includes(mode) ? mode : 'password';
+    $('#login-password-field').classList.toggle('hidden', authMode === 'totp');
+    $('#password').required = authMode !== 'totp';
+    $('#login-code-field').classList.toggle('hidden', authMode === 'password');
+    $('#login-code').required = authMode !== 'password';
+    $('#password-form').classList.toggle('hidden', authMode === 'totp');
+    $('#code-only-password-hint').classList.toggle('hidden', authMode !== 'totp');
+    $('#password-code-field').classList.toggle('hidden', authMode !== 'password_totp');
+    $('#password-code').required = authMode === 'password_totp';
+    $('#totp-start-form').classList.toggle('hidden', authMode !== 'password');
+    $('#auth-mode-form').classList.toggle('hidden', authMode === 'password');
+    if (previousMode !== authMode) $('#auth-mode').value = authMode;
+    $('#mode-password-field').classList.toggle('hidden', authMode === 'totp');
+    $('#mode-password').required = authMode !== 'totp';
+    $('#mode-code-field').classList.toggle('hidden', authMode === 'password');
+    $('#mode-code').required = authMode !== 'password';
+    $('#mode-new-password-field').classList.toggle('hidden', authMode !== 'totp');
+    $('#mode-new-password').required = authMode === 'totp';
+    if (previousMode !== authMode) $('#totp-confirm-area').classList.add('hidden');
+  };
   const { paintRates, createPoller } = window.awgDiagnostics;
   const geoStatus = window.awgGeoStatus?.({ load: signal => api.geoInfo(signal), createPoller,
     node: $('#geo-status'), translate: t, onData: status => { geoCountries = status.countries || []; } });
@@ -43,6 +66,11 @@
     geoStatus?.stop();
     diagnosticsPoller.stop();
     lastDiagnostics = [];
+    $('#totp-secret').value = '';
+    $('#totp-qr').replaceChildren();
+    $('#totp-confirm-area').classList.add('hidden');
+    $('#totp-start-form').reset();
+    $('#totp-confirm-form').reset();
     loginView.classList.remove('hidden'); appView.classList.add('hidden'); logout.classList.add('hidden');
   };
   const showApp = () => {
@@ -57,7 +85,9 @@
     }
   };
   const errorMessage = (error) => ['CURRENT_PANEL_PATH', 'LAST_HOME', 'IPV6_UNAVAILABLE'].includes(error.code)
-    ? t(error.code) : error.message;
+    ? t(error.code) : error.status === 429 ? t('tooManyAttempts')
+      : error.status === 403 && error.message === 'Invalid credentials' ? t('invalidCredentials')
+        : error.message;
   const showManualLink = (link) => {
     const field = $('#profile-link');
     field.value = link;
@@ -127,6 +157,7 @@
     try {
       const saved = await guarded(() => api.updateClient(client.id, changes));
       applied = true;
+      showNotice(t('accessApplied', { name: saved.name }));
       clients = clients.map((item) => item.id === saved.id ? saved : item);
       clientsNode.replaceChildren(...clients.map(renderClient));
       await loadClients();
@@ -176,6 +207,7 @@
       control.addEventListener('change', () => update(client, { [`ipv${family}Enabled`]: control.checked }, control));
     }
     node.querySelector('.ipv6-unavailable').classList.toggle('hidden', client.ipv6Available);
+    window.awgTooltips?.attach(node);
     node.querySelector('.ipv6-only-warning').classList.toggle('hidden', !client.ipv6Enabled || client.ipv4Enabled);
     node.querySelector('.show-profile').addEventListener('click', () => openProfile(client));
     node.querySelector('.delete-client').addEventListener('click', () => askDelete(client));
@@ -183,6 +215,7 @@
       language: () => languageSelect.value || 'en', t,
       save: async geoPolicy => {
         const saved = await guarded(() => api.updateClient(client.id, { geoPolicy }));
+        showNotice(t('geoApplied', { name: saved.name }));
         clients = clients.map(item => item.id === saved.id ? saved : item);
         clientsNode.replaceChildren(...clients.map(renderClient));
         lastDiagnostics.forEach(paintDiagnostics);
@@ -223,11 +256,17 @@
     event.preventDefault();
     const password = $('#password');
     try {
-      await guarded(() => api.login(password.value));
+      await api.login(password.value, $('#login-code').value);
+      notice.classList.add('hidden');
       password.value = '';
+      $('#login-code').value = '';
+      applyAuthMode((await api.session()).authMode);
       showApp();
       await loadClients();
-    } catch {}
+    } catch (error) {
+      showNotice(error.status === 429 ? t('tooManyAttempts') : error.status === 401
+        ? t(authMode === 'password' ? 'invalidPassword' : 'invalidCredentials') : errorMessage(error), true);
+    }
   });
   logout.addEventListener('click', async () => { await api.logout(); showLogin(); });
   languageSelect.addEventListener('change', () => {
@@ -285,11 +324,49 @@
   $('#password-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     try {
-      await guarded(() => api.changePassword($('#current-password').value, $('#new-password').value));
+      await guarded(() => api.changePassword($('#current-password').value, $('#new-password').value, $('#password-code').value));
       event.target.reset();
       showLogin();
       alert(t('passwordChanged'));
     } catch {}
+  });
+  $('#totp-start-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    try {
+      const result = await guarded(() => api.beginTotp($('#totp-start-password').value));
+      const image = document.createElement('img');
+      image.alt = t('totpQrAlt');
+      image.src = `data:image/svg+xml,${encodeURIComponent(result.qrSvg)}`;
+      $('#totp-qr').replaceChildren(image);
+      $('#totp-secret').value = result.secret;
+      $('#totp-confirm-area').classList.remove('hidden');
+      showNotice(t('totpScanHint'));
+    } catch (error) { if (error.status === 429) showNotice(t('tooManyAttempts'), true); }
+  });
+  $('#totp-confirm-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    try {
+      await guarded(() => api.confirmTotp($('#totp-confirm-password').value, $('#totp-confirm-code').value));
+      event.target.reset();
+      $('#totp-start-form').reset();
+      $('#totp-secret').value = '';
+      $('#totp-qr').replaceChildren();
+      applyAuthMode('password_totp');
+      showLogin();
+      showNotice(t('totpActivated'));
+    } catch (error) { if (error.status === 429) showNotice(t('tooManyAttempts'), true); }
+  });
+  $('#auth-mode-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const target = $('#auth-mode').value;
+    if (target === authMode) { showNotice(t('modeUnchanged')); return; }
+    try {
+      await guarded(() => api.setAuthMode(target, $('#mode-password').value, $('#mode-code').value, $('#mode-new-password').value));
+      event.target.reset();
+      applyAuthMode(target);
+      showLogin();
+      showNotice(t('authModeChanged'));
+    } catch (error) { if (error.status === 429) showNotice(t('tooManyAttempts'), true); }
   });
   const connection = window.awgConnection({
     load: (signal) => api.session(signal),
@@ -303,7 +380,8 @@
       retryConnection.classList.toggle('hidden', state !== 'unavailable');
       if (state === 'unavailable') clearDiagnostics();
     },
-    onSession: ({ authenticated, language }) => {
+    onSession: ({ authenticated, language, authMode: sessionAuthMode }) => {
+    applyAuthMode(sessionAuthMode);
     const selectedLanguage = supportedLanguages.includes(localStorage.getItem('awg-easy-language'))
       ? localStorage.getItem('awg-easy-language') : language;
     i18n.setLanguage(selectedLanguage);
