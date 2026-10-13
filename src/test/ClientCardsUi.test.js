@@ -8,7 +8,7 @@ const test = require('node:test');
 
 // Small DOM fixture for the actual app script; native details/layout are also
 // exercised in the synthetic browser preview, without touching a live VPN.
-const setup = async () => {
+const setup = async ({ mode = 'password' } = {}) => {
   let document;
   const element = (selector = '') => {
     const classes = new Set();
@@ -20,6 +20,7 @@ const setup = async () => {
         toggle: (name, enabled) => enabled ? classes.add(name) : classes.delete(name),
       },
       addEventListener: (name, handler) => { value.handlers[name] = handler; },
+      replaceChildren: () => {}, reset: () => {},
       matches: (candidate) => candidate === selector,
       focus: () => { document.activeElement = value; },
     };
@@ -60,10 +61,14 @@ const setup = async () => {
   let failure;
   let loginFailure;
   let refreshFailure = false;
+  let passwordChangeFailure;
   const calls = [];
+  const loginInputs = [];
   const api = {
-    session: async () => ({ authenticated: true, language: 'en' }),
-    login: async () => { if (loginFailure) throw loginFailure; },
+    session: async () => ({ authenticated: true, language: 'en', authMode: mode }),
+    login: async (password, code) => { loginInputs.push({ password, code });
+      if (loginFailure) throw loginFailure; },
+    changePassword: async () => { if (passwordChangeFailure) throw passwordChangeFailure; },
     clients: async () => { if (refreshFailure) throw new Error('Refresh failed'); return rows.map((row) => ({ ...row })); },
     network: async () => ({}),
     updateClient: async (id, changes) => {
@@ -89,10 +94,11 @@ const setup = async () => {
   });
   await new Promise(setImmediate);
   return {
-    document, calls, card: (index = 0) => container.cards[index],
+    document, calls, loginInputs, card: (index = 0) => container.cards[index],
     fail: (code) => { failure = Object.assign(new Error('Request rejected'), { code }); },
     failLogin: () => { loginFailure = Object.assign(new Error('Invalid credentials'), { status: 401 }); },
     failRefresh: () => { refreshFailure = true; },
+    failPasswordChange: () => { passwordChangeFailure = Object.assign(new Error('Invalid credentials'), { status: 403 }); },
     change: async (selector, checked) => {
       const control = container.cards[0].querySelector(selector);
       control.checked = checked;
@@ -109,6 +115,43 @@ test('wrong panel password shows a translated visible error', async () => {
   const notice = f.document.querySelector('#notice');
   assert.equal(notice.textContent, 'invalidPassword');
   assert.equal(notice.className, 'notice error');
+});
+
+test('code-only sign-in hides password but submits the authenticator code', async () => {
+  const f = await setup({ mode: 'totp' });
+  assert.equal(f.document.querySelector('#login-password-field').classList.contains('hidden'), true);
+  assert.equal(f.document.querySelector('#login-code-field').classList.contains('hidden'), false);
+  f.document.querySelector('#password').value = '';
+  f.document.querySelector('#login-code').value = '123456';
+  await f.document.querySelector('#login-form').handlers.submit({ preventDefault() {} });
+  assert.deepEqual(f.loginInputs, [{ password: '', code: '123456' }]);
+});
+
+test('password-and-code sign-in requires both fields in the panel', async () => {
+  const f = await setup({ mode: 'password_totp' });
+  assert.equal(f.document.querySelector('#password').required, true);
+  assert.equal(f.document.querySelector('#login-code').required, true);
+  assert.equal(f.document.querySelector('#login-password-field').classList.contains('hidden'), false);
+  assert.equal(f.document.querySelector('#login-code-field').classList.contains('hidden'), false);
+});
+
+test('password change confirms success in the panel notice after ending the session', async () => {
+  const f = await setup();
+  const form = f.document.querySelector('#password-form');
+  form.reset = () => {};
+  await form.handlers.submit({ preventDefault() {}, target: form });
+  assert.equal(f.document.querySelector('#notice').textContent, 'passwordChanged');
+  assert.equal(f.document.querySelector('#notice').className, 'notice success');
+  assert.equal(f.document.querySelector('#login-view').classList.contains('hidden'), false);
+  assert.equal(f.document.querySelector('#app-view').classList.contains('hidden'), true);
+});
+
+test('rejected password change shows an error and never confirms success', async () => {
+  const f = await setup();
+  f.failPasswordChange();
+  await f.document.querySelector('#password-form').handlers.submit({ preventDefault() {}, target: f.document.querySelector('#password-form') });
+  assert.equal(f.document.querySelector('#notice').className, 'notice error');
+  assert.notEqual(f.document.querySelector('#notice').textContent, 'passwordChanged');
 });
 
 test('card sections start closed and retain independent open states through family updates', async () => {

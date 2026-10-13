@@ -327,7 +327,7 @@
       await guarded(() => api.changePassword($('#current-password').value, $('#new-password').value, $('#password-code').value));
       event.target.reset();
       showLogin();
-      alert(t('passwordChanged'));
+      showNotice(t('passwordChanged'));
     } catch {}
   });
   $('#totp-start-form').addEventListener('submit', async (event) => {

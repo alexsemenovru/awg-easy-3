@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
+const vm = require('node:vm');
 
 const www = path.join(__dirname, '..', 'www');
 const root = path.join(__dirname, '..', '..');
@@ -59,6 +60,28 @@ test('ships a self-contained UI with every required control', () => {
   assert.match(html, /Guest/);
   assert.doesNotMatch(html, /РФ напрямую/);
   assert.match(html, /id="geo-status"/);
+});
+
+test('ships complete five-language translations for security and panel controls', () => {
+  const source = fs.readFileSync(path.join(www, 'js', 'i18n.js'), 'utf8');
+  const context = { window: {}, document: { documentElement: {}, querySelectorAll: () => [] } };
+  vm.runInNewContext(source.replace('return Object.freeze({ setLanguage, t, translate });',
+    'window.__messages = messages; return Object.freeze({ setLanguage, t, translate });'), context);
+  const messages = context.window.__messages;
+  const required = ['invalidPassword', 'invalidCredentials', 'tooManyAttempts',
+    'totpTitle', 'totpActivated', 'modePassword', 'modeBoth', 'modeCode',
+    'passwordChanged', 'geoApplied', 'accessApplied', 'connectionHint', 'panelUnavailable'];
+  const englishKeys = Object.keys(messages.en).sort();
+  for (const language of ['ru', 'fa', 'es', 'zh-cn']) {
+    assert.deepEqual(Object.keys(messages[language]).sort(), englishKeys,
+      `${language} must not silently fall back to English`);
+    for (const key of required) {
+      assert.ok(messages[language][key]?.trim(), `${language}: missing ${key}`);
+      const placeholders = value => [...value.matchAll(/\{(\w+)\}/g)].map(match => match[1]).sort();
+      assert.deepEqual(placeholders(messages[language][key]), placeholders(messages.en[key]),
+        `${language}: placeholders differ for ${key}`);
+    }
+  }
 });
 
 test('client cards do not stretch to a neighbouring expanded diagnostics card', () => {
