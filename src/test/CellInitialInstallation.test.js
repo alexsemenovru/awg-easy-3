@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const path = require('node:path');
-const { openCellInitialInstallation } = require('../lib/CellInitialInstallation');
+const { openCellInitialInstallation, prepareCellInitialInstallation } = require('../lib/CellInitialInstallation');
 const { createAwgBootstrapInvitation } = require('../lib/CellAwgBootstrapInvitation');
 const { generateOfficialProfile } = require('../lib/Awg3Config');
 
@@ -95,4 +95,26 @@ test('initial Cell refuses conflicts and invalid recovery without touching host 
   f.setConnection({ status: 'pending', invitation: JSON.parse(Buffer.from(code, 'base64url')) });
   await assert.rejects(f.host.resume(), /Permanent Cell plan exists/);
   assert.deepEqual(f.calls, ['lock']);
+});
+
+test('product entry point validates dependencies before preparing its private state root', async () => {
+  const prepared = [];
+  await assert.rejects(prepareCellInitialInstallation({ stateDirectory: 'relative' },
+    async directory => prepared.push(directory)), /dependencies required/);
+  assert.deepEqual(prepared, []);
+  // The preparation helper may be injected only for this model test; on Linux
+  // the default checks ownership and permissions before any lock is opened.
+  const stateDirectory = path.resolve('cell-state');
+  const source = {
+    stateDirectory, connectionStore: { read: async () => null, begin: async () => {} },
+    lifecycle: { load: async () => ({ phase: 'empty' }) },
+    permanentPlanStore: { read: async () => null },
+    provisioner: { initialize: async () => {}, recover: async () => {} },
+    resources: { interfaceNames: ['awgjoin0'], udpPorts: [51820], nftTables: ['awg_easy_3_bootstrap'] },
+    withLock: async ({ work }) => work(), preflight: async () => {},
+  };
+  const host = await prepareCellInitialInstallation(source, async directory => prepared.push(directory));
+  assert.equal(typeof host.begin, 'function');
+  assert.equal(typeof host.resume, 'function');
+  assert.deepEqual(prepared, [stateDirectory]);
 });

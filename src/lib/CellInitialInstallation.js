@@ -4,6 +4,7 @@ const path = require('node:path');
 const { decodeAwgBootstrapInvitation } = require('./CellAwgBootstrapInvitation');
 const { assertFreeCellHostResources } = require('./CellHostPreflight');
 const { withCellInstallationLock } = require('./CellInstallationLock');
+const { prepareCellInstallationStateDirectory } = require('./CellInstallationStateDirectory');
 
 // First Cell bootstrap only. The installer must create a private stateDirectory
 // and the Cell identity before calling this assembly. The permanent path and
@@ -66,4 +67,14 @@ function openCellInitialInstallation({ stateDirectory, connectionStore, lifecycl
   });
 }
 
-module.exports = { openCellInitialInstallation };
+// Product entry point: validate dependencies before creating any directory,
+// then create/verify the private state root before the lock is opened.
+async function prepareCellInitialInstallation(options = {},
+  prepareStateDirectory = prepareCellInstallationStateDirectory) {
+  const host = openCellInitialInstallation(options);
+  if (typeof prepareStateDirectory !== 'function') throw new TypeError('Cell directory preparation required');
+  await prepareStateDirectory(options.stateDirectory);
+  return host;
+}
+
+module.exports = { openCellInitialInstallation, prepareCellInitialInstallation };
