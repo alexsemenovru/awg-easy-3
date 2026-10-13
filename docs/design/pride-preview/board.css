@@ -1,0 +1,48 @@
+.concept { width: min(1040px, calc(100% - 40px)); margin: 0 auto; padding: 48px 0 36px; }
+.concept-heading { margin-bottom: 28px; }
+.eyebrow { color: #a6bbd1; font-size: 11px; font-weight: 650; letter-spacing: .15em; margin-bottom: 12px; }
+.concept-heading h1 { font-size: clamp(28px, 4vw, 42px); letter-spacing: -.035em; line-height: 1.1; }
+.lead { color: #a2b7cd; font-size: 15px; line-height: 1.65; margin-top: 16px; }
+.comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.mark-card { position: relative; margin: 0; padding: 20px 24px; border: 1px solid #2b435b; border-radius: 20px; background: #0d1b2ce6; }
+.mark-card figcaption { display: flex; justify-content: space-between; align-items: center; gap: 12px; color: #c5d7e9; font-size: 13px; font-weight: 600; }
+.format { color: #a6bdd5; font-size: 10px; font-weight: 500; letter-spacing: .1em; }
+.mark-stage { display: grid; place-items: center; height: 280px; }
+.mark-stage img { display: block; width: 280px; max-width: 100%; height: auto; }
+.mark-stage svg { display: block; width: 238px; max-width: 100%; height: 238px; }
+.mark-card p { color: #a2b7cd; text-align: center; font-size: 12px; }
+.proposed { background: radial-gradient(ellipse at 50% 45%, #27415c40, transparent 70%), #0d1b2c; border-color: #426382; }
+.concept-details { display: grid; grid-template-columns: 1fr 1fr; gap: 44px; padding: 30px 0; }
+.concept-details h2 { font-size: 14px; font-weight: 650; margin-bottom: 12px; }
+.detail-copy p { color: #a2b7cd; font-size: 13px; line-height: 1.75; max-width: 53ch; }
+.swatches { display: flex; gap: 5px; margin-top: 16px; }
+.swatches i { width: 26px; height: 7px; border-radius: 2px; background: #ef535b; }
+.swatches i:nth-child(2) { background: #f49a45; }
+.swatches i:nth-child(3) { background: #f3ce55; }
+.swatches i:nth-child(4) { background: #45b987; }
+.swatches i:nth-child(5) { background: #418ce5; }
+.swatches i:nth-child(6) { background: #9b71d6; }
+.icon-sizes { display: flex; justify-content: space-between; gap: 12px; align-items: flex-end; min-height: 108px; }
+.icon-sizes figure { margin: 0; display: flex; align-items: center; flex-direction: column; gap: 14px; }
+.icon-sizes figcaption { color: #a2b7cd; font-size: 10px; white-space: nowrap; }
+.size-44, .size-44 svg { width: 44px; height: 44px; }
+.size-64, .size-64 svg { width: 64px; height: 64px; }
+.concept-footer { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding-top: 22px; border-top: 1px solid #2b435b; }
+.concept-footer span { color: #a2b7cd; font-size: 11px; }
+.concept-footer .button { font-size: 12px; }
+@media (max-width: 620px) {
+  .concept { width: calc(100% - 28px); padding-top: 28px; }
+  .comparison { gap: 10px; }
+  .mark-card { padding: 14px 10px; border-radius: 14px; }
+  .mark-card figcaption { gap: 8px; flex-wrap: wrap; font-size: 12px; }
+  .mark-stage { height: 172px; }
+  .mark-stage img { width: 166px; }
+  .mark-stage svg { width: 142px; height: 142px; }
+  .mark-card p { font-size: 11px; line-height: 1.5; }
+  .concept-details { grid-template-columns: 1fr; gap: 24px; }
+  .concept-footer { align-items: stretch; flex-direction: column; }
+  .icon-sizes { justify-content: flex-start; gap: 30px; }
+}
+@media (max-width: 360px) {
+  .icon-sizes { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+}

@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>AWG-Easy 3 — Защита от чертей · мягкие панели</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: #07111f; }
+
+    /* Самостоятельный эскиз. При интеграции интерфейс размещается выше фона.
+       Не переносить overflow:hidden на body рабочей панели. */
+    .pride-background {
+      position: fixed;
+      inset: 0;
+      overflow: hidden;
+      pointer-events: none;
+      background: #07111f;
+      isolation: isolate;
+    }
+    .flag-container { position: absolute; inset: 0; display: flex; }
+    .panel {
+      position: relative;
+      flex: 1;
+      min-width: 0;
+      height: 100%;
+      overflow: hidden;
+      background: var(--color);
+      transform: scale(.93);
+      filter: blur(5px) brightness(.55) saturate(.8);
+      border-left: 1px solid rgb(255 255 255 / .18);
+      border-right: 1px solid rgb(0 0 0 / .25);
+      box-shadow: inset 5px 0 14px rgb(255 255 255 / .10),
+                  inset -5px 0 14px rgb(0 0 0 / .20),
+                  4px 0 16px rgb(0 0 0 / .28);
+      animation: pop 24s infinite ease-in-out;
+      animation-delay: var(--delay);
+    }
+    .panel::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: -1px;
+      width: 4px;
+      height: 100%;
+      background: linear-gradient(to bottom, transparent,
+        rgb(255 255 255 / .12) 20%, rgb(255 255 255 / .65) 50%,
+        rgb(255 255 255 / .12) 80%, transparent);
+      opacity: 0;
+      filter: blur(1px);
+      box-shadow: 0 0 7px 1px rgb(255 255 255 / .25);
+      animation: edgeGlare 24s infinite ease-in-out;
+      animation-delay: var(--delay);
+    }
+    .panel:nth-child(1) { --color: #e40303; --delay: 0s; }
+    .panel:nth-child(2) { --color: #ff8c00; --delay: 4s; }
+    .panel:nth-child(3) { --color: #ffed00; --delay: 8s; }
+    .panel:nth-child(4) { --color: #008026; --delay: 12s; }
+    .panel:nth-child(5) { --color: #24408e; --delay: 16s; }
+    .panel:nth-child(6) { --color: #732982; --delay: 20s; }
+
+    @keyframes pop {
+      0%, 24%, 100% {
+        transform: scale(.93);
+        filter: blur(5px) brightness(.55) saturate(.8);
+      }
+      8%, 16% {
+        transform: scale(1.015);
+        filter: blur(.5px) brightness(.82) saturate(.95);
+      }
+    }
+    /* Прежний проход блика при появлении и уходе полосы, но без белой вспышки. */
+    @keyframes edgeGlare {
+      0%, 1% { opacity: 0; transform: translateY(-120%); }
+      3% { opacity: .65; transform: translateY(-40%); }
+      6% { opacity: .65; transform: translateY(20%); }
+      8.5% { opacity: .12; transform: translateY(120%); }
+      9%, 15% { opacity: 0; transform: translateY(120%); }
+      16.5% { opacity: 0; transform: translateY(-120%); }
+      18% { opacity: .65; transform: translateY(-30%); }
+      21% { opacity: .65; transform: translateY(30%); }
+      23.5% { opacity: .10; transform: translateY(120%); }
+      24.5%, 100% { opacity: 0; transform: translateY(120%); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .panel, .panel::before { animation: none; }
+      .panel { transform: scale(.96); filter: brightness(.60) saturate(.85); }
+      .panel::before { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="pride-background" aria-hidden="true">
+    <div class="flag-container">
+      <div class="panel"></div><div class="panel"></div>
+      <div class="panel"></div><div class="panel"></div>
+      <div class="panel"></div><div class="panel"></div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,11 @@
+[Unit]
+Description=Sample AWG-Easy 3 health every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+AccuracySec=10s
+Persistent=true
+Unit=awg-easy-3-diagnostics.service
+
+[Install]
+WantedBy=timers.target

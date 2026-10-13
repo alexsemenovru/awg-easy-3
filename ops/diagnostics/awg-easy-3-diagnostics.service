@@ -1,0 +1,10 @@
+[Unit]
+Description=Sample AWG-Easy 3 health without client identifiers
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/libexec/awg-easy-3-sample.py
+TimeoutStartSec=40
+Nice=10
+IOSchedulingClass=idle

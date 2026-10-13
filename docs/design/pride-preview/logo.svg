@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none" role="img" aria-labelledby="mark-title">
+  <title id="mark-title">AWG-Easy 3: сервер и домашняя сеть с радужным акцентом</title>
+  <defs>
+    <linearGradient id="three" x1="62" y1="10" x2="114" y2="116" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#65c6ff"/>
+      <stop offset=".5" stop-color="#3498f5"/>
+      <stop offset="1" stop-color="#2373e5"/>
+    </linearGradient>
+    <linearGradient id="server-front" x1="67" y1="51" x2="85" y2="87" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#27496d"/>
+      <stop offset="1" stop-color="#132c49"/>
+    </linearGradient>
+    <clipPath id="home-shape">
+      <path d="M8 94 30 75 52 94H47V115H13V94Z"/>
+    </clipPath>
+  </defs>
+  <!-- The main numeral keeps the silhouette of the approved concept. -->
+  <path d="M58 30C58 21 65 16 77 16H88C105 16 116 26 116 41S105 64 89 64H84M89 64C106 64 118 73 118 89S106 114 88 114H78C70 114 65 112 63 106" stroke="url(#three)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Server, with deliberately fewer details for the 44 px header. -->
+  <path d="M46 45 67 33 88 45 67 57Z" fill="#31567e" stroke="#52769a" stroke-width="1.1" stroke-linejoin="round"/>
+  <path d="M46 45 67 57V94L46 82Z" fill="#173251" stroke="#365579" stroke-width="1.1" stroke-linejoin="round"/>
+  <path d="M67 57 88 45V82L67 94Z" fill="url(#server-front)" stroke="#436588" stroke-width="1.1" stroke-linejoin="round"/>
+  <path d="M74 61 82 56M74 71 82 66" stroke="#91b9d9" stroke-width="3.4" stroke-linecap="round"/>
+  <circle cx="79" cy="78" r="2.8" fill="#73dfc0"/>
+  <!-- One connection, one Home. No lettering inside the small mark. -->
+  <path d="M49 65H37C25 65 20 70 20 82V88" stroke="#72a9d0" stroke-width="7" stroke-linecap="round"/>
+  <g clip-path="url(#home-shape)">
+    <path fill="#ef535b" d="M7 75H53V83H7Z"/>
+    <path fill="#f49a45" d="M7 83H53V90H7Z"/>
+    <path fill="#f3ce55" d="M7 90H53V97H7Z"/>
+    <path fill="#45b987" d="M7 97H53V103H7Z"/>
+    <path fill="#418ce5" d="M7 103H53V109H7Z"/>
+    <path fill="#9b71d6" d="M7 109H53V116H7Z"/>
+  </g>
+  <path d="M8 94 30 75 52 94H47V115H13V94Z" stroke="#d9e9fa" stroke-opacity=".24" stroke-width="1.3" stroke-linejoin="round"/>
+  <path d="M22 96H29V103H22ZM33 96H40V103H33ZM22 107H29V114H22ZM33 107H40V114H33Z" fill="#102238"/>
+</svg>

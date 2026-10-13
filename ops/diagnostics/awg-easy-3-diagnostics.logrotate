@@ -1,0 +1,9 @@
+/var/log/awg-easy-3-diagnostics/samples.jsonl {
+    daily
+    rotate 3
+    maxsize 5M
+    missingok
+    notifempty
+    compress
+    create 0600 root root
+}
