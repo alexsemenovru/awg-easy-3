@@ -22,11 +22,20 @@ async function invitation() {
   return generated.code;
 }
 
-function fixture(code, { preflightError } = {}) {
+function fixture(code, { preflightError, identityError } = {}) {
   const calls = [];
   let connection = null;
   let phase = 'empty';
   let permanent = null;
+  let identityExists = false;
+  const identityStore = {
+    load: async role => { assert.equal(role, 'cell'); calls.push('load-identity');
+      if (identityError) throw identityError;
+      if (!identityExists) throw Object.assign(new Error('Identity missing'), { code: 'ENOENT' });
+      return { role: 'cell' }; },
+    create: async role => { assert.equal(role, 'cell'); calls.push('create-identity');
+      identityExists = true; return { role: 'cell' }; },
+  };
   const connectionStore = { read: async () => connection,
     begin: async value => { calls.push('begin');
       connection = { status: 'pending', invitation: JSON.parse(Buffer.from(value, 'base64url')) }; } };
@@ -40,22 +49,23 @@ function fixture(code, { preflightError } = {}) {
   const resources = { interfaceNames: ['awg-cell-bootstrap', 'awg-cell-control'],
     udpPorts: [51820], nftTables: ['awg_easy_3_bootstrap', 'awg_easy_3_control'] };
   const host = openCellInitialInstallation({ stateDirectory: path.resolve('cell-state'),
-    connectionStore, lifecycle, permanentPlanStore, provisioner, resources,
+    connectionStore, lifecycle, permanentPlanStore, provisioner, identityStore, resources,
     preflight: async value => { assert.strictEqual(value, resources); calls.push('preflight');
       if (preflightError) throw preflightError; },
     withLock: async ({ lockPath, work }) => { assert.equal(path.basename(lockPath), 'install.lock');
       calls.push('lock'); return work(); } });
   return { host, calls, setConnection: value => { connection = value; },
-    setPhase: value => { phase = value; }, setPermanent: value => { permanent = value; } };
+    setPhase: value => { phase = value; }, setPermanent: value => { permanent = value; },
+    setIdentity: value => { identityExists = value; } };
 }
 
 test('new Cell verifies resources under the installation lock before persisting or creating a device', async () => {
   const code = await invitation();
   const f = fixture(code);
   assert.deepEqual(await f.host.begin(code), { ready: true });
-  assert.deepEqual(f.calls, ['lock', 'preflight', 'begin', 'initialize']);
+  assert.deepEqual(f.calls, ['lock', 'preflight', 'load-identity', 'create-identity', 'begin', 'initialize']);
   await assert.rejects(f.host.begin(code), /Existing Cell state/);
-  assert.deepEqual(f.calls.slice(4), ['lock']);
+  assert.deepEqual(f.calls.slice(6), ['lock']);
 });
 
 test('interrupted connection reservation resumes with preflight; owned device recovery skips it', async () => {
@@ -77,6 +87,17 @@ test('preflight failure never reserves an invitation or creates a bootstrap devi
   await assert.rejects(f.host.begin(code), /UDP port occupied/);
   assert.deepEqual(f.calls, ['lock', 'preflight']);
   await assert.rejects(f.host.resume(), /Pending Cell bootstrap/);
+});
+
+test('first installation reuses an existing Cell identity and never replaces a corrupt one', async () => {
+  const code = await invitation();
+  const f = fixture(code);
+  f.setIdentity(true);
+  await f.host.begin(code);
+  assert.deepEqual(f.calls, ['lock', 'preflight', 'load-identity', 'begin', 'initialize']);
+  const corrupt = fixture(code, { identityError: new Error('Invalid control identity') });
+  await assert.rejects(corrupt.host.begin(code), /Invalid control identity/);
+  assert.deepEqual(corrupt.calls, ['lock', 'preflight', 'load-identity']);
 });
 
 test('initial Cell refuses conflicts and invalid recovery without touching host resources', async () => {
@@ -110,6 +131,7 @@ test('product entry point validates dependencies before preparing its private st
     lifecycle: { load: async () => ({ phase: 'empty' }) },
     permanentPlanStore: { read: async () => null },
     provisioner: { initialize: async () => {}, recover: async () => {} },
+    identityStore: { load: async () => ({}), create: async () => ({}) },
     resources: { interfaceNames: ['awgjoin0'], udpPorts: [51820], nftTables: ['awg_easy_3_bootstrap'] },
     withLock: async ({ work }) => work(), preflight: async () => {},
   };

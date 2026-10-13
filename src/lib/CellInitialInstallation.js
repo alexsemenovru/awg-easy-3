@@ -7,10 +7,10 @@ const { withCellInstallationLock } = require('./CellInstallationLock');
 const { prepareCellInstallationStateDirectory } = require('./CellInstallationStateDirectory');
 
 // First Cell bootstrap only. The product uses prepareCellInitialInstallation
-// to create/verify stateDirectory and must create the Cell identity before
-// begin(). The permanent path and settings sync are separate journaled phases.
+// to create/verify stateDirectory. The Cell identity is created under the
+// same lock as the invitation. Permanent path and settings sync are separate.
 function openCellInitialInstallation({ stateDirectory, connectionStore, lifecycle,
-  permanentPlanStore, provisioner, resources,
+  permanentPlanStore, provisioner, identityStore, resources,
   preflight = assertFreeCellHostResources,
   withLock = withCellInstallationLock } = {}) {
   if (typeof stateDirectory !== 'string' || !path.isAbsolute(stateDirectory)
@@ -18,6 +18,7 @@ function openCellInitialInstallation({ stateDirectory, connectionStore, lifecycl
     || !lifecycle || typeof lifecycle.load !== 'function'
     || !permanentPlanStore || typeof permanentPlanStore.read !== 'function'
     || !provisioner || !['initialize', 'recover'].every(name => typeof provisioner[name] === 'function')
+    || !identityStore || !['load', 'create'].every(name => typeof identityStore[name] === 'function')
     || !resources || typeof resources !== 'object'
     || typeof preflight !== 'function' || typeof withLock !== 'function') {
     throw new TypeError('Initial Cell installation dependencies required');
@@ -36,6 +37,11 @@ function openCellInitialInstallation({ stateDirectory, connectionStore, lifecycl
         throw new Error('Existing Cell state requires recovery, not a new invitation');
       }
       await preflight(resources);
+      try { await identityStore.load('cell'); }
+      catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+        await identityStore.create('cell');
+      }
       // A failed provisioner leaves a pending invitation and its independent
       // fail-closed bootstrap guard for resume(), never a replacement identity.
       await connectionStore.begin(code);
