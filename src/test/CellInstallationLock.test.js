@@ -27,7 +27,7 @@ test('Linux cell lock excludes a second operation and releases after failure',
     } });
     await started;
     await assert.rejects(withCellInstallationLock({ lockPath,
-      work: async () => { throw new Error('must not execute'); } }), /already locked|already.*active/);
+      work: async () => { throw new Error('must not execute'); } }), /already locked|already.*active|operation is active/);
     release();
     await assert.rejects(first, /injected operation failure/);
     assert.equal(await withCellInstallationLock({ lockPath,

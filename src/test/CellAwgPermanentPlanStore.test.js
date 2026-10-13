@@ -46,6 +46,7 @@ test('plan rejects foreign policy, route interface and corrupt existing file', a
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   const file = path.join(dir, 'permanent.json');
   await fs.writeFile(file, '{corrupt');
+  if (process.platform !== 'win32') await fs.chmod(file, 0o600);
   const store = new CellAwgPermanentPlanStore(file);
   await assert.rejects(store.read(), /Unreadable/);
   await assert.rejects(store.reserve(original), { code: 'EEXIST' });
