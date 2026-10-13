@@ -68,3 +68,20 @@ test('Linux identity permissions exclude other users', { skip: process.platform 
   await fs.chmod(file, 0o644);
   await assert.rejects(store.load('cell'), /permissions/);
 });
+
+test('identity load refuses hard links instead of reading a shared private key', async t => {
+  const { store, file, directory } = await fixture(t);
+  await store.create('cell');
+  const link = path.join(directory, 'identity-copy.json');
+  await fs.link(file, link);
+  await assert.rejects(store.load('cell'), /Invalid control identity/);
+});
+
+test('identity creation refuses a non-private existing directory without changing it',
+  { skip: process.platform === 'win32' }, async t => {
+    const { store, directory } = await fixture(t);
+    await fs.chmod(directory, 0o755);
+    await assert.rejects(store.create('cell'), /Private control identity directory/);
+    assert.equal((await fs.lstat(directory)).mode & 0o777, 0o755);
+    assert.deepEqual(await fs.readdir(directory), []);
+  });

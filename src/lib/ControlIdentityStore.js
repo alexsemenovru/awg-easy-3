@@ -29,8 +29,8 @@ class ControlIdentityStore {
 
   async load(expectedRole) {
     const stat = await this.io.lstat(this.filePath);
-    if (!stat.isFile() || stat.size > 8192) invalid();
-    if (process.platform !== 'win32' && (stat.mode & 0o077)) {
+    if (!stat.isFile() || stat.nlink !== 1 || stat.size > 8192) invalid();
+    if (process.platform !== 'win32' && (stat.uid !== process.getuid() || (stat.mode & 0o077))) {
       throw new Error('Control identity permissions must exclude group and other users');
     }
     let parsed;
@@ -46,6 +46,11 @@ class ControlIdentityStore {
     const value = validate({ version: 1, role, ...identity() });
     const directory = path.dirname(this.filePath);
     await this.io.mkdir(directory, { recursive: true, mode: 0o700 });
+    const parent = await this.io.lstat(directory);
+    if (!parent.isDirectory() || (process.platform !== 'win32'
+      && (parent.uid !== process.getuid() || (parent.mode & 0o077)))) {
+      throw new Error('Private control identity directory required');
+    }
     const temporary = path.join(directory, `.control-identity-${crypto.randomUUID()}.tmp`);
     let handle;
     try {

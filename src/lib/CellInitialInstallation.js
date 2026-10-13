@@ -6,9 +6,9 @@ const { assertFreeCellHostResources } = require('./CellHostPreflight');
 const { withCellInstallationLock } = require('./CellInstallationLock');
 const { prepareCellInstallationStateDirectory } = require('./CellInstallationStateDirectory');
 
-// First Cell bootstrap only. The installer must create a private stateDirectory
-// and the Cell identity before calling this assembly. The permanent path and
-// later settings sync are separate, journaled phases.
+// First Cell bootstrap only. The product uses prepareCellInitialInstallation
+// to create/verify stateDirectory and must create the Cell identity before
+// begin(). The permanent path and settings sync are separate journaled phases.
 function openCellInitialInstallation({ stateDirectory, connectionStore, lifecycle,
   permanentPlanStore, provisioner, resources,
   preflight = assertFreeCellHostResources,
