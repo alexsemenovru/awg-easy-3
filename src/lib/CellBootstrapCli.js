@@ -2,6 +2,7 @@
 
 const path = require('node:path');
 const { openCellBootstrapInstallationHost } = require('./CellBootstrapInstallationHost');
+const { decodeAwgBootstrapInvitation } = require('./CellAwgBootstrapInvitation');
 
 const INTERFACE = /^[a-zA-Z0-9_.-]{1,15}$/;
 const PORT = /^\d{1,5}$/;
@@ -51,8 +52,10 @@ async function runCellBootstrapCli({ args, env, input, output,
     || !['begin', 'resume', 'register', 'join'].includes(args[0])) {
     throw new Error('Usage: cell-cli.js begin|resume|register|join');
   }
+  if (!output || typeof output.write !== 'function') throw new TypeError('Cell status output required');
   const config = configFromEnvironment(env);
   const code = args[0] === 'begin' ? await readInvitation(input) : null;
+  if (code) decodeAwgBootstrapInvitation(code);
   const host = await openHost(config);
   const result = args[0] === 'begin' ? await host.initial.begin(code)
     : args[0] === 'resume' ? await host.initial.resume()

@@ -5,10 +5,23 @@ const path = require('node:path');
 const { Readable } = require('node:stream');
 const test = require('node:test');
 const { configFromEnvironment, runCellBootstrapCli } = require('../lib/CellBootstrapCli');
+const { createAwgBootstrapInvitation } = require('../lib/CellAwgBootstrapInvitation');
+const { generateOfficialProfile } = require('../lib/Awg3Config');
 
 const environment = () => ({ AWG_CELL_STATE_DIR: path.resolve('cell-state'),
   AWG_CELL_BOOTSTRAP_INTERFACE: 'awgjoin0', AWG_CELL_CONTROL_INTERFACE: 'awgctl0',
   AWG_CELL_USER_INTERFACE: 'awg0', AWG_CELL_USER_PORT: '51820' });
+const key = byte => Buffer.alloc(32, byte).toString('base64');
+const token = byte => Buffer.alloc(32, byte).toString('base64url');
+async function invitation() {
+  return (await createAwgBootstrapInvitation({ controllerKey: token(2),
+    endpointHost: '203.0.113.2', endpointPort: 51820,
+    registrationPort: 51822, controllerAddress: '10.88.0.1',
+    cellAddress: '10.88.0.2', serverPublicKey: key(3),
+    profile: generateOfficialProfile(), now: Date.now(),
+    keyManager: { generatePeerKeys: async () => ({ privateKey: key(4),
+      publicKey: key(5), presharedKey: key(6) }) } })).code;
+}
 
 test('Cell CLI reserves all intended interfaces, port and nft tables', () => {
   const config = configFromEnvironment(environment());
@@ -23,13 +36,29 @@ test('Cell CLI reserves all intended interfaces, port and nft tables', () => {
 test('Cell CLI reads invitation only from stdin and prints no secret', async () => {
   let suppliedCode;
   let printed = '';
+  const code = await invitation();
   await runCellBootstrapCli({ args: ['begin'], env: environment(),
-    input: Readable.from(['sensitive-one-time-code\n']), output: { write: value => { printed += value; } },
+    input: Readable.from([`${code}\n`]), output: { write: value => { printed += value; } },
     openHost: async () => ({ initial: { begin: async code => { suppliedCode = code; return { ready: true }; } } }),
   });
-  assert.equal(suppliedCode, 'sensitive-one-time-code');
+  assert.equal(suppliedCode, code);
   assert.equal(printed, '{"status":"bootstrap-ready"}\n');
   assert.ok(!printed.includes(suppliedCode));
+});
+
+test('Cell CLI rejects malformed invitation before creating host state', async () => {
+  let opened = false;
+  await assert.rejects(runCellBootstrapCli({ args: ['begin'], env: environment(),
+    input: Readable.from(['not-an-invitation']), output: { write() {} },
+    openHost: async () => { opened = true; } }), /Invalid or unavailable AWG cell invitation/);
+  assert.equal(opened, false);
+});
+
+test('Cell CLI requires a status sink before any host operation', async () => {
+  let opened = false;
+  await assert.rejects(runCellBootstrapCli({ args: ['resume'], env: environment(),
+    output: null, openHost: async () => { opened = true; } }), /status output/);
+  assert.equal(opened, false);
 });
 
 test('Cell CLI supports bounded recovery, registration and join without stdin', async () => {
