@@ -54,3 +54,14 @@ test('permanent Cell join refuses invalid DNS and unregistered state before muta
   await assert.rejects(pending.join(), /Signed permanent Cell registration/);
   assert.equal(joined, false);
 });
+
+test('permanent Cell recovery keeps the previously reserved address without DNS', async () => {
+  let passed;
+  const host = openCellPermanentJoinHost({ ...options(),
+    makeDeployment: () => ({ store: { read: async () => ({ version: 1 }) },
+      buildPath() {} }),
+    resolve: async () => { throw new Error('DNS must not run on recovery'); },
+    join: async value => { passed = value; return { status: 'ready' }; } });
+  assert.deepEqual(await host.join(), { status: 'ready' });
+  assert.equal(passed.resolvedEndpointHost, undefined);
+});

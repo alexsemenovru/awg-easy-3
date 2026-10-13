@@ -18,7 +18,8 @@ function openCellPermanentJoinHost({ stateDirectory, interfaceName,
   temporaryInterfaceName, connectionStore, bootstrap,
   runner = runProcess, withLock = withCellInstallationLock,
   resolve = host => dns.lookup(host, { all: true }),
-  join = joinPermanentCell } = {}) {
+  join = joinPermanentCell,
+  makeDeployment = options => new CellAwgPermanentDeployment(options) } = {}) {
   if (typeof stateDirectory !== 'string' || !path.isAbsolute(stateDirectory)
     || ![interfaceName, temporaryInterfaceName].every(name =>
       typeof name === 'string' && /^[a-zA-Z0-9_.-]{1,15}$/.test(name))
@@ -27,10 +28,11 @@ function openCellPermanentJoinHost({ stateDirectory, interfaceName,
     || !bootstrap || !['lifecycle', 'awg', 'firewall', 'routes', 'guard']
       .every(name => bootstrap[name])
     || typeof runner !== 'function' || typeof withLock !== 'function'
-    || typeof resolve !== 'function' || typeof join !== 'function') {
+    || typeof resolve !== 'function' || typeof join !== 'function'
+    || typeof makeDeployment !== 'function') {
     throw new TypeError('Permanent Cell join dependencies required');
   }
-  const deployment = new CellAwgPermanentDeployment({
+  const deployment = makeDeployment({
     stateDirectory: path.join(stateDirectory, 'permanent'), runner });
   const gate = new CellAwgPermanentRetirementGate({ deployment });
   const retirement = new CellAwgBootstrapCellRetirement({
