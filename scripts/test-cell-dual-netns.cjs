@@ -131,6 +131,7 @@ async function main() {
     });
     assert.throws(() => role('awgcell', cellDir, 'sync', permanentField));
     assert.equal(role('awgmain', mainDir, 'product-controller-status', permanentField).permanentReady, true);
+    assert.equal(runCellCli('join').status, 'waiting-for-permanent-path');
     stage = 'control-recovery';
     const recovered = listen(permanentField, 'control-listen', 'controlListening');
     try {
@@ -139,8 +140,12 @@ async function main() {
       assert.equal(role('awgcell', cellDir, 'sync', permanentField).status, 'applied');
       const synced = role('awgmain', mainDir, 'status', permanentField);
       assert.equal(synced.applied, synced.desired);
+      stage = 'cell-join-idempotency';
+      assert.equal(runCellCli('join').status, 'ready');
+      stage = 'controller-join-idempotency';
+      assert.equal(role('awgmain', mainDir, 'product-controller-join', permanentField).status, 'ready');
     } finally { recovered.child.kill('SIGTERM'); }
-    console.log('PASS isolated Main/Cell AWG registration, product join, sync, outage and recovery');
+    console.log('PASS isolated Main/Cell AWG registration, product join, sync, outage, recovery and join retry');
   } finally { listener.child.kill('SIGTERM'); }
 }
 main().catch(error => {
