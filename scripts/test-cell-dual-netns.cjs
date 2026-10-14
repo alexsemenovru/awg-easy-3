@@ -171,11 +171,12 @@ async function main() {
     const recovered = listen(permanentField, 'control-listen', 'controlListening');
     try {
       await recovered.ready;
-      fs.writeFileSync(path.join(mainDir, 'desired-payload.json'), JSON.stringify({ schema: 1,
+      const assigned = JSON.stringify({ schema: 1,
         clients: [{ id: 'synthetic-device', publicKey: deviceKeys.publicKey,
           address4: '10.88.8.2', networkGroup: 'guest', ipv4Enabled: true,
-          ipv6Enabled: false, geoPolicy: { mode: 'off', countries: [] } }] }),
-      { flag: 'wx', mode: 0o600 });
+          ipv6Enabled: false, geoPolicy: { mode: 'off', countries: [] } }] });
+      fs.writeFileSync(path.join(mainDir, 'desired-payload.json'), assigned,
+        { flag: 'wx', mode: 0o600 });
       assert.equal(role('awgmain', mainDir, 'publish', permanentField).revision, 2);
       assert.equal(role('awgcell', cellDir, 'product-sync', permanentField).status, 'applied');
       const synced = role('awgmain', mainDir, 'status', permanentField);
@@ -188,6 +189,26 @@ async function main() {
       { flag: 'wx', mode: 0o600 });
       ip(['netns', 'exec', 'awgdevice', 'awg-quick', 'up', path.join(deviceDir, 'awgdevice8.conf')]);
       ip(['netns', 'exec', 'awgdevice', 'ping', '-c', '3', '-W', '2', '198.51.100.1']);
+      stage = 'synthetic-user-revocation';
+      fs.unlinkSync(path.join(mainDir, 'desired-payload.json'));
+      assert.equal(role('awgmain', mainDir, 'publish', permanentField).revision, 3);
+      assert.equal(role('awgcell', cellDir, 'product-sync', permanentField).status, 'applied');
+      assert.equal(ip(['netns', 'exec', 'awgcell', 'awg', 'show', 'awgcellu8', 'peers']), '');
+      assert.throws(() => ip(['netns', 'exec', 'awgdevice', 'ping', '-c', '1', '-W', '2', '198.51.100.1']));
+      stage = 'synthetic-user-restoration';
+      fs.writeFileSync(path.join(mainDir, 'desired-payload.json'), assigned,
+        { flag: 'wx', mode: 0o600 });
+      assert.equal(role('awgmain', mainDir, 'publish', permanentField).revision, 4);
+      assert.equal(role('awgcell', cellDir, 'product-sync', permanentField).status, 'applied');
+      assert.equal(ip(['netns', 'exec', 'awgcell', 'awg', 'show', 'awgcellu8', 'peers']),
+        deviceKeys.publicKey);
+      let restored = false;
+      for (let attempt = 0; attempt < 8; attempt++) {
+        try { ip(['netns', 'exec', 'awgdevice', 'ping', '-c', '1', '-W', '2', '198.51.100.1']);
+          restored = true; break; }
+        catch { await new Promise(resolve => setTimeout(resolve, 1000)); }
+      }
+      assert.equal(restored, true);
       stage = 'cell-join-idempotency';
       assert.equal(runCellCli('join').status, 'ready');
       stage = 'controller-join-idempotency';
@@ -197,7 +218,7 @@ async function main() {
     ip(['-n', 'awgcell', 'link', 'show', 'awgforeign2']);
     const foreignTable = JSON.parse(ip(['netns', 'exec', 'awgcell', 'nft', '-j', 'list', 'tables']));
     assert.ok(foreignTable.nftables.some(item => item.table?.name === 'foreign_keep'));
-    console.log('PASS isolated Main/Cell lifecycle, control recovery, foreign-resource isolation and synthetic user traffic');
+    console.log('PASS isolated Main/Cell lifecycle, control recovery, foreign resources and user traffic revocation');
   } finally { listener.child.kill('SIGTERM'); }
 }
 main().catch(error => {
