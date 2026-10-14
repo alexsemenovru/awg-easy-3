@@ -7,6 +7,7 @@ const path = require('node:path');
 const { execFileSync, spawn } = require('node:child_process');
 const { AwgKeyManager } = require('../src/lib/AwgKeyManager');
 const { generateOfficialProfile, renderInterfaceFields } = require('../src/lib/Awg3Config');
+const { decodeAwgBootstrapInvitation } = require('../src/lib/CellAwgBootstrapInvitation');
 
 assert.equal(process.env.AWG_CELL_ISOLATED_TEST, '1');
 assert.notEqual(fs.readlinkSync('/proc/self/ns/net'), fs.readlinkSync('/proc/1/ns/net'));
@@ -15,6 +16,7 @@ assert.equal(netnsMount.type, 0x01021994); // tmpfs; no persistent host netns en
 const field = path.join(__dirname, 'cell-awg-direct-field.cjs');
 const permanentField = path.join(__dirname, 'cell-awg-permanent-field.cjs');
 const cellCli = path.join(__dirname, '..', 'src', 'cell-cli.js');
+const mainCli = path.join(__dirname, '..', 'src', 'main-cell-cli.js');
 const root = '/tmp/awg-cell-dual-netns';
 const mainDir = path.join(root, 'main');
 const cellDir = path.join(root, 'cell');
@@ -28,6 +30,12 @@ const env = directory => ({ ...process.env, CELL_FIELD_STATE: directory,
   CELL_FIELD_ROLE: directory === mainDir ? 'controller' : 'cell',
   CELL_FIELD_INTERFACE: directory === mainDir ? 'awgmain8' : 'awgcell8',
   CELL_FIELD_PERMANENT_INTERFACE: directory === mainDir ? 'awgmainp8' : 'awgcellp8',
+  ...(directory === mainDir ? { CELL_FIELD_PRODUCT_MAIN: '1',
+    AWG_MAIN_CELL_STATE_DIR: mainDir, AWG_MAIN_BOOTSTRAP_INTERFACE: 'awgmain8',
+    AWG_MAIN_CONTROL_INTERFACE: 'awgmainp8', AWG_MAIN_BOOTSTRAP_PORT: '53081',
+    AWG_MAIN_CONTROL_PORT: '53084', AWG_MAIN_REGISTRATION_PORT: '53082',
+    AWG_MAIN_CONTROL_TCP_PORT: '53083', AWG_MAIN_BOOTSTRAP_ADDRESS: '10.90.8.1',
+    AWG_MAIN_CONTROL_ADDRESS: '10.91.8.1', AWG_MAIN_ENDPOINT: endpoint } : {}),
   ...(directory === cellDir ? { CELL_FIELD_PRODUCT_CELL: '1',
     AWG_CELL_STATE_DIR: cellDir, AWG_CELL_BOOTSTRAP_INTERFACE: 'awgcell8',
     AWG_CELL_CONTROL_INTERFACE: 'awgcellp8', AWG_CELL_USER_INTERFACE: 'awgcellu8',
@@ -42,9 +50,13 @@ const runCellCli = (action, input = '') => JSON.parse(execFileSync('ip',
   ['netns', 'exec', 'awgcell', process.execPath, cellCli, action],
   { env: env(cellDir), input, encoding: 'utf8', timeout: 30000,
     stdio: ['pipe', 'pipe', 'pipe'] }));
+const runMainCli = (...args) => execFileSync('ip',
+  ['netns', 'exec', 'awgmain', process.execPath, mainCli, ...args],
+  { env: env(mainDir), encoding: 'utf8', timeout: 30000,
+    stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 let stage = 'namespaces';
 
-function listen(script = field, action = 'controller-listen', expected = 'listening') {
+function listen(script = mainCli, action = 'listen', expected = 'listening') {
   const child = spawn('ip', ['netns', 'exec', 'awgmain', process.execPath,
     script, action], { env: env(mainDir), stdio: ['ignore', 'pipe', 'pipe'] });
   const ready = new Promise((resolve, reject) => {
@@ -99,11 +111,18 @@ async function main() {
     profile: userProfile,
   }), { flag: 'wx', mode: 0o600 });
   stage = 'controller-init';
-  assert.equal(role('awgmain', mainDir, 'controller-init').ready, true);
+  assert.equal(JSON.parse(runMainCli('init')).status, 'bootstrap-ready');
   stage = 'controller-issue';
-  assert.equal(role('awgmain', mainDir, 'controller-issue').issued, true);
+  const invitation = runMainCli('issue', '10.90.8.2', '10.91.8.2');
+  const invitationId = decodeAwgBootstrapInvitation(invitation).id;
+  fs.writeFileSync(path.join(mainDir, 'invitation'), invitation, { flag: 'wx', mode: 0o600 });
   fs.copyFileSync(path.join(mainDir, 'invitation'), path.join(cellDir, 'invitation'));
   fs.chmodSync(path.join(cellDir, 'invitation'), 0o600);
+  stage = 'main-reboot-recovery';
+  ip(['-n', 'awgmain', 'link', 'delete', 'awgmain8']);
+  ip(['netns', 'exec', 'awgmain', 'nft', 'delete', 'table', 'inet', 'awg_easy_3_bootstrap']);
+  assert.equal(JSON.parse(runMainCli('resume')).status, 'bootstrap-ready');
+  assert.equal(role('awgmain', mainDir, 'controller-status').verified, true);
   stage = 'cell-foreign-interface-collision';
   ip(['-n', 'awgcell', 'link', 'add', 'awgcell8', 'type', 'dummy']);
   assert.throws(() => runCellCli('begin', fs.readFileSync(path.join(cellDir, 'invitation'), 'utf8')));
@@ -124,7 +143,7 @@ async function main() {
     assert.equal(controller.verified, true);
     assert.equal(controller.invitations[0].status, 'consumed');
     stage = 'product-controller-join-initial';
-    assert.equal(role('awgmain', mainDir, 'product-controller-join', permanentField).status,
+    assert.equal(JSON.parse(runMainCli('join', invitationId)).status,
       'waiting-for-permanent-path');
     const control = listen(permanentField, 'control-listen', 'controlListening');
     try {
@@ -139,7 +158,7 @@ async function main() {
       }
       assert.equal(ready, true);
       stage = 'temporary-retirement';
-      assert.equal(role('awgmain', mainDir, 'product-controller-join', permanentField).status, 'ready');
+      assert.equal(JSON.parse(runMainCli('join', invitationId)).status, 'ready');
       const peer = role('awgcell', cellDir, 'product-status', permanentField);
       assert.equal(peer.permanentReady, true);
       assert.equal(peer.temporaryRetired, true);

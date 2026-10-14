@@ -62,6 +62,7 @@ function parts(prefix = 'perm-', name = permName, guardTable = 'awg_easy_3_routi
 }
 function bootstrapParts() {
   const bootstrapFile = name => file(process.env.CELL_FIELD_PRODUCT_CELL === '1'
+    || process.env.CELL_FIELD_PRODUCT_MAIN === '1'
     ? path.join('bootstrap', name) : name);
   const guard = new CellRoutingGuard({ journalPath: bootstrapFile('guard.json'),
     table: 'awg_easy_3_bootstrap_guard' });

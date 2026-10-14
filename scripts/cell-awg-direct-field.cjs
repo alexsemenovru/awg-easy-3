@@ -36,18 +36,20 @@ const registrationPort = 53082;
 const keyManager = new AwgKeyManager();
 
 function components() {
-  const guard = new CellRoutingGuard({ journalPath: file('guard.json'),
+  const bootstrapFile = name => file(process.env.CELL_FIELD_PRODUCT_MAIN === '1'
+    ? path.join('bootstrap', name) : name);
+  const guard = new CellRoutingGuard({ journalPath: bootstrapFile('guard.json'),
     table: 'awg_easy_3_bootstrap_guard' });
   // Route/nft child transactions pass snapshots, while AWG passes names.
   // This single-interface lab still requires the same durable guard for all.
   const activateGuard = () => guard.protect([interfaceName]);
   return {
     guard,
-    lifecycle: new CellAwgLifecycle({ journalPath: file('lifecycle.json'), activateGuard }),
-    awg: new CellAwgTransaction({ journalPath: file('awg.json'), activateGuard }),
-    firewall: new CellNftTransaction({ journalPath: file('firewall.json'),
+    lifecycle: new CellAwgLifecycle({ journalPath: bootstrapFile('lifecycle.json'), activateGuard }),
+    awg: new CellAwgTransaction({ journalPath: bootstrapFile('awg.json'), activateGuard }),
+    firewall: new CellNftTransaction({ journalPath: bootstrapFile('firewall.json'),
       activateGuard, table: 'awg_easy_3_bootstrap' }),
-    routes: new CellRouteTransaction({ journalPath: file('routes.json'), activateGuard }),
+    routes: new CellRouteTransaction({ journalPath: bootstrapFile('routes.json'), activateGuard }),
   };
 }
 
