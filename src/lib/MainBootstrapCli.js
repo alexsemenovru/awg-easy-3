@@ -38,13 +38,32 @@ function configFromEnvironment(env) {
   };
 }
 
-async function runMainBootstrapCli({ args, env, output,
+async function readSettings(input) {
+  if (!input || typeof input[Symbol.asyncIterator] !== 'function') {
+    throw new TypeError('Settings JSON required on stdin');
+  }
+  const chunks = [];
+  let length = 0;
+  for await (const chunk of input) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    length += bytes.length;
+    if (length > 2 * 1024 * 1024) throw new Error('Cell settings exceed size limit');
+    chunks.push(bytes);
+  }
+  try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); }
+  catch { throw new Error('Invalid Cell settings JSON'); }
+}
+
+async function runMainBootstrapCli({ args, env, input, output,
   openHost = openMainBootstrapInstallationHost } = {}) {
   if (!Array.isArray(args) || !output || typeof output.write !== 'function'
-    || !['init', 'resume', 'issue', 'join', 'listen'].includes(args[0])
-    || args.length !== (args[0] === 'issue' ? 3 : args[0] === 'join' ? 2 : 1)) {
-    throw new Error('Usage: main-cell-cli.js init|resume|issue TEMP_CELL_IP PERMANENT_CELL_IP|join INVITATION_ID|listen');
+    || !['init', 'resume', 'issue', 'join', 'listen', 'control-listen',
+      'publish', 'settings-status'].includes(args[0])
+    || args.length !== (args[0] === 'issue' ? 3
+      : ['join', 'publish', 'settings-status'].includes(args[0]) ? 2 : 1)) {
+    throw new Error('Usage: main-cell-cli.js init|resume|issue TEMP_IP PERMANENT_IP|join ID|listen|control-listen|publish ID|settings-status ID');
   }
+  const settings = args[0] === 'publish' ? await readSettings(input) : null;
   const host = await openHost(configFromEnvironment(env));
   if (args[0] === 'init' || args[0] === 'resume') {
     const result = await host[args[0] === 'init' ? 'initialize' : 'resume']();
@@ -59,6 +78,15 @@ async function runMainBootstrapCli({ args, env, output,
       throw new Error('Permanent Main join did not reach a known state');
     }
     output.write(`${JSON.stringify({ status: result.status })}\n`);
+  } else if (args[0] === 'publish') {
+    const result = await host.publish(args[1], settings);
+    output.write(`${JSON.stringify({ revision: result.revision })}\n`);
+  } else if (args[0] === 'settings-status') {
+    output.write(`${JSON.stringify(await host.settingsStatus(args[1]))}\n`);
+  } else if (args[0] === 'control-listen') {
+    const listener = await host.listenControl();
+    output.write('{"controlListening":true,"transport":"AWG"}\n');
+    return listener;
   } else {
     const listener = await host.listen();
     output.write('{"listening":true,"transport":"AWG"}\n');

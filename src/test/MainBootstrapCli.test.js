@@ -2,6 +2,7 @@
 
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const { Readable } = require('node:stream');
 const test = require('node:test');
 const { configFromEnvironment, runMainBootstrapCli } = require('../lib/MainBootstrapCli');
 
@@ -53,4 +54,33 @@ test('Main CLI gives invitation only on explicit issue operation', async () => {
     openHost: async () => ({ issue: async value => { received = value; return 'one-time-code'; } }) });
   assert.deepEqual(received, { cellAddress: '10.90.8.2', permanentCellAddress: '10.91.8.2' });
   assert.equal(printed, 'one-time-code\n');
+});
+
+test('Main CLI publishes bounded JSON settings and exposes revision status only', async () => {
+  const published = [];
+  let printed = '';
+  const openHost = async () => ({
+    publish: async (id, value) => { published.push({ id, value }); return { revision: 3 }; },
+    settingsStatus: async () => ({ desiredRevision: 3, confirmedRevision: 2,
+      awaitingAck: true }),
+    listenControl: async () => ({ close() {} }),
+  });
+  const output = { write: value => { printed += value; } };
+  await runMainBootstrapCli({ args: ['publish', 'a'.repeat(32)], env: environment(),
+    input: Readable.from(['{"schema":1,"clients":[]}']), output, openHost });
+  await runMainBootstrapCli({ args: ['settings-status', 'a'.repeat(32)],
+    env: environment(), output, openHost });
+  await runMainBootstrapCli({ args: ['control-listen'], env: environment(), output, openHost });
+  assert.deepEqual(published, [{ id: 'a'.repeat(32), value: { schema: 1, clients: [] } }]);
+  assert.equal(printed, '{"revision":3}\n'
+    + '{"desiredRevision":3,"confirmedRevision":2,"awaitingAck":true}\n'
+    + '{"controlListening":true,"transport":"AWG"}\n');
+});
+
+test('Main CLI rejects oversized settings before opening host state', async () => {
+  let opened = false;
+  await assert.rejects(runMainBootstrapCli({ args: ['publish', 'a'.repeat(32)],
+    env: environment(), input: Readable.from(['x'.repeat(2 * 1024 * 1024 + 1)]),
+    output: { write() {} }, openHost: async () => { opened = true; } }), /size limit/);
+  assert.equal(opened, false);
 });

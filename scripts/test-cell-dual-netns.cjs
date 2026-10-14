@@ -53,7 +53,11 @@ const runCellCli = (action, input = '') => JSON.parse(execFileSync('ip',
 const runMainCli = (...args) => execFileSync('ip',
   ['netns', 'exec', 'awgmain', process.execPath, mainCli, ...args],
   { env: env(mainDir), encoding: 'utf8', timeout: 30000,
-    stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    input: args[0] === 'publish'
+      ? (fs.existsSync(path.join(mainDir, 'desired-payload.json'))
+        ? fs.readFileSync(path.join(mainDir, 'desired-payload.json'), 'utf8')
+        : JSON.stringify({ schema: 1, clients: [] })) : undefined,
+    stdio: ['pipe', 'pipe', 'pipe'] }).trim();
 let stage = 'namespaces';
 
 function listen(script = mainCli, action = 'listen', expected = 'listening') {
@@ -142,10 +146,12 @@ async function main() {
     const controller = role('awgmain', mainDir, 'controller-status');
     assert.equal(controller.verified, true);
     assert.equal(controller.invitations[0].status, 'consumed');
+    assert.throws(() => runMainCli('publish', invitationId));
+    assert.throws(() => runMainCli('settings-status', invitationId));
     stage = 'product-controller-join-initial';
     assert.equal(JSON.parse(runMainCli('join', invitationId)).status,
       'waiting-for-permanent-path');
-    const control = listen(permanentField, 'control-listen', 'controlListening');
+    const control = listen(mainCli, 'control-listen', 'controlListening');
     try {
       await control.ready;
       stage = 'product-permanent-join';
@@ -167,15 +173,15 @@ async function main() {
       assert.equal(controllerPath.bootstrapPhase, 'closed');
       stage = 'control-sync';
       stage = 'control-publish';
-      assert.equal(role('awgmain', mainDir, 'publish', permanentField).revision, 1);
+      assert.equal(JSON.parse(runMainCli('publish', invitationId)).revision, 1);
       stage = 'control-sync-request';
       const result = role('awgcell', cellDir, 'product-sync', permanentField);
       assert.equal(result.status, 'applied');
       ip(['-n', 'awgcell', 'link', 'show', 'awgcellu8']);
       ip(['netns', 'exec', 'awgcell', 'nft', 'list', 'table', 'inet', 'awg_easy_3']);
       stage = 'control-sync-ack';
-      const synced = role('awgmain', mainDir, 'status', permanentField);
-      assert.equal(synced.applied, synced.desired);
+      const synced = JSON.parse(runMainCli('settings-status', invitationId));
+      assert.equal(synced.confirmedRevision, synced.desiredRevision);
     } finally { control.child.kill('SIGTERM'); }
     stage = 'control-outage';
     await new Promise((resolve, reject) => {
@@ -187,7 +193,7 @@ async function main() {
     assert.equal(role('awgmain', mainDir, 'product-controller-status', permanentField).permanentReady, true);
     assert.equal(runCellCli('join').status, 'waiting-for-permanent-path');
     stage = 'control-recovery';
-    const recovered = listen(permanentField, 'control-listen', 'controlListening');
+    const recovered = listen(mainCli, 'control-listen', 'controlListening');
     try {
       await recovered.ready;
       const assigned = JSON.stringify({ schema: 1,
@@ -196,10 +202,10 @@ async function main() {
           ipv6Enabled: false, geoPolicy: { mode: 'off', countries: [] } }] });
       fs.writeFileSync(path.join(mainDir, 'desired-payload.json'), assigned,
         { flag: 'wx', mode: 0o600 });
-      assert.equal(role('awgmain', mainDir, 'publish', permanentField).revision, 2);
+      assert.equal(JSON.parse(runMainCli('publish', invitationId)).revision, 2);
       assert.equal(role('awgcell', cellDir, 'product-sync', permanentField).status, 'applied');
-      const synced = role('awgmain', mainDir, 'status', permanentField);
-      assert.equal(synced.applied, synced.desired);
+      const synced = JSON.parse(runMainCli('settings-status', invitationId));
+      assert.equal(synced.confirmedRevision, synced.desiredRevision);
       stage = 'synthetic-user-traffic';
       fs.writeFileSync(path.join(deviceDir, 'awgdevice8.conf'),
         `[Interface]\nPrivateKey = ${deviceKeys.privateKey}\nAddress = 10.88.8.2/32\n`
@@ -210,14 +216,14 @@ async function main() {
       ip(['netns', 'exec', 'awgdevice', 'ping', '-c', '3', '-W', '2', '198.51.100.1']);
       stage = 'synthetic-user-revocation';
       fs.unlinkSync(path.join(mainDir, 'desired-payload.json'));
-      assert.equal(role('awgmain', mainDir, 'publish', permanentField).revision, 3);
+      assert.equal(JSON.parse(runMainCli('publish', invitationId)).revision, 3);
       assert.equal(role('awgcell', cellDir, 'product-sync', permanentField).status, 'applied');
       assert.equal(ip(['netns', 'exec', 'awgcell', 'awg', 'show', 'awgcellu8', 'peers']), '');
       assert.throws(() => ip(['netns', 'exec', 'awgdevice', 'ping', '-c', '1', '-W', '2', '198.51.100.1']));
       stage = 'synthetic-user-restoration';
       fs.writeFileSync(path.join(mainDir, 'desired-payload.json'), assigned,
         { flag: 'wx', mode: 0o600 });
-      assert.equal(role('awgmain', mainDir, 'publish', permanentField).revision, 4);
+      assert.equal(JSON.parse(runMainCli('publish', invitationId)).revision, 4);
       assert.equal(role('awgcell', cellDir, 'product-sync', permanentField).status, 'applied');
       assert.equal(ip(['netns', 'exec', 'awgcell', 'awg', 'show', 'awgcellu8', 'peers']),
         deviceKeys.publicKey);
@@ -236,13 +242,13 @@ async function main() {
       filtered.clients[0].geoPolicy = { mode: 'block', countries: ['RU'] };
       fs.writeFileSync(path.join(mainDir, 'desired-payload.json'), JSON.stringify(filtered),
         { mode: 0o600 });
-      assert.equal(role('awgmain', mainDir, 'publish', permanentField).revision, 5);
+      assert.equal(JSON.parse(runMainCli('publish', invitationId)).revision, 5);
       assert.equal(role('awgcell', cellDir, 'product-sync', permanentField).status, 'applied');
       assert.throws(() => ip(['netns', 'exec', 'awgdevice', 'ping', '-c', '1', '-W', '2', '198.51.100.1']));
       stage = 'synthetic-geo-unblock';
       fs.writeFileSync(path.join(mainDir, 'desired-payload.json'), assigned,
         { mode: 0o600 });
-      assert.equal(role('awgmain', mainDir, 'publish', permanentField).revision, 6);
+      assert.equal(JSON.parse(runMainCli('publish', invitationId)).revision, 6);
       assert.equal(role('awgcell', cellDir, 'product-sync', permanentField).status, 'applied');
       ip(['netns', 'exec', 'awgdevice', 'ping', '-c', '3', '-W', '2', '198.51.100.1']);
       stage = 'cell-join-idempotency';

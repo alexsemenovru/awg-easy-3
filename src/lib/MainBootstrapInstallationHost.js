@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { runProcess } = require('./ProcessRunner');
 const { AwgKeyManager } = require('./AwgKeyManager');
 const { generateOfficialProfile } = require('./Awg3Config');
@@ -24,6 +25,9 @@ const { withCellInstallationLock } = require('./CellInstallationLock');
 const { prepareCellInstallationStateDirectory } = require('./CellInstallationStateDirectory');
 const { listenAwgRegistrationOnTunnel } = require('./CellTunnelRegistrationTransport');
 const { MainBootstrapConfigStore } = require('./MainBootstrapConfigStore');
+const { CellAwgPermanentRevisionStore } = require('./CellAwgPermanentRevisionStore');
+const { CellSettingsPublisher } = require('./CellSettingsPublisher');
+const { listenTunnelControlEndpoint } = require('./CellControlService');
 const { privateAddress } = require('./CellTunnelControlTransport');
 const { validEndpointHost } = require('./CellAwgEndpointHost');
 
@@ -97,6 +101,21 @@ async function openMainBootstrapInstallationHost({ stateDirectory, interfaceName
   const gate = new CellAwgPermanentRetirementGate({ deployment, keyManager });
   const lockPath = file('install.lock');
   const locked = work => withLock({ lockPath, work });
+  const publisherForCell = cellKey => new CellSettingsPublisher(
+    file(path.join('cell-settings', `${crypto.createHash('sha256').update(cellKey).digest('hex')}.json`)),
+    identityStore, cellKey);
+
+  async function registeredRecord(invitationId) {
+    if (typeof invitationId !== 'string' || !/^[a-f0-9]{32}$/.test(invitationId)) {
+      throw new TypeError('Registered invitation identifier required');
+    }
+    const record = (await bootstrapStore.read()).invitations.find(item => item.id === invitationId);
+    if (!record || record.status !== 'consumed' || record.phase !== 'closed'
+      || !record.cellKey || !record.awgPublicKey) {
+      throw new Error('Registered and permanently joined Cell required');
+    }
+    return record;
+  }
 
   async function verifiedConfig() {
     const config = await configStore.read();
@@ -207,6 +226,34 @@ async function openMainBootstrapInstallationHost({ stateDirectory, interfaceName
         keyManager };
       return permanentRuntime ? permanentRuntime.join(options)
         : joinPermanentController({ ...options, deployment, gate });
+    }),
+    publish: (invitationId, settings) => locked(async () => {
+      const record = await registeredRecord(invitationId);
+      const signed = await publisherForCell(record.cellKey).publish(settings);
+      return { revision: signed.revision };
+    }),
+    settingsStatus: async invitationId => {
+      const record = await registeredRecord(invitationId);
+      return publisherForCell(record.cellKey).status();
+    },
+    listenControl: () => locked(async () => {
+      await identityStore.load('controller');
+      await bootstrapStore.read();
+      const base = await deployment.store.read();
+      if (!base) throw new Error('Permanent Main control plan required');
+      const revisionStore = new CellAwgPermanentRevisionStore(
+        file(path.join('permanent', 'revision.json')), base);
+      const revision = await revisionStore.read();
+      if (revision.pending) throw new Error('Pending permanent Main revision');
+      const plan = revision.committed || base;
+      const current = deployment.buildPath({ stateDirectory: deployment.stateDirectory,
+        plan, runner });
+      if (!await current.verifyOperational()) {
+        throw new Error('Permanent Main control path is not operational');
+      }
+      return listenTunnelControlEndpoint({ address: permanentControllerAddress,
+        port: permanentControlPort, lifecycle: current.lifecycle,
+        identityStore, bootstrapStore, publisherForCell });
     }),
     listen: async () => {
       const config = await verifiedConfig();
