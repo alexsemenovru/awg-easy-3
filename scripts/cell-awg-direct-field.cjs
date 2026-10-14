@@ -29,7 +29,8 @@ if (net.isIP(endpointHost) !== 4) throw new Error('CELL_FIELD_CONTROLLER_PUBLIC 
 const file = name => path.join(dir, name);
 const controllerAddress = '10.90.8.1';
 const cellAddress = '10.90.8.2';
-const interfaceName = 'awgfield8';
+const interfaceName = process.env.CELL_FIELD_INTERFACE || 'awgfield8';
+if (!/^[A-Za-z0-9_.-]{1,15}$/.test(interfaceName)) throw new Error('Invalid field interface name');
 const listenPort = 53081;
 const registrationPort = 53082;
 const keyManager = new AwgKeyManager();

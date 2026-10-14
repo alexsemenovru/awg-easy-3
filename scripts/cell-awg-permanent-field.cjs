@@ -36,7 +36,10 @@ if (!dir || !path.isAbsolute(dir) || !['controller', 'cell'].includes(role)) {
 const mainPublic = process.env.CELL_FIELD_CONTROLLER_PUBLIC;
 if (net.isIP(mainPublic) !== 4) throw new Error('CELL_FIELD_CONTROLLER_PUBLIC must be an IPv4 address');
 const file = name => path.join(dir, name);
-const permName = 'awgperm8', tempName = 'awgfield8';
+const permName = process.env.CELL_FIELD_PERMANENT_INTERFACE || 'awgperm8';
+const tempName = process.env.CELL_FIELD_INTERFACE || 'awgfield8';
+if (![permName, tempName].every(name => /^[A-Za-z0-9_.-]{1,15}$/.test(name))
+  || permName === tempName) throw new Error('Invalid field interface names');
 const mainAddress = '10.91.8.1', cellAddress = '10.91.8.2';
 const udpPort = 53084, controlPort = 53083;
 const table = 'awg_easy_3_routes';
@@ -116,7 +119,12 @@ function policy() {
   }
   add('forward', `iifname "${permName}" drop`);
   add('forward', `oifname "${permName}" drop`);
-  return normalizeNftSnapshot({ nftables }, table);
+  const ordered = [nftables[0]];
+  for (const hook of ['input', 'output', 'forward']) {
+    ordered.push(...nftables.filter(item => item.chain?.name === hook));
+    ordered.push(...nftables.filter(item => item.rule?.chain === hook));
+  }
+  return normalizeNftSnapshot({ nftables: ordered }, table);
 }
 function desiredRoutes() {
   return role === 'controller' ? bootstrapServerRoutes({ interfaceName: permName,
