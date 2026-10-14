@@ -1,16 +1,23 @@
 'use strict';
 const fs = require('node:fs/promises');
-const os = require('node:os');
 const path = require('node:path');
 
 // nft reopens /dev/stdin for `-f -`; Node's child stdin is not always a
 // reopenable pipe (observed with Ubuntu nft in WSL). Keep one validated batch
 // on a private file for both check and apply, then remove it on every exit.
-async function runNftBatch(runner, input) {
-  if (typeof runner !== 'function' || typeof input !== 'string' || !input.length) {
-    throw new TypeError('Nft runner and nonempty batch required');
+async function runNftBatch(runner, input, stateDirectory) {
+  if (typeof runner !== 'function' || typeof input !== 'string' || !input.length
+    || typeof stateDirectory !== 'string' || !path.isAbsolute(stateDirectory)) {
+    throw new TypeError('Nft runner, nonempty batch and absolute state directory required');
   }
-  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-nft-'));
+  const parent = await fs.lstat(stateDirectory);
+  if (!parent.isDirectory() || parent.isSymbolicLink()
+    || (process.platform !== 'win32'
+      && (parent.uid !== process.getuid() || (parent.mode & 0o077)))) {
+    throw new Error('Private nft state directory required');
+  }
+  // The container's /tmp is intentionally small; GeoIP batches can exceed it.
+  const directory = await fs.mkdtemp(path.join(stateDirectory, '.nft-batch-'));
   const batch = path.join(directory, 'batch.json');
   try {
     await fs.writeFile(batch, input, { flag: 'wx', mode: 0o600 });

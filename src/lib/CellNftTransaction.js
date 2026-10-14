@@ -82,7 +82,7 @@ class CellNftTransaction {
     const plan = await this.plan(candidates, desired);
     if (plan.changed) {
       const input = JSON.stringify(plan.batch);
-      await runNftBatch(this.runner, input);
+      await runNftBatch(this.runner, input, path.dirname(this.file));
     }
     if (!this.equal(await this.current(), desired)) throw new Error('Cell nft policy did not converge');
     return { changed: plan.changed, guarded: true };

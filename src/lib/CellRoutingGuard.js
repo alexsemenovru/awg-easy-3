@@ -110,7 +110,7 @@ class CellRoutingGuard {
     const plan = await this.plan(candidates, desired);
     if (plan.changed) {
       const input = JSON.stringify(plan.batch);
-      await runNftBatch(this.runner, input);
+      await runNftBatch(this.runner, input, path.dirname(this.file));
     }
     if (!this.equal(await this.current(), desired)) throw new Error('Routing guard verification failed');
   }
