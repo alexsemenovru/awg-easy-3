@@ -209,6 +209,23 @@ async function main() {
         catch { await new Promise(resolve => setTimeout(resolve, 1000)); }
       }
       assert.equal(restored, true);
+      stage = 'synthetic-geo-block';
+      fs.writeFileSync(path.join(cellDir, 'geo-database.json'), JSON.stringify({
+        RU: { ipv4: ['198.51.100.1/32'], ipv6: [] },
+      }), { flag: 'wx', mode: 0o600 });
+      const filtered = JSON.parse(assigned);
+      filtered.clients[0].geoPolicy = { mode: 'block', countries: ['RU'] };
+      fs.writeFileSync(path.join(mainDir, 'desired-payload.json'), JSON.stringify(filtered),
+        { mode: 0o600 });
+      assert.equal(role('awgmain', mainDir, 'publish', permanentField).revision, 5);
+      assert.equal(role('awgcell', cellDir, 'product-sync', permanentField).status, 'applied');
+      assert.throws(() => ip(['netns', 'exec', 'awgdevice', 'ping', '-c', '1', '-W', '2', '198.51.100.1']));
+      stage = 'synthetic-geo-unblock';
+      fs.writeFileSync(path.join(mainDir, 'desired-payload.json'), assigned,
+        { mode: 0o600 });
+      assert.equal(role('awgmain', mainDir, 'publish', permanentField).revision, 6);
+      assert.equal(role('awgcell', cellDir, 'product-sync', permanentField).status, 'applied');
+      ip(['netns', 'exec', 'awgdevice', 'ping', '-c', '3', '-W', '2', '198.51.100.1']);
       stage = 'cell-join-idempotency';
       assert.equal(runCellCli('join').status, 'ready');
       stage = 'controller-join-idempotency';
@@ -218,7 +235,7 @@ async function main() {
     ip(['-n', 'awgcell', 'link', 'show', 'awgforeign2']);
     const foreignTable = JSON.parse(ip(['netns', 'exec', 'awgcell', 'nft', '-j', 'list', 'tables']));
     assert.ok(foreignTable.nftables.some(item => item.table?.name === 'foreign_keep'));
-    console.log('PASS isolated Main/Cell lifecycle, control recovery, foreign resources and user traffic revocation');
+    console.log('PASS isolated Main/Cell lifecycle, control recovery, user revocation and GeoIP filtering');
   } finally { listener.child.kill('SIGTERM'); }
 }
 main().catch(error => {

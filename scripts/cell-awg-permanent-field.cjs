@@ -184,10 +184,13 @@ async function main() {
   }
   if (action === 'product-sync' && role === 'cell') {
     const server = JSON.parse(await fs.readFile(file('cell-server.json'), 'utf8'));
+    let geoDatabase = {};
+    try { geoDatabase = JSON.parse(await fs.readFile(file('geo-database.json'), 'utf8')); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
     const host = await openRegisteredCellHost({ stateDirectory: dir,
       runtimeDirectory: file('user-runtime'), connectionStore: connection(),
       identityStore: identities(), bootstrap: bootstrapParts(),
-      temporaryInterfaceName: tempName, server });
+      temporaryInterfaceName: tempName, server, geoDatabase: async () => geoDatabase });
     console.log(JSON.stringify(await host.syncSettings()));
     return;
   }
