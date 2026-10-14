@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const test = require('node:test');
-const { startCellService } = require('../lib/CellService');
+const { startCellService, syncCellOnce } = require('../lib/CellService');
 
 const config = () => ({ stateDirectory: path.resolve('cell-state'),
   runtimeDirectory: path.resolve('cell-runtime'), interfaceName: 'awgboot0',
@@ -73,4 +73,18 @@ test('Cell service refreshes absent GeoIP cache before restoring signed filter',
   assert.deepEqual(order, ['load', 'needs-geo', 'refresh', 'restore', 'poll', 'start']);
   await service.close();
   assert.deepEqual(order.slice(-2), ['stop', 'poll-stop']);
+});
+
+test('one-shot Cell sync restores boot, applies signed settings, and opens no poller', async () => {
+  const events = [];
+  const result = await syncCellOnce({ config: config(), bootstrapHost: {},
+    newStore: () => ({ read: async () => ({ server: {} }) }),
+    newGeoUpdater: () => ({ current: { database: {} }, load: async () => events.push('geo') }),
+    openRegistered: async () => ({
+      recoverBoot: async () => { events.push('boot'); return { configured: true }; },
+      syncSettings: async () => { events.push('sync'); return { status: 'applied', revision: 2 }; },
+      createPoller: () => { throw new Error('must not poll'); },
+    }) });
+  assert.deepEqual(result, { status: 'applied', revision: 2 });
+  assert.deepEqual(events, ['geo', 'boot', 'sync']);
 });

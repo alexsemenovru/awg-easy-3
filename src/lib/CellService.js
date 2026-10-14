@@ -8,14 +8,14 @@ const { openRegisteredCellHost } = require('./CellRegisteredHost');
 // The service deliberately starts from a registered, persistent Cell state.
 // Missing GeoIP data cannot silently disable a signed country policy:
 // CellRuntimeAdapter validation rejects the policy and leaves its guard on.
-async function startCellService({ config, bootstrapHost,
+async function openCellServiceHost({ config, bootstrapHost,
   openRegistered = openRegisteredCellHost,
   newStore = (...args) => new CellUserConfigStore(...args),
-  newGeoUpdater = options => new GeoIpUpdater(options),
-  onFatal = () => {} } = {}) {
+  newGeoUpdater = options => new GeoIpUpdater(options) } = {}) {
   if (!config || !bootstrapHost || typeof openRegistered !== 'function'
-    || typeof newStore !== 'function' || typeof newGeoUpdater !== 'function'
-    || typeof onFatal !== 'function') throw new TypeError('Cell service dependencies required');
+    || typeof newStore !== 'function' || typeof newGeoUpdater !== 'function') {
+    throw new TypeError('Cell service dependencies required');
+  }
   const { stateDirectory, runtimeDirectory, interfaceName, resources } = config;
   if (typeof runtimeDirectory !== 'string' || !path.isAbsolute(runtimeDirectory)) {
     throw new Error('Absolute Cell runtime directory required');
@@ -38,6 +38,17 @@ async function startCellService({ config, bootstrapHost,
   if (!geo.current && await host.requiresGeoDatabase()) await geo.refresh();
   const boot = await host.recoverBoot();
   if (boot.configured !== true) throw new Error('Permanent Cell path not configured');
+  return { host, geo };
+}
+
+async function syncCellOnce(options = {}) {
+  const { host } = await openCellServiceHost(options);
+  return host.syncSettings();
+}
+
+async function startCellService({ onFatal = () => {}, ...options } = {}) {
+  if (typeof onFatal !== 'function') throw new TypeError('Cell fatal error handler required');
+  const { host, geo } = await openCellServiceHost(options);
   const poller = host.createPoller();
   const running = poller.start();
   running.catch(onFatal);
@@ -47,4 +58,4 @@ async function startCellService({ config, bootstrapHost,
     close: async () => { try { await geo.stop(); } finally { await poller.stop(); } } });
 }
 
-module.exports = { startCellService };
+module.exports = { openCellServiceHost, syncCellOnce, startCellService };

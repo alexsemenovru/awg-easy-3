@@ -112,3 +112,13 @@ test('Cell CLI starts registered service with bounded readiness status', async (
     openHost: async () => ({}), startService: async () => service }), service);
   assert.equal(printed, '{"status":"serving","transport":"AWG"}\n');
 });
+
+test('Cell CLI one-shot sync reports only status and revision', async () => {
+  let printed = '';
+  await runCellBootstrapCli({ args: ['sync'], env: environment(),
+    output: { write: value => { printed += value; } },
+    openHost: async () => ({}),
+    syncOnce: async () => ({ status: 'applied', revision: 7,
+      privateKey: 'must-not-be-printed' }) });
+  assert.equal(printed, '{"status":"applied","revision":7}\n');
+});

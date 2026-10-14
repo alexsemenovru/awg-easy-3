@@ -4,7 +4,7 @@ const path = require('node:path');
 const { openCellBootstrapInstallationHost } = require('./CellBootstrapInstallationHost');
 const { decodeAwgBootstrapInvitation } = require('./CellAwgBootstrapInvitation');
 const { CellUserConfigStore } = require('./CellUserConfigStore');
-const { startCellService } = require('./CellService');
+const { startCellService, syncCellOnce } = require('./CellService');
 
 const INTERFACE = /^[a-zA-Z0-9_.-]{1,15}$/;
 const PORT = /^\d{1,5}$/;
@@ -51,10 +51,11 @@ async function readInvitation(input) {
 async function runCellBootstrapCli({ args, env, input, output,
   openHost = openCellBootstrapInstallationHost,
   startService = startCellService,
+  syncOnce = syncCellOnce,
   newUserStore = (...params) => new CellUserConfigStore(...params) } = {}) {
   if (!Array.isArray(args) || args.length !== 1
-    || !['begin', 'resume', 'register', 'join', 'configure-user', 'serve'].includes(args[0])) {
-    throw new Error('Usage: cell-cli.js begin|resume|register|join|configure-user|serve');
+    || !['begin', 'resume', 'register', 'join', 'configure-user', 'sync', 'serve'].includes(args[0])) {
+    throw new Error('Usage: cell-cli.js begin|resume|register|join|configure-user|sync|serve');
   }
   if (!output || typeof output.write !== 'function') throw new TypeError('Cell status output required');
   const config = configFromEnvironment(env);
@@ -90,6 +91,15 @@ async function runCellBootstrapCli({ args, env, input, output,
     const service = await startService({ config, bootstrapHost: host });
     output.write('{"status":"serving","transport":"AWG"}\n');
     return service;
+  }
+  if (args[0] === 'sync') {
+    const result = await syncOnce({ config, bootstrapHost: host });
+    if (!result || !['applied', 'no-settings'].includes(result.status)) {
+      throw new Error('Cell settings sync did not reach a known state');
+    }
+    output.write(`${JSON.stringify({ status: result.status,
+      ...(result.status === 'applied' ? { revision: result.revision } : {}) })}\n`);
+    return;
   }
   const result = args[0] === 'begin' ? await host.initial.begin(code)
     : args[0] === 'resume' ? await host.initial.resume()
