@@ -22,7 +22,9 @@ test('Cell service restores signed state before polling and closes poller only',
       return { read: async () => ({ server: { interfaceName: 'awguser0' } }) };
     },
     newGeoUpdater: () => ({ current: { database: { RU: { ipv4: [], ipv6: [] } } },
-      load: async () => { order.push('geo'); } }),
+      load: async () => { order.push('geo'); },
+      start: () => { order.push('geo-start'); },
+      stop: async () => { order.push('geo-stop'); } }),
     openRegistered: async supplied => {
       args = supplied;
       order.push('registered');
@@ -32,9 +34,9 @@ test('Cell service restores signed state before polling and closes poller only',
     } });
   assert.equal(service.status, 'serving');
   assert.deepEqual(await args.geoDatabase(), { RU: { ipv4: [], ipv6: [] } });
-  assert.deepEqual(order, ['geo', 'registered', 'restore', 'poll']);
+  assert.deepEqual(order, ['geo', 'registered', 'restore', 'poll', 'geo-start']);
   await service.close();
-  assert.deepEqual(order, ['geo', 'registered', 'restore', 'poll', 'stop']);
+  assert.deepEqual(order, ['geo', 'registered', 'restore', 'poll', 'geo-start', 'geo-stop', 'stop']);
 });
 
 test('Cell service refuses missing user config and incomplete permanent path', async () => {
@@ -45,7 +47,30 @@ test('Cell service refuses missing user config and incomplete permanent path', a
   assert.equal(registered, false);
   await assert.rejects(startCellService({ config: config(), bootstrapHost: {},
     newStore: () => ({ read: async () => ({ server: {} }) }),
-    newGeoUpdater: () => ({ load: async () => null }),
-    openRegistered: async () => ({ recoverBoot: async () => ({ configured: false }) }),
+    newGeoUpdater: () => ({ current: null, load: async () => null, refresh: async () => null }),
+    openRegistered: async () => ({ requiresGeoDatabase: async () => true,
+      recoverBoot: async () => ({ configured: false }) }),
   }), /not configured/);
+});
+
+test('Cell service refreshes absent GeoIP cache before restoring signed filter', async () => {
+  const order = [];
+  const geo = { current: null,
+    load: async () => { order.push('load'); },
+    refresh: async () => { order.push('refresh'); geo.current = { database: { RU: {} } }; },
+    start: () => { order.push('start'); }, stop: async () => { order.push('stop'); } };
+  const service = await startCellService({ config: config(), bootstrapHost: {},
+    newStore: () => ({ read: async () => ({ server: {} }) }),
+    newGeoUpdater: () => geo,
+    openRegistered: async () => ({
+      requiresGeoDatabase: async () => { order.push('needs-geo'); return true; },
+      recoverBoot: async () => { order.push('restore');
+        assert.deepEqual(geo.current.database, { RU: {} });
+        return { configured: true }; },
+      createPoller: () => ({ start: () => { order.push('poll'); return new Promise(() => {}); },
+        stop: async () => { order.push('poll-stop'); } }),
+    }) });
+  assert.deepEqual(order, ['load', 'needs-geo', 'refresh', 'restore', 'poll', 'start']);
+  await service.close();
+  assert.deepEqual(order.slice(-2), ['stop', 'poll-stop']);
 });

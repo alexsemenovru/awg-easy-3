@@ -25,21 +25,26 @@ async function startCellService({ config, bootstrapHost,
   });
   const user = await store.read();
   if (!user) throw new Error('Cell user tunnel config not installed');
-  const geo = newGeoUpdater({ directory: path.join(stateDirectory, 'geoip') });
+  let host;
+  const geo = newGeoUpdater({ directory: path.join(stateDirectory, 'geoip'),
+    install: (snapshot, commit) => host.installGeoSnapshot(snapshot, commit) });
   await geo.load();
-  const host = await openRegistered({ stateDirectory, runtimeDirectory,
+  host = await openRegistered({ stateDirectory, runtimeDirectory,
     connectionStore: bootstrapHost.connectionStore,
     identityStore: bootstrapHost.identityStore,
     bootstrap: bootstrapHost.bootstrap,
     temporaryInterfaceName: interfaceName,
     server: user.server, geoDatabase: async () => geo.current?.database || {} });
+  if (!geo.current && await host.requiresGeoDatabase()) await geo.refresh();
   const boot = await host.recoverBoot();
   if (boot.configured !== true) throw new Error('Permanent Cell path not configured');
   const poller = host.createPoller();
   const running = poller.start();
   running.catch(onFatal);
+  try { geo.start(); }
+  catch (error) { await poller.stop(); throw error; }
   return Object.freeze({ status: 'serving', running,
-    close: () => poller.stop() });
+    close: async () => { try { await geo.stop(); } finally { await poller.stop(); } } });
 }
 
 module.exports = { startCellService };

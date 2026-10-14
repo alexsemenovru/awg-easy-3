@@ -84,9 +84,9 @@ class CellRuntimeAdapter {
     } catch { return false; }
   }
 
-  async apply(settings) {
+  async apply(settings, { geoDatabase } = {}) {
     const artifacts = buildCellArtifacts({ server: this.server, settings,
-      geoDatabase: await this.geoDatabase() });
+      geoDatabase: geoDatabase === undefined ? await this.geoDatabase() : geoDatabase });
     let active;
     try {
       await this.runner('ip', ['link', 'show', 'dev', this.server.interfaceName]);

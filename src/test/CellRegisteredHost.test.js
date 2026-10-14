@@ -3,7 +3,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { openRegisteredCellHost } = require('../lib/CellRegisteredHost');
+const { signSettings } = require('../lib/CellSettings');
+const { generateOfficialProfile } = require('../lib/Awg3Config');
 
 const options = () => ({ stateDirectory: path.resolve('cell-state'),
   runtimeDirectory: path.resolve('cell-runtime'),
@@ -47,4 +50,51 @@ test('registered Cell host rejects missing absolute state and identity', async (
     /Registered Cell host dependencies/);
   await assert.rejects(openRegisteredCellHost({ ...options(), identityStore: null }),
     /Registered Cell host dependencies/);
+});
+
+test('registered Cell changes GeoIP under the same lock and rolls back failed commit', async () => {
+  const identity = crypto.generateKeyPairSync('ed25519');
+  const controllerKey = identity.publicKey.export({ format: 'jwk' }).x;
+  const cellKey = Buffer.alloc(32, 4).toString('base64url');
+  const settings = { schema: 1, clients: [{ id: 'one',
+    publicKey: Buffer.alloc(32, 5).toString('base64'), address4: '10.88.8.2',
+    networkGroup: 'guest', ipv4Enabled: true, ipv6Enabled: false,
+    geoPolicy: { mode: 'block', countries: ['RU'] } }] };
+  const applied = signSettings({ cellKey, revision: 1, settings },
+    identity.privateKey.export({ format: 'pem', type: 'pkcs8' }));
+  let previous = { RU: { ipv4: ['198.51.100.1/32'], ipv6: [] } };
+  const next = { RU: { ipv4: ['198.51.100.2/32'], ipv6: [] } };
+  const events = [];
+  const host = await openRegisteredCellHost({ ...options(),
+    server: { interfaceName: 'awgcell0', wanInterface: 'eth0',
+      privateKey: Buffer.alloc(32, 6).toString('base64'), listenPort: 51830,
+      address4: '10.88.8.1', ipv4Subnet: '10.88.8.0/24',
+      profile: generateOfficialProfile() },
+    openSettings: async () => ({
+      receiver: { trust: { controllerKey, cellKey }, load: async () => ({ applied }),
+        restoreApplied: async () => ({}) },
+      adapter: { geoDatabase: async () => previous,
+        apply: async (_payload, value) => { events.push(value.geoDatabase); },
+        prepareBoot: async () => {} },
+    }),
+    openPermanent: () => ({ recoverBoot: async () => {}, join: async () => {},
+      syncSettings: async () => {} }),
+    withLock: async ({ work }) => work(),
+  });
+  assert.equal(await host.requiresGeoDatabase(), true);
+  await host.installGeoSnapshot({ database: next }, async () => { events.push('commit'); });
+  assert.deepEqual(events, [next, 'commit']);
+  events.length = 0;
+  await assert.rejects(host.installGeoSnapshot({ database: next }, async () => {
+    events.push('commit'); throw new Error('disk full');
+  }), /disk full/);
+  assert.deepEqual(events, [next, 'commit', previous]);
+  events.length = 0;
+  await assert.rejects(host.installGeoSnapshot({ database: { US: {} } }, async () => {
+    events.push('commit');
+  }), /GeoIP country unavailable/);
+  assert.deepEqual(events, []);
+  previous = {};
+  await host.installGeoSnapshot({ database: next }, async () => { events.push('commit'); });
+  assert.deepEqual(events, ['commit']);
 });

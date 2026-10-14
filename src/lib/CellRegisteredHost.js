@@ -5,6 +5,8 @@ const { openCellSettingsRuntime } = require('./CellSettingsRuntime');
 const { createPermanentCellRuntime } = require('./CellAwgPermanentCellRuntime');
 const { withCellInstallationLock } = require('./CellInstallationLock');
 const { CellSettingsPoller } = require('./CellSettingsPoller');
+const { verifySettings } = require('./CellSettings');
+const { buildCellArtifacts } = require('./CellArtifacts');
 
 // Registered Cell assembly only. Initial invitation/bootstrap provisioning is
 // a separate installation phase. The installer creates private stateDirectory
@@ -45,6 +47,43 @@ async function openRegisteredCellHost({ stateDirectory, runtimeDirectory,
     join: options => locked(() => permanent.join(options)),
     syncSettings: sync,
     createPoller: options => new CellSettingsPoller({ ...options, sync }),
+    requiresGeoDatabase: () => locked(async () => {
+      const applied = (await settings.receiver.load())?.applied;
+      if (!applied) return false;
+      const { settings: payload } = verifySettings(applied, settings.receiver.trust);
+      return payload.clients.some(client => client.geoPolicy.mode !== 'off');
+    }),
+    installGeoSnapshot: (snapshot, commit) => locked(async () => {
+      if (!snapshot || !snapshot.database || typeof commit !== 'function') {
+        throw new TypeError('Validated GeoIP snapshot and commit required');
+      }
+      const applied = (await settings.receiver.load())?.applied;
+      if (!applied) { await commit(); return; }
+      const { settings: payload } = verifySettings(applied, settings.receiver.trust);
+      const previous = await settings.adapter.geoDatabase();
+      // First boot can have signed GeoIP rules but no cache yet. The caller
+      // refreshes before recoverBoot, which applies them under the traffic guard.
+      if (!previous || Object.keys(previous).length === 0) {
+        buildCellArtifacts({ server, settings: payload, geoDatabase: snapshot.database });
+        await commit();
+        return;
+      }
+      const before = buildCellArtifacts({ server, settings: payload, geoDatabase: previous });
+      const after = buildCellArtifacts({ server, settings: payload,
+        geoDatabase: snapshot.database });
+      const changed = before.nftables !== after.nftables;
+      if (changed) await settings.adapter.apply(payload, { geoDatabase: snapshot.database });
+      try { await commit(); }
+      catch (error) {
+        if (changed) {
+          try { await settings.adapter.apply(payload, { geoDatabase: previous }); }
+          catch (rollbackError) {
+            error.rollbackErrors = Object.freeze([rollbackError]);
+          }
+        }
+        throw error;
+      }
+    }),
   });
 }
 
