@@ -16,7 +16,7 @@ const options = () => ({ stateDirectory: path.resolve('cell-state'),
 
 test('registered Cell host uses one lock for boot, join and every settings poll', async () => {
   const input = options(), events = [];
-  const settings = { adapter: { prepareBoot: async () => {} },
+  const settings = { adapter: { prepareBoot: async () => { events.push(['guard']); } },
     receiver: { restoreApplied: async () => ({}) } };
   const permanent = { recoverBoot: async value => { events.push(['boot', value]); return 'booted'; },
     join: async value => { events.push(['join', value]); return 'joined'; },
@@ -29,6 +29,7 @@ test('registered Cell host uses one lock for boot, join and every settings poll'
       events.push(['lock-enter']);
       try { return await work(); } finally { events.push(['lock-exit']); }
     } });
+  await host.protectUserTraffic();
   assert.equal(await host.recoverBoot({ test: 1 }), 'booted');
   assert.equal(await host.join({ test: 2 }), 'joined');
   assert.equal(await host.syncSettings(), 'synced');
@@ -36,8 +37,10 @@ test('registered Cell host uses one lock for boot, join and every settings poll'
   poller = host.createPoller({ onStatus: status => {
     if (status.state === 'connected') poller.controller.abort(); } });
   await poller.start();
-  assert.equal(events.filter(item => item[0] === 'lock-enter').length, 4);
-  assert.equal(events.filter(item => item[0] === 'lock-exit').length, 4);
+  assert.equal(events.filter(item => item[0] === 'lock-enter').length, 5);
+  assert.equal(events.filter(item => item[0] === 'lock-exit').length, 5);
+  assert.ok(events.findIndex(item => item[0] === 'guard')
+    < events.findIndex(item => item[0] === 'boot'));
   assert.deepEqual(events.filter(item => ['boot', 'join', 'sync'].includes(item[0]))
     .map(item => item[0]), ['boot', 'join', 'sync', 'sync']);
   assert.equal(events[0][1].stateDirectory, path.join(input.stateDirectory, 'settings'));

@@ -40,6 +40,9 @@ async function openCellServiceHost({ config, bootstrapHost,
     bootstrap: bootstrapHost.bootstrap,
     temporaryInterfaceName: interfaceName,
     server: user.server, geoDatabase: async () => geo.current?.database || {} });
+  // A missing cache may require a network download. Guard user traffic before
+  // waiting for it, not only inside the later permanent-path recovery.
+  await host.protectUserTraffic();
   if (!geo.current && await host.requiresGeoDatabase()) await geo.refresh();
   const boot = await host.recoverBoot();
   if (boot.configured !== true) throw new Error('Permanent Cell path not configured');
