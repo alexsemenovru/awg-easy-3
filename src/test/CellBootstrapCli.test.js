@@ -9,6 +9,7 @@ const { createAwgBootstrapInvitation } = require('../lib/CellAwgBootstrapInvitat
 const { generateOfficialProfile } = require('../lib/Awg3Config');
 
 const environment = () => ({ AWG_CELL_STATE_DIR: path.resolve('cell-state'),
+  AWG_CELL_RUNTIME_DIR: path.resolve('cell-runtime'),
   AWG_CELL_BOOTSTRAP_INTERFACE: 'awgjoin0', AWG_CELL_CONTROL_INTERFACE: 'awgctl0',
   AWG_CELL_USER_INTERFACE: 'awg0', AWG_CELL_USER_PORT: '51820' });
 const key = byte => Buffer.alloc(32, byte).toString('base64');
@@ -83,4 +84,31 @@ test('Cell CLI rejects oversized invitations before opening host state', async (
     input: Readable.from(['x'.repeat(8195)]), output: { write() {} },
     openHost: async () => { opened = true; } }), /too large/);
   assert.equal(opened, false);
+});
+
+test('Cell CLI configures a registered user tunnel without leaking key material', async () => {
+  const supplied = { version: 1, server: { privateKey: 'secret' } };
+  let stored;
+  let printed = '';
+  await runCellBootstrapCli({ args: ['configure-user'], env: environment(),
+    input: Readable.from([JSON.stringify(supplied)]),
+    output: { write: value => { printed += value; } },
+    openHost: async () => ({ connectionStore: { read: async () => ({ status: 'registered' }) } }),
+    newUserStore: () => ({ create: async value => { stored = value; } }) });
+  assert.deepEqual(stored, supplied);
+  assert.equal(printed, '{"status":"user-configured"}\n');
+  await assert.rejects(runCellBootstrapCli({ args: ['configure-user'], env: environment(),
+    input: Readable.from([JSON.stringify(supplied)]), output: { write() {} },
+    openHost: async () => ({ connectionStore: { read: async () => null } }),
+    newUserStore: () => { throw new Error('must not create store'); },
+  }), /Registered Cell required/);
+});
+
+test('Cell CLI starts registered service with bounded readiness status', async () => {
+  let printed = '';
+  const service = { close: async () => {}, running: new Promise(() => {}) };
+  assert.equal(await runCellBootstrapCli({ args: ['serve'], env: environment(),
+    output: { write: value => { printed += value; } },
+    openHost: async () => ({}), startService: async () => service }), service);
+  assert.equal(printed, '{"status":"serving","transport":"AWG"}\n');
 });

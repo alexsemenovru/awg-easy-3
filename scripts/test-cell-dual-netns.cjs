@@ -46,7 +46,7 @@ const env = directory => ({ ...process.env, CELL_FIELD_STATE: directory,
     AWG_CELL_BOOTSTRAP_INTERFACE: directory === cell2Dir ? 'awgcell9' : 'awgcell8',
     AWG_CELL_CONTROL_INTERFACE: directory === cell2Dir ? 'awgcellp9' : 'awgcellp8',
     AWG_CELL_USER_INTERFACE: directory === cell2Dir ? 'awgcellu9' : 'awgcellu8',
-    AWG_CELL_USER_PORT: '51830' } : {}) });
+    AWG_CELL_USER_PORT: '51830', AWG_CELL_RUNTIME_DIR: path.join(directory, 'user-runtime') } : {}) });
 const ip = args => execFileSync('ip', args, { encoding: 'utf8', timeout: 30000,
   stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 const role = (namespace, directory, action, script = field) => JSON.parse(execFileSync('ip',
@@ -191,6 +191,10 @@ async function main() {
   try {
     await listener.ready;
     assert.equal(runCellCli('register').status, 'registered');
+      stage = 'cell-user-config';
+      assert.equal(runCellCli('configure-user', JSON.stringify({ version: 1,
+        server: JSON.parse(fs.readFileSync(path.join(cellDir, 'cell-server.json'), 'utf8')) })).status,
+      'user-configured');
     const controller = role('awgmain', mainDir, 'controller-status');
     assert.equal(controller.verified, true);
     assert.equal(controller.invitations[0].status, 'consumed');
@@ -347,6 +351,27 @@ async function main() {
       assert.equal(role('awgcell2', cell2Dir, 'sync', permanentField).status, 'applied');
       assert.equal(JSON.parse(runMainCli('settings-status', secondId)).confirmedRevision, 2);
       assert.equal(JSON.parse(runMainCli('settings-status', invitationId)).confirmedRevision, 6);
+      stage = 'cell-service-restart';
+      const cellService = spawn('ip', ['netns', 'exec', 'awgcell', process.execPath,
+        cellCli, 'serve'], { env: env(cellDir), stdio: ['ignore', 'pipe', 'pipe'] });
+      try {
+        await new Promise((resolve, reject) => {
+          let output = '';
+          const timer = setTimeout(() => reject(new Error('Cell service not ready')), 15000);
+          cellService.once('exit', () => { clearTimeout(timer); reject(new Error('Cell service exited')); });
+          cellService.stdout.on('data', chunk => {
+            output += chunk.toString('utf8');
+            if (!output.includes('\n')) return;
+            clearTimeout(timer);
+            try { assert.deepEqual(JSON.parse(output.trim()),
+              { status: 'serving', transport: 'AWG' }); resolve(); }
+            catch { reject(new Error('Invalid Cell service status')); }
+          });
+        });
+        assert.equal(role('awgcell', cellDir, 'product-status', permanentField).permanentReady, true);
+        ip(['netns', 'exec', 'awgdevice', 'ping', '-c', '2', '-W', '2', endpoint]);
+      } finally { cellService.kill('SIGTERM'); }
+      await stopped(cellService);
     } finally { service.child.kill('SIGTERM'); }
     await stopped(service.child);
     stage = 'foreign-resource-readback';

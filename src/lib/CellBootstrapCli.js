@@ -3,6 +3,8 @@
 const path = require('node:path');
 const { openCellBootstrapInstallationHost } = require('./CellBootstrapInstallationHost');
 const { decodeAwgBootstrapInvitation } = require('./CellAwgBootstrapInvitation');
+const { CellUserConfigStore } = require('./CellUserConfigStore');
+const { startCellService } = require('./CellService');
 
 const INTERFACE = /^[a-zA-Z0-9_.-]{1,15}$/;
 const PORT = /^\d{1,5}$/;
@@ -22,7 +24,7 @@ function configFromEnvironment(env) {
     || !Number.isInteger(userPort) || userPort < 1 || userPort > 65535) {
     throw new Error('Explicit Cell state path, three distinct interfaces and user UDP port required');
   }
-  return { stateDirectory, interfaceName, resources: {
+  return { stateDirectory, interfaceName, runtimeDirectory: env.AWG_CELL_RUNTIME_DIR, resources: {
     interfaceNames: [interfaceName, controlInterface, userInterface],
     udpPorts: [userPort], nftTables: [
       'awg_easy_3_bootstrap', 'awg_easy_3_bootstrap_guard',
@@ -47,16 +49,48 @@ async function readInvitation(input) {
 }
 
 async function runCellBootstrapCli({ args, env, input, output,
-  openHost = openCellBootstrapInstallationHost } = {}) {
+  openHost = openCellBootstrapInstallationHost,
+  startService = startCellService,
+  newUserStore = (...params) => new CellUserConfigStore(...params) } = {}) {
   if (!Array.isArray(args) || args.length !== 1
-    || !['begin', 'resume', 'register', 'join'].includes(args[0])) {
-    throw new Error('Usage: cell-cli.js begin|resume|register|join');
+    || !['begin', 'resume', 'register', 'join', 'configure-user', 'serve'].includes(args[0])) {
+    throw new Error('Usage: cell-cli.js begin|resume|register|join|configure-user|serve');
   }
   if (!output || typeof output.write !== 'function') throw new TypeError('Cell status output required');
   const config = configFromEnvironment(env);
   const code = args[0] === 'begin' ? await readInvitation(input) : null;
   if (code) decodeAwgBootstrapInvitation(code);
   const host = await openHost(config);
+  if (args[0] === 'configure-user') {
+    const state = await host.connectionStore.read();
+    if (state?.status !== 'registered') throw new Error('Registered Cell required for user config');
+    if (!input || typeof input[Symbol.asyncIterator] !== 'function') {
+      throw new TypeError('Cell user config required on stdin');
+    }
+    const chunks = [];
+    let size = 0;
+    for await (const chunk of input) {
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      size += bytes.length;
+      if (size > 8192) throw new Error('Cell user config is too large');
+      chunks.push(bytes);
+    }
+    let value;
+    try { value = JSON.parse(Buffer.concat(chunks).toString('utf8')); }
+    catch { throw new Error('Invalid Cell user config JSON'); }
+    const store = newUserStore(path.join(config.stateDirectory, 'user-config.json'), {
+      interfaceName: config.resources.interfaceNames[2],
+      listenPort: config.resources.udpPorts[0],
+    });
+    await store.create(value);
+    output.write('{"status":"user-configured"}\n');
+    return;
+  }
+  if (args[0] === 'serve') {
+    const service = await startService({ config, bootstrapHost: host });
+    output.write('{"status":"serving","transport":"AWG"}\n');
+    return service;
+  }
   const result = args[0] === 'begin' ? await host.initial.begin(code)
     : args[0] === 'resume' ? await host.initial.resume()
       : args[0] === 'register' ? await host.registration.register()
