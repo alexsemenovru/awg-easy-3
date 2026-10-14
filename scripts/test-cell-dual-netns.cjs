@@ -71,12 +71,22 @@ async function main() {
     ip(['-n', ns, 'link', 'set', iface, 'up']);
     ip(['-n', ns, 'link', 'set', 'lo', 'up']);
   }
+  stage = 'foreign-resources';
+  ip(['-n', 'awgcell', 'link', 'add', 'awgforeign2', 'type', 'dummy']);
+  ip(['-n', 'awgcell', 'link', 'set', 'awgforeign2', 'up']);
+  ip(['netns', 'exec', 'awgcell', 'nft', 'add', 'table', 'inet', 'foreign_keep']);
   stage = 'controller-init';
   assert.equal(role('awgmain', mainDir, 'controller-init').ready, true);
   stage = 'controller-issue';
   assert.equal(role('awgmain', mainDir, 'controller-issue').issued, true);
   fs.copyFileSync(path.join(mainDir, 'invitation'), path.join(cellDir, 'invitation'));
   fs.chmodSync(path.join(cellDir, 'invitation'), 0o600);
+  stage = 'cell-foreign-interface-collision';
+  ip(['-n', 'awgcell', 'link', 'add', 'awgcell8', 'type', 'dummy']);
+  assert.throws(() => runCellCli('begin', fs.readFileSync(path.join(cellDir, 'invitation'), 'utf8')));
+  assert.equal(fs.existsSync(path.join(cellDir, 'connection.json')), false);
+  ip(['-n', 'awgcell', 'link', 'show', 'awgcell8']);
+  ip(['-n', 'awgcell', 'link', 'delete', 'awgcell8']);
   stage = 'cell-begin';
   assert.equal(runCellCli('begin', fs.readFileSync(path.join(cellDir, 'invitation'), 'utf8')).status,
     'bootstrap-ready');
@@ -145,7 +155,11 @@ async function main() {
       stage = 'controller-join-idempotency';
       assert.equal(role('awgmain', mainDir, 'product-controller-join', permanentField).status, 'ready');
     } finally { recovered.child.kill('SIGTERM'); }
-    console.log('PASS isolated Main/Cell AWG registration, product join, sync, outage, recovery and join retry');
+    stage = 'foreign-resource-readback';
+    ip(['-n', 'awgcell', 'link', 'show', 'awgforeign2']);
+    const foreignTable = JSON.parse(ip(['netns', 'exec', 'awgcell', 'nft', '-j', 'list', 'tables']));
+    assert.ok(foreignTable.nftables.some(item => item.table?.name === 'foreign_keep'));
+    console.log('PASS isolated Main/Cell lifecycle, control recovery and foreign-resource isolation');
   } finally { listener.child.kill('SIGTERM'); }
 }
 main().catch(error => {
