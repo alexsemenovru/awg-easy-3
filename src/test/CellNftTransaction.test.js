@@ -19,7 +19,7 @@ async function fixture(t) {
       assert.equal(kernel.guard, true);
       if (args.includes('-c')) return { stdout: '' };
       if (kernel.failNext) { kernel.failNext = false; throw new Error('nft rejected transaction'); }
-      const objects = JSON.parse(options.input).nftables.filter(x => x.add).map(x => x.add);
+      const objects = JSON.parse(await fs.readFile(args.at(-1), 'utf8')).nftables.filter(x => x.add).map(x => x.add);
       kernel.current = objects.length ? { nftables: objects } : null; kernel.writes++;
       return { stdout: '' };
     } };

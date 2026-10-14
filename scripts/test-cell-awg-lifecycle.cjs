@@ -1,5 +1,6 @@
 'use strict';
 const fs = require('node:fs');
+const crypto = require('node:crypto');
 const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
 const { CellAwgLifecycle } = require('../src/lib/CellAwgLifecycle');
@@ -37,7 +38,14 @@ async function main() {
   for (let attempt = 0; attempt < 50 && fs.existsSync('/var/run/wireguard/life0.sock'); attempt++) {
     await new Promise(resolve => setTimeout(resolve, 20));
   }
-  await new CellAwgLifecycle(options).recover();
+  try { await new CellAwgLifecycle(options).recover(); }
+  catch (error) {
+    const saved = await life.load();
+    const current = run('awg', ['showconf', 'life0']);
+    const actualHash = crypto.createHash('sha256').update(current.trim()).digest('hex');
+    console.error(`Recovery diagnostic: phase=${saved.phase}, blankMatch=${saved.blankHash === actualHash}, fields=${current.split('\n').map(line => line.split('=')[0].trim()).join(',')}`);
+    throw error;
+  }
   assert.equal((await life.verify(spec)).up, true);
   console.log('PASS missing device recreated from persisted identity after simulated device loss');
   await life.remove(); assert.equal((await life.load()).phase, 'empty');

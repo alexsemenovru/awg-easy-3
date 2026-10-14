@@ -3,6 +3,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { runProcess } = require('./ProcessRunner');
+const { runNftBatch } = require('./NftBatchRunner');
 const { routingGuardSnapshot, nftFingerprint, planNftReplacement } = require('./CellNftOwnership');
 const DEFAULT_TABLE = 'awg_easy_3_routing_guard';
 const queues = new Map();
@@ -109,8 +110,7 @@ class CellRoutingGuard {
     const plan = await this.plan(candidates, desired);
     if (plan.changed) {
       const input = JSON.stringify(plan.batch);
-      await this.runner('nft', ['-c', '-j', '-f', '-'], { input });
-      await this.runner('nft', ['-j', '-f', '-'], { input });
+      await runNftBatch(this.runner, input);
     }
     if (!this.equal(await this.current(), desired)) throw new Error('Routing guard verification failed');
   }

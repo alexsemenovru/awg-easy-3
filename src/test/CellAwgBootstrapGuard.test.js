@@ -22,7 +22,7 @@ test('bootstrap guard is independently owned and never releases a user routing g
         : tables.get(args.at(-1))) };
     }
     if (args.includes('-c')) return { stdout: '' };
-    const batch = JSON.parse(options.input).nftables;
+    const batch = JSON.parse(await fs.readFile(args.at(-1), 'utf8')).nftables;
     const target = batch.find(item => item.add)?.add.table?.name || batch.find(item => item.delete)?.delete.table?.name;
     assert.equal(target, bootstrapTable);
     const objects = batch.filter(item => item.add).map(item => item.add);

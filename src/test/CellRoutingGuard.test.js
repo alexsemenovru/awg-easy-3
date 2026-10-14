@@ -17,7 +17,7 @@ async function fixture(t, table) {
     if (args.includes('-c')) return { stdout: '' };
     if (kernel.fail) throw new Error('injected nft failure');
     kernel.writes++;
-    const batch = JSON.parse(options.input).nftables;
+    const batch = JSON.parse(await fs.readFile(args.at(-1), 'utf8')).nftables;
     const objects = batch.filter(x => x.add).map(x => x.add);
     kernel.current = objects.length ? { nftables: objects } : null;
     return { stdout: '' };

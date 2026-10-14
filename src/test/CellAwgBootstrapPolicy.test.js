@@ -81,7 +81,7 @@ test('separate bootstrap table transacts without adopting the main route table',
         : current) };
       assert.equal(guarded, true);
       if (args.includes('-c')) return { stdout: '' };
-      const objects = JSON.parse(options.input).nftables.filter(item => item.add).map(item => item.add);
+      const objects = JSON.parse(await fs.readFile(args.at(-1), 'utf8')).nftables.filter(item => item.add).map(item => item.add);
       current = objects.length ? { nftables: objects } : null;
       return { stdout: '' };
     } });
