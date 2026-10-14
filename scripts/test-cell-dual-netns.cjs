@@ -20,25 +20,31 @@ const mainCli = path.join(__dirname, '..', 'src', 'main-cell-cli.js');
 const root = '/tmp/awg-cell-dual-netns';
 const mainDir = path.join(root, 'main');
 const cellDir = path.join(root, 'cell');
+const cell2Dir = path.join(root, 'cell2');
 const deviceDir = path.join(root, 'device');
 fs.mkdirSync(mainDir, { recursive: true, mode: 0o700 });
 fs.mkdirSync(cellDir, { recursive: true, mode: 0o700 });
+fs.mkdirSync(cell2Dir, { recursive: true, mode: 0o700 });
 fs.mkdirSync(deviceDir, { recursive: true, mode: 0o700 });
 const endpoint = '198.51.100.1';
 const env = directory => ({ ...process.env, CELL_FIELD_STATE: directory,
   CELL_FIELD_CONTROLLER_PUBLIC: endpoint,
   CELL_FIELD_ROLE: directory === mainDir ? 'controller' : 'cell',
-  CELL_FIELD_INTERFACE: directory === mainDir ? 'awgmain8' : 'awgcell8',
-  CELL_FIELD_PERMANENT_INTERFACE: directory === mainDir ? 'awgmainp8' : 'awgcellp8',
+  CELL_FIELD_INTERFACE: directory === mainDir ? 'awgmain8'
+    : directory === cell2Dir ? 'awgcell9' : 'awgcell8',
+  CELL_FIELD_PERMANENT_INTERFACE: directory === mainDir ? 'awgmainp8'
+    : directory === cell2Dir ? 'awgcellp9' : 'awgcellp8',
   ...(directory === mainDir ? { CELL_FIELD_PRODUCT_MAIN: '1',
     AWG_MAIN_CELL_STATE_DIR: mainDir, AWG_MAIN_BOOTSTRAP_INTERFACE: 'awgmain8',
     AWG_MAIN_CONTROL_INTERFACE: 'awgmainp8', AWG_MAIN_BOOTSTRAP_PORT: '53081',
     AWG_MAIN_CONTROL_PORT: '53084', AWG_MAIN_REGISTRATION_PORT: '53082',
     AWG_MAIN_CONTROL_TCP_PORT: '53083', AWG_MAIN_BOOTSTRAP_ADDRESS: '10.90.8.1',
     AWG_MAIN_CONTROL_ADDRESS: '10.91.8.1', AWG_MAIN_ENDPOINT: endpoint } : {}),
-  ...(directory === cellDir ? { CELL_FIELD_PRODUCT_CELL: '1',
-    AWG_CELL_STATE_DIR: cellDir, AWG_CELL_BOOTSTRAP_INTERFACE: 'awgcell8',
-    AWG_CELL_CONTROL_INTERFACE: 'awgcellp8', AWG_CELL_USER_INTERFACE: 'awgcellu8',
+  ...(directory !== mainDir ? { CELL_FIELD_PRODUCT_CELL: '1',
+    AWG_CELL_STATE_DIR: directory,
+    AWG_CELL_BOOTSTRAP_INTERFACE: directory === cell2Dir ? 'awgcell9' : 'awgcell8',
+    AWG_CELL_CONTROL_INTERFACE: directory === cell2Dir ? 'awgcellp9' : 'awgcellp8',
+    AWG_CELL_USER_INTERFACE: directory === cell2Dir ? 'awgcellu9' : 'awgcellu8',
     AWG_CELL_USER_PORT: '51830' } : {}) });
 const ip = args => execFileSync('ip', args, { encoding: 'utf8', timeout: 30000,
   stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -46,9 +52,9 @@ const role = (namespace, directory, action, script = field) => JSON.parse(execFi
   ['netns', 'exec', namespace, process.execPath, script, action],
   { env: env(directory), encoding: 'utf8', timeout: 30000,
     stdio: ['ignore', 'pipe', 'pipe'] }));
-const runCellCli = (action, input = '') => JSON.parse(execFileSync('ip',
-  ['netns', 'exec', 'awgcell', process.execPath, cellCli, action],
-  { env: env(cellDir), input, encoding: 'utf8', timeout: 30000,
+const runCellCli = (action, input = '', namespace = 'awgcell', directory = cellDir) => JSON.parse(execFileSync('ip',
+  ['netns', 'exec', namespace, process.execPath, cellCli, action],
+  { env: env(directory), input, encoding: 'utf8', timeout: 30000,
     stdio: ['pipe', 'pipe', 'pipe'] }));
 const runMainCli = (...args) => execFileSync('ip',
   ['netns', 'exec', 'awgmain', process.execPath, mainCli, ...args],
@@ -82,12 +88,18 @@ function listen(script = mainCli, action = 'listen', expected = 'listening') {
 async function main() {
   ip(['netns', 'add', 'awgmain']);
   ip(['netns', 'add', 'awgcell']);
+  ip(['netns', 'add', 'awgcell2']);
   ip(['netns', 'add', 'awgdevice']);
   ip(['link', 'add', 'veth-main', 'type', 'veth', 'peer', 'name', 'veth-cell']);
   ip(['link', 'set', 'veth-main', 'netns', 'awgmain']);
   ip(['link', 'set', 'veth-cell', 'netns', 'awgcell']);
   ip(['-n', 'awgmain', 'address', 'add', `${endpoint}/30`, 'dev', 'veth-main']);
   ip(['-n', 'awgcell', 'address', 'add', '198.51.100.2/30', 'dev', 'veth-cell']);
+  ip(['link', 'add', 'veth-main2', 'type', 'veth', 'peer', 'name', 'veth-cell2']);
+  ip(['link', 'set', 'veth-main2', 'netns', 'awgmain']);
+  ip(['link', 'set', 'veth-cell2', 'netns', 'awgcell2']);
+  ip(['-n', 'awgmain', 'address', 'add', '198.51.100.9/30', 'dev', 'veth-main2']);
+  ip(['-n', 'awgcell2', 'address', 'add', '198.51.100.10/30', 'dev', 'veth-cell2']);
   ip(['link', 'add', 'veth-access', 'type', 'veth', 'peer', 'name', 'veth-device']);
   ip(['link', 'set', 'veth-access', 'netns', 'awgcell']);
   ip(['link', 'set', 'veth-device', 'netns', 'awgdevice']);
@@ -98,6 +110,12 @@ async function main() {
     ip(['-n', ns, 'link', 'set', 'lo', 'up']);
   }
   ip(['-n', 'awgcell', 'link', 'set', 'veth-access', 'up']);
+  ip(['-n', 'awgmain', 'link', 'set', 'veth-main2', 'up']);
+  ip(['-n', 'awgmain', 'route', 'replace', '198.51.100.8/30', 'dev', 'veth-main2',
+    'src', endpoint]);
+  ip(['-n', 'awgcell2', 'link', 'set', 'veth-cell2', 'up']);
+  ip(['-n', 'awgcell2', 'link', 'set', 'lo', 'up']);
+  ip(['-n', 'awgcell2', 'route', 'add', `${endpoint}/32`, 'via', '198.51.100.9']);
   ip(['-n', 'awgdevice', 'link', 'set', 'veth-device', 'up']);
   ip(['-n', 'awgdevice', 'link', 'set', 'lo', 'up']);
   ip(['netns', 'exec', 'awgcell', 'sysctl', '-qw', 'net.ipv4.ip_forward=1']);
@@ -254,13 +272,42 @@ async function main() {
       stage = 'cell-join-idempotency';
       assert.equal(runCellCli('join').status, 'ready');
       stage = 'controller-join-idempotency';
-      assert.equal(role('awgmain', mainDir, 'product-controller-join', permanentField).status, 'ready');
+      assert.equal(JSON.parse(runMainCli('join', invitationId)).status, 'ready');
+      stage = 'second-cell-registration';
+      const secondInvitation = runMainCli('issue', '10.90.8.3', '10.91.8.3');
+      const secondId = decodeAwgBootstrapInvitation(secondInvitation).id;
+      stage = 'second-cell-begin';
+      assert.equal(runCellCli('begin', secondInvitation, 'awgcell2', cell2Dir).status,
+        'bootstrap-ready');
+      stage = 'second-cell-register';
+      assert.equal(runCellCli('register', '', 'awgcell2', cell2Dir).status, 'registered');
+      assert.equal(JSON.parse(runMainCli('join', secondId)).status,
+        'waiting-for-permanent-path');
+      stage = 'second-cell-permanent-join';
+      let secondReady = false;
+      for (let attempt = 0; attempt < 12; attempt++) {
+        const result = runCellCli('join', '', 'awgcell2', cell2Dir);
+        if (result.status === 'ready') { secondReady = true; break; }
+        assert.equal(result.status, 'waiting-for-permanent-path');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      assert.equal(secondReady, true);
+      assert.equal(JSON.parse(runMainCli('join', secondId)).status, 'ready');
+      assert.equal(role('awgcell2', cell2Dir, 'product-status', permanentField).permanentReady, true);
+      stage = 'second-cell-settings-isolation';
+      fs.unlinkSync(path.join(mainDir, 'desired-payload.json'));
+      assert.equal(JSON.parse(runMainCli('publish', secondId)).revision, 1);
+      assert.equal(role('awgcell2', cell2Dir, 'sync', permanentField).status, 'applied');
+      const secondStatus = JSON.parse(runMainCli('settings-status', secondId));
+      const firstStatus = JSON.parse(runMainCli('settings-status', invitationId));
+      assert.equal(secondStatus.confirmedRevision, 1);
+      assert.equal(firstStatus.confirmedRevision, 6);
     } finally { recovered.child.kill('SIGTERM'); }
     stage = 'foreign-resource-readback';
     ip(['-n', 'awgcell', 'link', 'show', 'awgforeign2']);
     const foreignTable = JSON.parse(ip(['netns', 'exec', 'awgcell', 'nft', '-j', 'list', 'tables']));
     assert.ok(foreignTable.nftables.some(item => item.table?.name === 'foreign_keep'));
-    console.log('PASS isolated Main/Cell lifecycle, control recovery, user revocation and GeoIP filtering');
+    console.log('PASS isolated Main/two-Cell lifecycle, control recovery, settings isolation, user revocation and GeoIP filtering');
   } finally { listener.child.kill('SIGTERM'); }
 }
 main().catch(error => {
