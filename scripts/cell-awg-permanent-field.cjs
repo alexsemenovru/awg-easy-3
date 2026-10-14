@@ -26,6 +26,10 @@ const { CellAwgBootstrapCellRetirement } = require('../src/lib/CellAwgBootstrapC
 const { CellSettingsPublisher } = require('../src/lib/CellSettingsPublisher');
 const { CellSettingsReceiver } = require('../src/lib/CellSettingsReceiver');
 const { listenTunnelControlEndpoint, syncCellSettings } = require('../src/lib/CellControlService');
+const { openCellPermanentJoinHost } = require('../src/lib/CellPermanentJoinHost');
+const { CellAwgPermanentDeployment } = require('../src/lib/CellAwgPermanentDeployment');
+const { CellAwgPermanentRetirementGate } = require('../src/lib/CellAwgPermanentRetirementGate');
+const { joinPermanentController } = require('../src/lib/CellAwgPermanentJoin');
 
 const dir = process.env.CELL_FIELD_STATE;
 const role = process.env.CELL_FIELD_ROLE;
@@ -146,6 +150,43 @@ async function pathReady(parts, peerKey) {
 async function publishForCell(cellKey) { return new CellSettingsPublisher(file('desired.json'), identities(), cellKey); }
 async function main() {
   const permanent = parts();
+  if (action === 'product-controller-join' && role === 'controller') {
+    const deployment = new CellAwgPermanentDeployment({ stateDirectory: file('permanent') });
+    const gate = new CellAwgPermanentRetirementGate({ deployment });
+    const temporary = bootstrapParts();
+    const config = JSON.parse(await fs.readFile(file('config.json'), 'utf8'));
+    const runtime = new CellAwgBootstrapRuntime({ ...temporary, store: enrollment(),
+      interfaceName: tempName, privateKey: config.privateKey, listenPort: 53081,
+      controllerAddress: '10.90.8.1', registrationPort: 53082,
+      profile: config.profile, verifyPermanent: item => gate.verifyController(item) });
+    const coordinator = new CellAwgBootstrapCoordinator({ store: runtime.store, runtime });
+    console.log(JSON.stringify(await joinPermanentController({ bootstrapStore: enrollment(),
+      invitationId: (await enrolled()).id, deployment, gate, coordinator,
+      interfaceName: permName, privateKey: config.privateKey })));
+    return;
+  }
+  if (action === 'product-controller-status' && role === 'controller') {
+    const deployment = new CellAwgPermanentDeployment({ stateDirectory: file('permanent') });
+    const gate = new CellAwgPermanentRetirementGate({ deployment });
+    const record = await enrolled();
+    console.log(JSON.stringify({ permanentReady: await gate.verifyController(record),
+      bootstrapPhase: record.phase }));
+    return;
+  }
+  if (action === 'product-join' && role === 'cell') {
+    const host = openCellPermanentJoinHost({ stateDirectory: dir,
+      interfaceName: permName, temporaryInterfaceName: tempName,
+      connectionStore: connection(), bootstrap: bootstrapParts() });
+    console.log(JSON.stringify(await host.join()));
+    return;
+  }
+  if (action === 'product-status' && role === 'cell') {
+    const deployment = new CellAwgPermanentDeployment({ stateDirectory: file('permanent') });
+    const gate = new CellAwgPermanentRetirementGate({ deployment });
+    console.log(JSON.stringify({ permanentReady: await gate.verifyCell(await connection().read()),
+      temporaryRetired: (await bootstrapParts().lifecycle.load()).phase === 'empty' }));
+    return;
+  }
   if (action === 'permanent-init') {
     const config = await desiredConfig();
     const saved = await permanent.lifecycle.load();
@@ -198,9 +239,14 @@ async function main() {
     return;
   }
   if (action === 'control-listen' && role === 'controller') {
+    const deployment = new CellAwgPermanentDeployment({ stateDirectory: file('permanent') });
+    const plan = await deployment.store.read();
+    const lifecycle = plan
+      ? deployment.buildPath({ stateDirectory: deployment.stateDirectory, plan }).lifecycle
+      : permanent.lifecycle;
     const listener = await listenTunnelControlEndpoint({ address: mainAddress, port: controlPort,
       identityStore: identities(), bootstrapStore: enrollment(),
-      lifecycle: permanent.lifecycle, publisherForCell: key =>
+      lifecycle, publisherForCell: key =>
         new CellSettingsPublisher(file('desired.json'), identities(), key) });
     console.log(JSON.stringify({ controlListening: true, transport: 'AWG' }));
     process.on('SIGTERM', () => listener.close());

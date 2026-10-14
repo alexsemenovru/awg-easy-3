@@ -82,26 +82,30 @@ async function main() {
     assert.equal(cell.connection, 'registered');
     assert.equal(controller.verified, true);
     assert.equal(controller.invitations[0].status, 'consumed');
-    stage = 'permanent-controller-init';
-    assert.equal(role('awgmain', mainDir, 'permanent-init', permanentField).permanentReady, true);
-    stage = 'permanent-cell-init';
-    assert.equal(role('awgcell', cellDir, 'permanent-init', permanentField).permanentReady, true);
-    stage = 'permanent-handshake';
-    let ready = false;
-    for (let attempt = 0; attempt < 12; attempt++) {
-      const main = role('awgmain', mainDir, 'status', permanentField);
-      const peer = role('awgcell', cellDir, 'status', permanentField);
-      if (main.permanentReady && peer.permanentReady) { ready = true; break; }
-      await new Promise(resolve => setTimeout(resolve, 1000));
-    }
-    assert.equal(ready, true);
-    stage = 'temporary-retirement';
-    role('awgmain', mainDir, 'controller-close', permanentField);
-    role('awgcell', cellDir, 'cell-retire', permanentField);
-    stage = 'control-sync';
+    stage = 'product-controller-join-initial';
+    assert.equal(role('awgmain', mainDir, 'product-controller-join', permanentField).status,
+      'waiting-for-permanent-path');
     const control = listen(permanentField, 'control-listen', 'controlListening');
     try {
       await control.ready;
+      stage = 'product-permanent-join';
+      let ready = false;
+      for (let attempt = 0; attempt < 12; attempt++) {
+        const result = role('awgcell', cellDir, 'product-join', permanentField);
+        if (result.status === 'ready') { ready = true; break; }
+        assert.equal(result.status, 'waiting-for-permanent-path');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      assert.equal(ready, true);
+      stage = 'temporary-retirement';
+      assert.equal(role('awgmain', mainDir, 'product-controller-join', permanentField).status, 'ready');
+      const peer = role('awgcell', cellDir, 'product-status', permanentField);
+      assert.equal(peer.permanentReady, true);
+      assert.equal(peer.temporaryRetired, true);
+      const controllerPath = role('awgmain', mainDir, 'product-controller-status', permanentField);
+      assert.equal(controllerPath.permanentReady, true);
+      assert.equal(controllerPath.bootstrapPhase, 'closed');
+      stage = 'control-sync';
       stage = 'control-publish';
       assert.equal(role('awgmain', mainDir, 'publish', permanentField).revision, 1);
       stage = 'control-sync-request';
@@ -111,9 +115,7 @@ async function main() {
       const synced = role('awgmain', mainDir, 'status', permanentField);
       assert.equal(synced.applied, synced.desired);
     } finally { control.child.kill('SIGTERM'); }
-    assert.equal(role('awgmain', mainDir, 'status', permanentField).permanentReady, true);
-    assert.equal(role('awgcell', cellDir, 'status', permanentField).permanentReady, true);
-    console.log('PASS two isolated network namespaces register, sync, and retire bootstrap over real AWG');
+    console.log('PASS two isolated network namespaces register, product-join both sides, sync, and retire bootstrap over real AWG');
   } finally { listener.child.kill('SIGTERM'); }
 }
 main().catch(error => {

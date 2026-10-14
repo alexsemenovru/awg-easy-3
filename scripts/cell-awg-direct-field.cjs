@@ -105,7 +105,11 @@ async function main() {
     const code = await coordinator.issue({ controllerKey: identity.publicKey,
       endpointHost, endpointPort: listenPort, registrationPort,
       controllerAddress, cellAddress, serverPublicKey: config.publicKey,
-      profile: config.profile, lifetimeMs: 30 * 60 * 1000 });
+      profile: config.profile, lifetimeMs: 30 * 60 * 1000,
+      permanentDescriptor: { version: 1, endpointHost, endpointPort: 53084,
+        controllerAddress: '10.91.8.1', cellAddress: '10.91.8.2',
+        controlPort: 53083, serverPublicKey: config.publicKey,
+        profile: config.profile } });
     const handle = await fs.open(file('invitation'), 'wx', 0o600);
     try { await handle.writeFile(code); await handle.sync(); }
     finally { await handle.close(); }
