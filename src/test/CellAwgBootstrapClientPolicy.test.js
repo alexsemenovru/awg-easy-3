@@ -9,6 +9,10 @@ test('cell temporary interface admits only registration TCP to the controller', 
     cellAddress: '10.90.0.2', controllerAddress: '10.90.0.1', registrationPort: 51822 });
   const rules = snapshot.nftables.filter(item => item.rule).map(item => item.rule);
   assert.equal(rules.length, 7);
+  assert.deepEqual(snapshot.nftables.map(item => Object.keys(item)[0]), [
+    'table', 'chain', 'rule', 'rule', 'chain', 'rule', 'rule', 'rule',
+    'chain', 'rule', 'rule',
+  ]);
   assert.deepEqual(rules[0].expr.at(-2).match.left.payload, { protocol: 'tcp', field: 'sport' });
   assert.deepEqual(rules[1].expr.at(-1), { drop: null });
   assert.deepEqual(rules[2].expr.at(-2).match.left.payload, { protocol: 'tcp', field: 'dport' });

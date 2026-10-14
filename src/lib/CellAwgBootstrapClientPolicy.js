@@ -33,7 +33,14 @@ function bootstrapClientPolicySnapshot({ interfaceName, cellAddress,
   add('output', `oifname "${interfaceName}" drop`);
   add('forward', `iifname "${interfaceName}" drop`);
   add('forward', `oifname "${interfaceName}" drop`);
-  return normalizeNftSnapshot({ nftables }, TABLE);
+  // nft list table groups each chain immediately with its rules. Mirror that
+  // readback order so the installed policy retains an exact ownership proof.
+  const ordered = [nftables[0]];
+  for (const hook of ['input', 'output', 'forward']) {
+    ordered.push(...nftables.filter(item => item.chain?.name === hook));
+    ordered.push(...nftables.filter(item => item.rule?.chain === hook));
+  }
+  return normalizeNftSnapshot({ nftables: ordered }, TABLE);
 }
 
 module.exports = { bootstrapClientPolicySnapshot };
