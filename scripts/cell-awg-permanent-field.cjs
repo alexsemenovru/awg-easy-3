@@ -29,6 +29,7 @@ const { listenTunnelControlEndpoint, syncCellSettings } = require('../src/lib/Ce
 const { CellAwgPermanentDeployment } = require('../src/lib/CellAwgPermanentDeployment');
 const { CellAwgPermanentRetirementGate } = require('../src/lib/CellAwgPermanentRetirementGate');
 const { joinPermanentController } = require('../src/lib/CellAwgPermanentJoin');
+const { openRegisteredCellHost } = require('../src/lib/CellRegisteredHost');
 
 const dir = process.env.CELL_FIELD_STATE;
 const role = process.env.CELL_FIELD_ROLE;
@@ -179,6 +180,15 @@ async function main() {
     const gate = new CellAwgPermanentRetirementGate({ deployment });
     console.log(JSON.stringify({ permanentReady: await gate.verifyCell(await connection().read()),
       temporaryRetired: (await bootstrapParts().lifecycle.load()).phase === 'empty' }));
+    return;
+  }
+  if (action === 'product-sync' && role === 'cell') {
+    const server = JSON.parse(await fs.readFile(file('cell-server.json'), 'utf8'));
+    const host = await openRegisteredCellHost({ stateDirectory: dir,
+      runtimeDirectory: file('user-runtime'), connectionStore: connection(),
+      identityStore: identities(), bootstrap: bootstrapParts(),
+      temporaryInterfaceName: tempName, server });
+    console.log(JSON.stringify(await host.syncSettings()));
     return;
   }
   if (action === 'permanent-init') {

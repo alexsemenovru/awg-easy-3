@@ -5,6 +5,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync, spawn } = require('node:child_process');
+const { AwgKeyManager } = require('../src/lib/AwgKeyManager');
+const { generateOfficialProfile } = require('../src/lib/Awg3Config');
 
 assert.equal(process.env.AWG_CELL_ISOLATED_TEST, '1');
 assert.notEqual(fs.readlinkSync('/proc/self/ns/net'), fs.readlinkSync('/proc/1/ns/net'));
@@ -75,6 +77,13 @@ async function main() {
   ip(['-n', 'awgcell', 'link', 'add', 'awgforeign2', 'type', 'dummy']);
   ip(['-n', 'awgcell', 'link', 'set', 'awgforeign2', 'up']);
   ip(['netns', 'exec', 'awgcell', 'nft', 'add', 'table', 'inet', 'foreign_keep']);
+  const userKeys = await new AwgKeyManager().generateKeyPair();
+  fs.writeFileSync(path.join(cellDir, 'cell-server.json'), JSON.stringify({
+    interfaceName: 'awgcellu8', wanInterface: 'veth-cell',
+    privateKey: userKeys.privateKey, listenPort: 51830,
+    address4: '10.88.8.1', ipv4Subnet: '10.88.8.0/24',
+    profile: generateOfficialProfile(),
+  }), { flag: 'wx', mode: 0o600 });
   stage = 'controller-init';
   assert.equal(role('awgmain', mainDir, 'controller-init').ready, true);
   stage = 'controller-issue';
@@ -127,8 +136,10 @@ async function main() {
       stage = 'control-publish';
       assert.equal(role('awgmain', mainDir, 'publish', permanentField).revision, 1);
       stage = 'control-sync-request';
-      const result = role('awgcell', cellDir, 'sync', permanentField);
+      const result = role('awgcell', cellDir, 'product-sync', permanentField);
       assert.equal(result.status, 'applied');
+      ip(['-n', 'awgcell', 'link', 'show', 'awgcellu8']);
+      ip(['netns', 'exec', 'awgcell', 'nft', 'list', 'table', 'inet', 'awg_easy_3']);
       stage = 'control-sync-ack';
       const synced = role('awgmain', mainDir, 'status', permanentField);
       assert.equal(synced.applied, synced.desired);
@@ -139,7 +150,7 @@ async function main() {
       const timer = setTimeout(() => reject(new Error('control listener did not exit')), 5000);
       control.child.once('exit', () => { clearTimeout(timer); resolve(); });
     });
-    assert.throws(() => role('awgcell', cellDir, 'sync', permanentField));
+    assert.throws(() => role('awgcell', cellDir, 'product-sync', permanentField));
     assert.equal(role('awgmain', mainDir, 'product-controller-status', permanentField).permanentReady, true);
     assert.equal(runCellCli('join').status, 'waiting-for-permanent-path');
     stage = 'control-recovery';
@@ -147,7 +158,7 @@ async function main() {
     try {
       await recovered.ready;
       assert.equal(role('awgmain', mainDir, 'publish', permanentField).revision, 2);
-      assert.equal(role('awgcell', cellDir, 'sync', permanentField).status, 'applied');
+      assert.equal(role('awgcell', cellDir, 'product-sync', permanentField).status, 'applied');
       const synced = role('awgmain', mainDir, 'status', permanentField);
       assert.equal(synced.applied, synced.desired);
       stage = 'cell-join-idempotency';
@@ -167,6 +178,8 @@ main().catch(error => {
   const classification = ['timeout', 'refused', 'network', 'receiver', 'connection',
     'tunnel', 'route', 'identity', 'handshake', 'revision', 'registered', 'required']
     .filter(word => detail.toLowerCase().includes(word)).join(',') || 'unclassified';
-  console.error(`Dual-netns Cell lab failed at ${stage}; status ${error.status ?? 'unknown'}; class ${classification}; invitation and keys withheld`);
+  const safeDetail = detail.split(/\r?\n/)[0].replace(/[A-Za-z0-9+/_-]{40,}={0,2}/g, '[redacted]')
+    .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '[ip]').slice(0, 160);
+  console.error(`Dual-netns Cell lab failed at ${stage}; status ${error.status ?? 'unknown'}; class ${classification}; ${safeDetail}; invitation and keys withheld`);
   process.exitCode = 1;
 });

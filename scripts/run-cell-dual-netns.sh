@@ -4,7 +4,7 @@
 set -eu
 
 [ "$(id -u)" -eq 0 ] || { echo 'Root required for isolated network namespaces' >&2; exit 1; }
-for tool in unshare mount ip nft node awg amneziawg-go; do
+for tool in unshare mount ip nft node awg awg-quick wg amneziawg-go; do
   command -v "$tool" >/dev/null 2>&1 || { echo "Missing lab tool: $tool" >&2; exit 1; }
 done
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
