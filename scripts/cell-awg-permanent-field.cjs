@@ -282,7 +282,11 @@ async function main() {
   if (action === 'publish' && role === 'controller') {
     const record = await enrolled();
     const publisher = await publishForCell(record.cellKey);
-    const desired = await publisher.publish({ schema: 1, clients: [] });
+    let payload;
+    try { payload = JSON.parse(await fs.readFile(file('desired-payload.json'), 'utf8')); }
+    catch (error) { if (error.code !== 'ENOENT') throw error;
+      payload = { schema: 1, clients: [] }; }
+    const desired = await publisher.publish(payload);
     console.log(JSON.stringify({ revision: desired.revision }));
     return;
   }

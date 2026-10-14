@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync, spawn } = require('node:child_process');
 const { AwgKeyManager } = require('../src/lib/AwgKeyManager');
-const { generateOfficialProfile } = require('../src/lib/Awg3Config');
+const { generateOfficialProfile, renderInterfaceFields } = require('../src/lib/Awg3Config');
 
 assert.equal(process.env.AWG_CELL_ISOLATED_TEST, '1');
 assert.notEqual(fs.readlinkSync('/proc/self/ns/net'), fs.readlinkSync('/proc/1/ns/net'));
@@ -18,8 +18,10 @@ const cellCli = path.join(__dirname, '..', 'src', 'cell-cli.js');
 const root = '/tmp/awg-cell-dual-netns';
 const mainDir = path.join(root, 'main');
 const cellDir = path.join(root, 'cell');
+const deviceDir = path.join(root, 'device');
 fs.mkdirSync(mainDir, { recursive: true, mode: 0o700 });
 fs.mkdirSync(cellDir, { recursive: true, mode: 0o700 });
+fs.mkdirSync(deviceDir, { recursive: true, mode: 0o700 });
 const endpoint = '198.51.100.1';
 const env = directory => ({ ...process.env, CELL_FIELD_STATE: directory,
   CELL_FIELD_CONTROLLER_PUBLIC: endpoint,
@@ -64,25 +66,37 @@ function listen(script = field, action = 'controller-listen', expected = 'listen
 async function main() {
   ip(['netns', 'add', 'awgmain']);
   ip(['netns', 'add', 'awgcell']);
+  ip(['netns', 'add', 'awgdevice']);
   ip(['link', 'add', 'veth-main', 'type', 'veth', 'peer', 'name', 'veth-cell']);
   ip(['link', 'set', 'veth-main', 'netns', 'awgmain']);
   ip(['link', 'set', 'veth-cell', 'netns', 'awgcell']);
   ip(['-n', 'awgmain', 'address', 'add', `${endpoint}/30`, 'dev', 'veth-main']);
   ip(['-n', 'awgcell', 'address', 'add', '198.51.100.2/30', 'dev', 'veth-cell']);
+  ip(['link', 'add', 'veth-access', 'type', 'veth', 'peer', 'name', 'veth-device']);
+  ip(['link', 'set', 'veth-access', 'netns', 'awgcell']);
+  ip(['link', 'set', 'veth-device', 'netns', 'awgdevice']);
+  ip(['-n', 'awgcell', 'address', 'add', '198.51.100.5/30', 'dev', 'veth-access']);
+  ip(['-n', 'awgdevice', 'address', 'add', '198.51.100.6/30', 'dev', 'veth-device']);
   for (const [ns, iface] of [['awgmain', 'veth-main'], ['awgcell', 'veth-cell']]) {
     ip(['-n', ns, 'link', 'set', iface, 'up']);
     ip(['-n', ns, 'link', 'set', 'lo', 'up']);
   }
+  ip(['-n', 'awgcell', 'link', 'set', 'veth-access', 'up']);
+  ip(['-n', 'awgdevice', 'link', 'set', 'veth-device', 'up']);
+  ip(['-n', 'awgdevice', 'link', 'set', 'lo', 'up']);
+  ip(['netns', 'exec', 'awgcell', 'sysctl', '-qw', 'net.ipv4.ip_forward=1']);
   stage = 'foreign-resources';
   ip(['-n', 'awgcell', 'link', 'add', 'awgforeign2', 'type', 'dummy']);
   ip(['-n', 'awgcell', 'link', 'set', 'awgforeign2', 'up']);
   ip(['netns', 'exec', 'awgcell', 'nft', 'add', 'table', 'inet', 'foreign_keep']);
   const userKeys = await new AwgKeyManager().generateKeyPair();
+  const deviceKeys = await new AwgKeyManager().generateKeyPair();
+  const userProfile = generateOfficialProfile();
   fs.writeFileSync(path.join(cellDir, 'cell-server.json'), JSON.stringify({
     interfaceName: 'awgcellu8', wanInterface: 'veth-cell',
     privateKey: userKeys.privateKey, listenPort: 51830,
     address4: '10.88.8.1', ipv4Subnet: '10.88.8.0/24',
-    profile: generateOfficialProfile(),
+    profile: userProfile,
   }), { flag: 'wx', mode: 0o600 });
   stage = 'controller-init';
   assert.equal(role('awgmain', mainDir, 'controller-init').ready, true);
@@ -157,10 +171,23 @@ async function main() {
     const recovered = listen(permanentField, 'control-listen', 'controlListening');
     try {
       await recovered.ready;
+      fs.writeFileSync(path.join(mainDir, 'desired-payload.json'), JSON.stringify({ schema: 1,
+        clients: [{ id: 'synthetic-device', publicKey: deviceKeys.publicKey,
+          address4: '10.88.8.2', networkGroup: 'guest', ipv4Enabled: true,
+          ipv6Enabled: false, geoPolicy: { mode: 'off', countries: [] } }] }),
+      { flag: 'wx', mode: 0o600 });
       assert.equal(role('awgmain', mainDir, 'publish', permanentField).revision, 2);
       assert.equal(role('awgcell', cellDir, 'product-sync', permanentField).status, 'applied');
       const synced = role('awgmain', mainDir, 'status', permanentField);
       assert.equal(synced.applied, synced.desired);
+      stage = 'synthetic-user-traffic';
+      fs.writeFileSync(path.join(deviceDir, 'awgdevice8.conf'),
+        `[Interface]\nPrivateKey = ${deviceKeys.privateKey}\nAddress = 10.88.8.2/32\n`
+        + `${renderInterfaceFields(userProfile)}\n[Peer]\nPublicKey = ${userKeys.publicKey}\n`
+        + 'AllowedIPs = 198.51.100.1/32\nEndpoint = 198.51.100.5:51830\nPersistentKeepalive = 5\n',
+      { flag: 'wx', mode: 0o600 });
+      ip(['netns', 'exec', 'awgdevice', 'awg-quick', 'up', path.join(deviceDir, 'awgdevice8.conf')]);
+      ip(['netns', 'exec', 'awgdevice', 'ping', '-c', '3', '-W', '2', '198.51.100.1']);
       stage = 'cell-join-idempotency';
       assert.equal(runCellCli('join').status, 'ready');
       stage = 'controller-join-idempotency';
@@ -170,7 +197,7 @@ async function main() {
     ip(['-n', 'awgcell', 'link', 'show', 'awgforeign2']);
     const foreignTable = JSON.parse(ip(['netns', 'exec', 'awgcell', 'nft', '-j', 'list', 'tables']));
     assert.ok(foreignTable.nftables.some(item => item.table?.name === 'foreign_keep'));
-    console.log('PASS isolated Main/Cell lifecycle, control recovery and foreign-resource isolation');
+    console.log('PASS isolated Main/Cell lifecycle, control recovery, foreign-resource isolation and synthetic user traffic');
   } finally { listener.child.kill('SIGTERM'); }
 }
 main().catch(error => {
