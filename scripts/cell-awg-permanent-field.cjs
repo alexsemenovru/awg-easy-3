@@ -26,7 +26,6 @@ const { CellAwgBootstrapCellRetirement } = require('../src/lib/CellAwgBootstrapC
 const { CellSettingsPublisher } = require('../src/lib/CellSettingsPublisher');
 const { CellSettingsReceiver } = require('../src/lib/CellSettingsReceiver');
 const { listenTunnelControlEndpoint, syncCellSettings } = require('../src/lib/CellControlService');
-const { openCellPermanentJoinHost } = require('../src/lib/CellPermanentJoinHost');
 const { CellAwgPermanentDeployment } = require('../src/lib/CellAwgPermanentDeployment');
 const { CellAwgPermanentRetirementGate } = require('../src/lib/CellAwgPermanentRetirementGate');
 const { joinPermanentController } = require('../src/lib/CellAwgPermanentJoin');
@@ -61,14 +60,16 @@ function parts(prefix = 'perm-', name = permName, guardTable = 'awg_easy_3_routi
   };
 }
 function bootstrapParts() {
-  const guard = new CellRoutingGuard({ journalPath: file('guard.json'),
+  const bootstrapFile = name => file(process.env.CELL_FIELD_PRODUCT_CELL === '1'
+    ? path.join('bootstrap', name) : name);
+  const guard = new CellRoutingGuard({ journalPath: bootstrapFile('guard.json'),
     table: 'awg_easy_3_bootstrap_guard' });
   const activateGuard = () => guard.protect([tempName]);
   return { guard,
-    lifecycle: new CellAwgLifecycle({ journalPath: file('lifecycle.json'), activateGuard }),
-    awg: new CellAwgTransaction({ journalPath: file('awg.json'), activateGuard }),
-    routes: new CellRouteTransaction({ journalPath: file('routes.json'), activateGuard }),
-    firewall: new CellNftTransaction({ journalPath: file('firewall.json'),
+    lifecycle: new CellAwgLifecycle({ journalPath: bootstrapFile('lifecycle.json'), activateGuard }),
+    awg: new CellAwgTransaction({ journalPath: bootstrapFile('awg.json'), activateGuard }),
+    routes: new CellRouteTransaction({ journalPath: bootstrapFile('routes.json'), activateGuard }),
+    firewall: new CellNftTransaction({ journalPath: bootstrapFile('firewall.json'),
       activateGuard, table: 'awg_easy_3_bootstrap' }),
   };
 }
@@ -171,13 +172,6 @@ async function main() {
     const record = await enrolled();
     console.log(JSON.stringify({ permanentReady: await gate.verifyController(record),
       bootstrapPhase: record.phase }));
-    return;
-  }
-  if (action === 'product-join' && role === 'cell') {
-    const host = openCellPermanentJoinHost({ stateDirectory: dir,
-      interfaceName: permName, temporaryInterfaceName: tempName,
-      connectionStore: connection(), bootstrap: bootstrapParts() });
-    console.log(JSON.stringify(await host.join()));
     return;
   }
   if (action === 'product-status' && role === 'cell') {

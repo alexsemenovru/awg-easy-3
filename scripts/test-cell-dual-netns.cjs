@@ -12,6 +12,7 @@ const netnsMount = fs.statfsSync('/run/netns');
 assert.equal(netnsMount.type, 0x01021994); // tmpfs; no persistent host netns entries
 const field = path.join(__dirname, 'cell-awg-direct-field.cjs');
 const permanentField = path.join(__dirname, 'cell-awg-permanent-field.cjs');
+const cellCli = path.join(__dirname, '..', 'src', 'cell-cli.js');
 const root = '/tmp/awg-cell-dual-netns';
 const mainDir = path.join(root, 'main');
 const cellDir = path.join(root, 'cell');
@@ -22,13 +23,21 @@ const env = directory => ({ ...process.env, CELL_FIELD_STATE: directory,
   CELL_FIELD_CONTROLLER_PUBLIC: endpoint,
   CELL_FIELD_ROLE: directory === mainDir ? 'controller' : 'cell',
   CELL_FIELD_INTERFACE: directory === mainDir ? 'awgmain8' : 'awgcell8',
-  CELL_FIELD_PERMANENT_INTERFACE: directory === mainDir ? 'awgmainp8' : 'awgcellp8' });
+  CELL_FIELD_PERMANENT_INTERFACE: directory === mainDir ? 'awgmainp8' : 'awgcellp8',
+  ...(directory === cellDir ? { CELL_FIELD_PRODUCT_CELL: '1',
+    AWG_CELL_STATE_DIR: cellDir, AWG_CELL_BOOTSTRAP_INTERFACE: 'awgcell8',
+    AWG_CELL_CONTROL_INTERFACE: 'awgcellp8', AWG_CELL_USER_INTERFACE: 'awgcellu8',
+    AWG_CELL_USER_PORT: '51830' } : {}) });
 const ip = args => execFileSync('ip', args, { encoding: 'utf8', timeout: 30000,
   stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 const role = (namespace, directory, action, script = field) => JSON.parse(execFileSync('ip',
   ['netns', 'exec', namespace, process.execPath, script, action],
   { env: env(directory), encoding: 'utf8', timeout: 30000,
     stdio: ['ignore', 'pipe', 'pipe'] }));
+const runCellCli = (action, input = '') => JSON.parse(execFileSync('ip',
+  ['netns', 'exec', 'awgcell', process.execPath, cellCli, action],
+  { env: env(cellDir), input, encoding: 'utf8', timeout: 30000,
+    stdio: ['pipe', 'pipe', 'pipe'] }));
 let stage = 'namespaces';
 
 function listen(script = field, action = 'controller-listen', expected = 'listening') {
@@ -69,17 +78,16 @@ async function main() {
   fs.copyFileSync(path.join(mainDir, 'invitation'), path.join(cellDir, 'invitation'));
   fs.chmodSync(path.join(cellDir, 'invitation'), 0o600);
   stage = 'cell-begin';
-  assert.equal(role('awgcell', cellDir, 'cell-begin').pending, true);
+  assert.equal(runCellCli('begin', fs.readFileSync(path.join(cellDir, 'invitation'), 'utf8')).status,
+    'bootstrap-ready');
   stage = 'cell-provision';
-  assert.equal(role('awgcell', cellDir, 'cell-provision').ready, true);
+  assert.equal(runCellCli('resume').status, 'bootstrap-ready');
   stage = 'registration';
   const listener = listen();
   try {
     await listener.ready;
-    assert.equal(role('awgcell', cellDir, 'cell-register').status, 'registered');
-    const cell = role('awgcell', cellDir, 'cell-status');
+    assert.equal(runCellCli('register').status, 'registered');
     const controller = role('awgmain', mainDir, 'controller-status');
-    assert.equal(cell.connection, 'registered');
     assert.equal(controller.verified, true);
     assert.equal(controller.invitations[0].status, 'consumed');
     stage = 'product-controller-join-initial';
@@ -91,7 +99,7 @@ async function main() {
       stage = 'product-permanent-join';
       let ready = false;
       for (let attempt = 0; attempt < 12; attempt++) {
-        const result = role('awgcell', cellDir, 'product-join', permanentField);
+        const result = runCellCli('join');
         if (result.status === 'ready') { ready = true; break; }
         assert.equal(result.status, 'waiting-for-permanent-path');
         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -115,7 +123,24 @@ async function main() {
       const synced = role('awgmain', mainDir, 'status', permanentField);
       assert.equal(synced.applied, synced.desired);
     } finally { control.child.kill('SIGTERM'); }
-    console.log('PASS two isolated network namespaces register, product-join both sides, sync, and retire bootstrap over real AWG');
+    stage = 'control-outage';
+    await new Promise((resolve, reject) => {
+      if (control.child.exitCode !== null) return resolve();
+      const timer = setTimeout(() => reject(new Error('control listener did not exit')), 5000);
+      control.child.once('exit', () => { clearTimeout(timer); resolve(); });
+    });
+    assert.throws(() => role('awgcell', cellDir, 'sync', permanentField));
+    assert.equal(role('awgmain', mainDir, 'product-controller-status', permanentField).permanentReady, true);
+    stage = 'control-recovery';
+    const recovered = listen(permanentField, 'control-listen', 'controlListening');
+    try {
+      await recovered.ready;
+      assert.equal(role('awgmain', mainDir, 'publish', permanentField).revision, 2);
+      assert.equal(role('awgcell', cellDir, 'sync', permanentField).status, 'applied');
+      const synced = role('awgmain', mainDir, 'status', permanentField);
+      assert.equal(synced.applied, synced.desired);
+    } finally { recovered.child.kill('SIGTERM'); }
+    console.log('PASS isolated Main/Cell AWG registration, product join, sync, outage and recovery');
   } finally { listener.child.kill('SIGTERM'); }
 }
 main().catch(error => {
