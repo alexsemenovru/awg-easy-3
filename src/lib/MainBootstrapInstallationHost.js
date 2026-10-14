@@ -54,6 +54,14 @@ async function openMainBootstrapInstallationHost({ stateDirectory, interfaceName
     || !Array.isArray(resources.udpPorts) || resources.udpPorts.length !== 2
     || resources.udpPorts[0] !== listenPort
     || new Set(resources.udpPorts).size !== 2
+    || !Array.isArray(resources.userInterfaceNames)
+    || resources.userInterfaceNames.length !== 1
+    || !validName(resources.userInterfaceNames[0])
+    || resources.interfaceNames.includes(resources.userInterfaceNames[0])
+    || !Array.isArray(resources.userUdpPorts)
+    || resources.userUdpPorts.length !== 1
+    || !validPort(resources.userUdpPorts[0])
+    || resources.udpPorts.includes(resources.userUdpPorts[0])
     || !Array.isArray(resources.nftTables)
     || !['awg_easy_3_bootstrap', 'awg_easy_3_bootstrap_guard',
       'awg_easy_3_control', 'awg_easy_3_control_guard']
@@ -151,7 +159,9 @@ async function openMainBootstrapInstallationHost({ stateDirectory, interfaceName
       const profile = generateOfficialProfile();
       const config = await configStore.create({ version: 1, ...keys, profile });
       const spec = await prepareBootstrapDevice({ interfaceName, listenPort,
-        controllerAddress, privateKey: config.privateKey, profile, runner });
+        controllerAddress, privateKey: config.privateKey, profile,
+        userInterfaces: resources.userInterfaceNames,
+        userUdpPorts: resources.userUdpPorts, runner });
       await provisioner.initialize(spec);
       const { runtime } = await coordinator(config);
       await runtime.recover();
@@ -168,7 +178,9 @@ async function openMainBootstrapInstallationHost({ stateDirectory, interfaceName
         }
         await preflight(resources);
         const spec = await prepareBootstrapDevice({ interfaceName, listenPort,
-          controllerAddress, privateKey: config.privateKey, profile: config.profile, runner });
+          controllerAddress, privateKey: config.privateKey, profile: config.profile,
+          userInterfaces: resources.userInterfaceNames,
+          userUdpPorts: resources.userUdpPorts, runner });
         await provisioner.initialize(spec);
       } else if (records.every(item => item.phase === 'closed')) {
         await provisioner.recover();
@@ -226,6 +238,12 @@ async function openMainBootstrapInstallationHost({ stateDirectory, interfaceName
         keyManager };
       return permanentRuntime ? permanentRuntime.join(options)
         : joinPermanentController({ ...options, deployment, gate });
+    }),
+    recoverPermanentBoot: () => locked(async () => {
+      if (!await deployment.store.read()) return { configured: false };
+      const runtime = await openPermanentControllerRuntime({
+        stateDirectory: file('permanent'), deployment, keyManager });
+      return runtime.recoverBoot();
     }),
     publish: (invitationId, settings) => locked(async () => {
       const record = await registeredRecord(invitationId);

@@ -11,18 +11,23 @@ const environment = () => ({ AWG_MAIN_CELL_STATE_DIR: path.resolve('main-state')
   AWG_MAIN_BOOTSTRAP_PORT: '53081', AWG_MAIN_CONTROL_PORT: '53084',
   AWG_MAIN_REGISTRATION_PORT: '53082', AWG_MAIN_CONTROL_TCP_PORT: '53083',
   AWG_MAIN_BOOTSTRAP_ADDRESS: '10.90.8.1', AWG_MAIN_CONTROL_ADDRESS: '10.91.8.1',
-  AWG_MAIN_ENDPOINT: '203.0.113.1' });
+  AWG_MAIN_ENDPOINT: '203.0.113.1', AWG_MAIN_USER_INTERFACE: 'awg0',
+  AWG_MAIN_USER_PORT: '51820' });
 
 test('Main CLI reserves dedicated interfaces, UDP ports and nft tables', () => {
   const config = configFromEnvironment(environment());
   assert.deepEqual(config.resources.interfaceNames, ['awgmainb0', 'awgmainc0']);
   assert.deepEqual(config.resources.udpPorts, [53081, 53084]);
+  assert.deepEqual(config.resources.userInterfaceNames, ['awg0']);
+  assert.deepEqual(config.resources.userUdpPorts, [51820]);
   assert.ok(config.resources.nftTables.includes('awg_easy_3_control_guard'));
   assert.throws(() => configFromEnvironment({ ...environment(), AWG_MAIN_CONTROL_PORT: '0' }));
   assert.throws(() => configFromEnvironment({ ...environment(),
     AWG_MAIN_CONTROL_INTERFACE: 'awgmainb0' }));
   assert.throws(() => configFromEnvironment({ ...environment(),
     AWG_MAIN_BOOTSTRAP_PORT: '53084' }));
+  assert.throws(() => configFromEnvironment({ ...environment(),
+    AWG_MAIN_USER_PORT: '53081' }));
 });
 
 test('Main CLI validates arity before opening host and emits only bounded status', async () => {
@@ -83,4 +88,35 @@ test('Main CLI rejects oversized settings before opening host state', async () =
     env: environment(), input: Readable.from(['x'.repeat(2 * 1024 * 1024 + 1)]),
     output: { write() {} }, openHost: async () => { opened = true; } }), /size limit/);
   assert.equal(opened, false);
+});
+
+test('Main serve recovers paths before binding and closes listeners only', async () => {
+  const order = [];
+  let printed = '';
+  const host = {
+    resume: async () => { order.push('bootstrap'); return { ready: true }; },
+    recoverPermanentBoot: async () => { order.push('permanent'); return { configured: true }; },
+    listen: async () => { order.push('registration'); return { close: async () => order.push('close-registration') }; },
+    listenControl: async () => { order.push('control'); return { close: async () => order.push('close-control') }; },
+  };
+  const service = await runMainBootstrapCli({ args: ['serve'], env: environment(),
+    output: { write: value => { printed += value; } }, openHost: async () => host });
+  assert.equal(printed, '{"status":"serving","permanentConfigured":true}\n');
+  await service.close();
+  assert.deepEqual(order, ['bootstrap', 'permanent', 'registration', 'control',
+    'close-control', 'close-registration']);
+});
+
+test('Main serve closes registration listener when control binding fails', async () => {
+  const order = [];
+  await assert.rejects(runMainBootstrapCli({ args: ['serve'], env: environment(),
+    output: { write() { throw new Error('must not report ready'); } },
+    openHost: async () => ({
+      resume: async () => ({ ready: true }),
+      recoverPermanentBoot: async () => ({ configured: true }),
+      listen: async () => ({ close: async () => order.push('registration-closed') }),
+      listenControl: async () => { throw new Error('control unavailable'); },
+    }),
+  }), /control unavailable/);
+  assert.deepEqual(order, ['registration-closed']);
 });

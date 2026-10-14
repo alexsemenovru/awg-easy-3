@@ -39,7 +39,8 @@ const env = directory => ({ ...process.env, CELL_FIELD_STATE: directory,
     AWG_MAIN_CONTROL_INTERFACE: 'awgmainp8', AWG_MAIN_BOOTSTRAP_PORT: '53081',
     AWG_MAIN_CONTROL_PORT: '53084', AWG_MAIN_REGISTRATION_PORT: '53082',
     AWG_MAIN_CONTROL_TCP_PORT: '53083', AWG_MAIN_BOOTSTRAP_ADDRESS: '10.90.8.1',
-    AWG_MAIN_CONTROL_ADDRESS: '10.91.8.1', AWG_MAIN_ENDPOINT: endpoint } : {}),
+    AWG_MAIN_CONTROL_ADDRESS: '10.91.8.1', AWG_MAIN_ENDPOINT: endpoint,
+    AWG_MAIN_USER_INTERFACE: 'awg0', AWG_MAIN_USER_PORT: '51820' } : {}),
   ...(directory !== mainDir ? { CELL_FIELD_PRODUCT_CELL: '1',
     AWG_CELL_STATE_DIR: directory,
     AWG_CELL_BOOTSTRAP_INTERFACE: directory === cell2Dir ? 'awgcell9' : 'awgcell8',
@@ -83,6 +84,35 @@ function listen(script = mainCli, action = 'listen', expected = 'listening') {
     });
   });
   return { child, ready };
+}
+
+function startMainService() {
+  const child = spawn('ip', ['netns', 'exec', 'awgmain', process.execPath,
+    mainCli, 'serve'], { env: env(mainDir), stdio: ['ignore', 'pipe', 'pipe'] });
+  const ready = new Promise((resolve, reject) => {
+    let output = '';
+    const timer = setTimeout(() => reject(new Error('Main service not ready')), 15000);
+    child.once('exit', () => { clearTimeout(timer); reject(new Error('Main service exited')); });
+    child.stdout.on('data', chunk => {
+      output += chunk.toString('utf8');
+      if (!output.includes('\n')) return;
+      clearTimeout(timer);
+      try {
+        assert.deepEqual(JSON.parse(output.trim()),
+          { status: 'serving', permanentConfigured: true });
+        resolve(child);
+      } catch { reject(new Error('Invalid Main service status')); }
+    });
+  });
+  return { child, ready };
+}
+
+async function stopped(child) {
+  if (child.exitCode !== null) return;
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Listener did not exit')), 5000);
+    child.once('exit', () => { clearTimeout(timer); resolve(); });
+  });
 }
 
 async function main() {
@@ -211,6 +241,7 @@ async function main() {
     assert.equal(role('awgmain', mainDir, 'product-controller-status', permanentField).permanentReady, true);
     assert.equal(runCellCli('join').status, 'waiting-for-permanent-path');
     stage = 'control-recovery';
+    let secondId;
     const recovered = listen(mainCli, 'control-listen', 'controlListening');
     try {
       await recovered.ready;
@@ -275,7 +306,7 @@ async function main() {
       assert.equal(JSON.parse(runMainCli('join', invitationId)).status, 'ready');
       stage = 'second-cell-registration';
       const secondInvitation = runMainCli('issue', '10.90.8.3', '10.91.8.3');
-      const secondId = decodeAwgBootstrapInvitation(secondInvitation).id;
+      secondId = decodeAwgBootstrapInvitation(secondInvitation).id;
       stage = 'second-cell-begin';
       assert.equal(runCellCli('begin', secondInvitation, 'awgcell2', cell2Dir).status,
         'bootstrap-ready');
@@ -302,7 +333,22 @@ async function main() {
       const firstStatus = JSON.parse(runMainCli('settings-status', invitationId));
       assert.equal(secondStatus.confirmedRevision, 1);
       assert.equal(firstStatus.confirmedRevision, 6);
+      stage = 'first-cell-survives-expansion';
+      ip(['netns', 'exec', 'awgdevice', 'ping', '-c', '2', '-W', '2', endpoint]);
     } finally { recovered.child.kill('SIGTERM'); }
+    await stopped(recovered.child);
+    stage = 'main-service-restart';
+    listener.child.kill('SIGTERM');
+    await stopped(listener.child);
+    const service = startMainService();
+    try {
+      await service.ready;
+      assert.equal(JSON.parse(runMainCli('publish', secondId)).revision, 2);
+      assert.equal(role('awgcell2', cell2Dir, 'sync', permanentField).status, 'applied');
+      assert.equal(JSON.parse(runMainCli('settings-status', secondId)).confirmedRevision, 2);
+      assert.equal(JSON.parse(runMainCli('settings-status', invitationId)).confirmedRevision, 6);
+    } finally { service.child.kill('SIGTERM'); }
+    await stopped(service.child);
     stage = 'foreign-resource-readback';
     ip(['-n', 'awgcell', 'link', 'show', 'awgforeign2']);
     const foreignTable = JSON.parse(ip(['netns', 'exec', 'awgcell', 'nft', '-j', 'list', 'tables']));

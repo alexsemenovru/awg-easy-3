@@ -6,7 +6,8 @@ const test = require('node:test');
 const { openMainBootstrapInstallationHost } = require('../lib/MainBootstrapInstallationHost');
 
 const resources = () => ({ interfaceNames: ['awgmainb0', 'awgmainc0'],
-  udpPorts: [53081, 53084], nftTables: ['awg_easy_3_bootstrap',
+  udpPorts: [53081, 53084], userInterfaceNames: ['awg0'], userUdpPorts: [51820],
+  nftTables: ['awg_easy_3_bootstrap',
     'awg_easy_3_bootstrap_guard', 'awg_easy_3_control', 'awg_easy_3_control_guard'] });
 const options = () => ({ stateDirectory: path.resolve('private-main-state'),
   interfaceName: 'awgmainb0', controllerAddress: '10.90.8.1',
@@ -34,6 +35,8 @@ test('Main assembly refuses incomplete or overlapping reservation before storage
   for (const bad of [
     { ...options(), resources: { ...resources(), interfaceNames: ['awgmainb0'] } },
     { ...options(), resources: { ...resources(), udpPorts: [53081, 53081] } },
+    { ...options(), resources: { ...resources(), userInterfaceNames: ['awgmainb0'] } },
+    { ...options(), resources: { ...resources(), userUdpPorts: [53084] } },
     { ...options(), resources: { ...resources(), nftTables: [] } },
     { ...options(), permanentControllerAddress: '10.90.8.1' },
   ]) {

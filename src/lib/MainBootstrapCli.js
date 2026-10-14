@@ -13,6 +13,8 @@ function configFromEnvironment(env) {
   const stateDirectory = env.AWG_MAIN_CELL_STATE_DIR;
   const interfaceName = env.AWG_MAIN_BOOTSTRAP_INTERFACE;
   const permanentInterface = env.AWG_MAIN_CONTROL_INTERFACE;
+  const userInterface = env.AWG_MAIN_USER_INTERFACE;
+  const userPort = port(env.AWG_MAIN_USER_PORT);
   const listenPort = port(env.AWG_MAIN_BOOTSTRAP_PORT);
   const permanentEndpointPort = port(env.AWG_MAIN_CONTROL_PORT);
   const registrationPort = port(env.AWG_MAIN_REGISTRATION_PORT);
@@ -20,18 +22,20 @@ function configFromEnvironment(env) {
   if (typeof stateDirectory !== 'string' || !path.isAbsolute(stateDirectory)
     || path.normalize(stateDirectory) !== stateDirectory
     || !NAME.test(interfaceName || '') || !NAME.test(permanentInterface || '')
-    || interfaceName === permanentInterface
-    || [listenPort, permanentEndpointPort, registrationPort, permanentControlPort]
+    || !NAME.test(userInterface || '')
+    || new Set([interfaceName, permanentInterface, userInterface]).size !== 3
+    || [listenPort, permanentEndpointPort, registrationPort, permanentControlPort, userPort]
       .some(value => !Number.isSafeInteger(value))
-    || listenPort === permanentEndpointPort) {
-    throw new Error('Explicit Main state path, two interfaces and four ports required');
+    || new Set([listenPort, permanentEndpointPort, userPort]).size !== 3) {
+    throw new Error('Explicit Main state path, three distinct interfaces and five ports required');
   }
   return { stateDirectory, interfaceName, controllerAddress: env.AWG_MAIN_BOOTSTRAP_ADDRESS,
     registrationPort, listenPort, endpointHost: env.AWG_MAIN_ENDPOINT,
     permanentEndpointPort, permanentControllerAddress: env.AWG_MAIN_CONTROL_ADDRESS,
     permanentControlPort,
     resources: { interfaceNames: [interfaceName, permanentInterface],
-      udpPorts: [listenPort, permanentEndpointPort], nftTables: [
+      udpPorts: [listenPort, permanentEndpointPort],
+      userInterfaceNames: [userInterface], userUdpPorts: [userPort], nftTables: [
         'awg_easy_3_bootstrap', 'awg_easy_3_bootstrap_guard',
         'awg_easy_3_control', 'awg_easy_3_control_guard',
       ] },
@@ -57,11 +61,11 @@ async function readSettings(input) {
 async function runMainBootstrapCli({ args, env, input, output,
   openHost = openMainBootstrapInstallationHost } = {}) {
   if (!Array.isArray(args) || !output || typeof output.write !== 'function'
-    || !['init', 'resume', 'issue', 'join', 'listen', 'control-listen',
+    || !['init', 'resume', 'issue', 'join', 'serve', 'listen', 'control-listen',
       'publish', 'settings-status'].includes(args[0])
     || args.length !== (args[0] === 'issue' ? 3
       : ['join', 'publish', 'settings-status'].includes(args[0]) ? 2 : 1)) {
-    throw new Error('Usage: main-cell-cli.js init|resume|issue TEMP_IP PERMANENT_IP|join ID|listen|control-listen|publish ID|settings-status ID');
+    throw new Error('Usage: main-cell-cli.js init|resume|issue TEMP_IP PERMANENT_IP|join ID|serve|listen|control-listen|publish ID|settings-status ID');
   }
   const settings = args[0] === 'publish' ? await readSettings(input) : null;
   const host = await openHost(configFromEnvironment(env));
@@ -83,6 +87,25 @@ async function runMainBootstrapCli({ args, env, input, output,
     output.write(`${JSON.stringify({ revision: result.revision })}\n`);
   } else if (args[0] === 'settings-status') {
     output.write(`${JSON.stringify(await host.settingsStatus(args[1]))}\n`);
+  } else if (args[0] === 'serve') {
+    await host.resume();
+    const boot = await host.recoverPermanentBoot();
+    let registration;
+    let control;
+    try {
+      registration = await host.listen();
+      control = boot.configured ? await host.listenControl() : null;
+      output.write(`${JSON.stringify({ status: 'serving',
+        permanentConfigured: boot.configured === true })}\n`);
+      return { close: async () => {
+        try { if (control) await control.close(); }
+        finally { await registration.close(); }
+      } };
+    } catch (error) {
+      try { if (control) await control.close(); }
+      finally { if (registration) await registration.close(); }
+      throw error;
+    }
   } else if (args[0] === 'control-listen') {
     const listener = await host.listenControl();
     output.write('{"controlListening":true,"transport":"AWG"}\n');
