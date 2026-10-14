@@ -25,6 +25,11 @@ async function openCellServiceHost({ config, bootstrapHost,
   });
   const user = await store.read();
   if (!user) throw new Error('Cell user tunnel config not installed');
+  const connection = await bootstrapHost.connectionStore.read();
+  if (connection?.status !== 'registered'
+    || user.server.privateKey === connection.permanent?.privateKey) {
+    throw new Error('Registered Cell requires a distinct user AWG key');
+  }
   let host;
   const geo = newGeoUpdater({ directory: path.join(stateDirectory, 'geoip'),
     install: (snapshot, commit) => host.installGeoSnapshot(snapshot, commit) });

@@ -8,6 +8,8 @@ const { startCellService, syncCellOnce } = require('../lib/CellService');
 const config = () => ({ stateDirectory: path.resolve('cell-state'),
   runtimeDirectory: path.resolve('cell-runtime'), interfaceName: 'awgboot0',
   resources: { interfaceNames: ['awgboot0', 'awgctl0', 'awguser0'], udpPorts: [51830] } });
+const bootstrapHost = () => ({ connectionStore: { read: async () => ({ status: 'registered',
+  permanent: { privateKey: 'control-key' } }) }, identityStore: {}, bootstrap: {} });
 
 test('Cell service restores signed state before polling and closes poller only', async () => {
   const order = [];
@@ -15,7 +17,7 @@ test('Cell service restores signed state before polling and closes poller only',
   let complete;
   const running = new Promise(resolve => { complete = resolve; });
   const service = await startCellService({ config: config(),
-    bootstrapHost: { connectionStore: {}, identityStore: {}, bootstrap: {} },
+    bootstrapHost: bootstrapHost(),
     newStore: (filename, reserved) => {
       assert.equal(filename, path.join(config().stateDirectory, 'user-config.json'));
       assert.deepEqual(reserved, { interfaceName: 'awguser0', listenPort: 51830 });
@@ -41,16 +43,20 @@ test('Cell service restores signed state before polling and closes poller only',
 
 test('Cell service refuses missing user config and incomplete permanent path', async () => {
   let registered = false;
-  await assert.rejects(startCellService({ config: config(), bootstrapHost: {},
+  await assert.rejects(startCellService({ config: config(), bootstrapHost: bootstrapHost(),
     newStore: () => ({ read: async () => null }),
     openRegistered: async () => { registered = true; } }), /not installed/);
   assert.equal(registered, false);
-  await assert.rejects(startCellService({ config: config(), bootstrapHost: {},
+  await assert.rejects(startCellService({ config: config(), bootstrapHost: bootstrapHost(),
     newStore: () => ({ read: async () => ({ server: {} }) }),
     newGeoUpdater: () => ({ current: null, load: async () => null, refresh: async () => null }),
     openRegistered: async () => ({ requiresGeoDatabase: async () => true,
       recoverBoot: async () => ({ configured: false }) }),
   }), /not configured/);
+  await assert.rejects(startCellService({ config: config(), bootstrapHost: bootstrapHost(),
+    newStore: () => ({ read: async () => ({ server: { privateKey: 'control-key' } }) }),
+    openRegistered: async () => { registered = true; },
+  }), /distinct user AWG key/);
 });
 
 test('Cell service refreshes absent GeoIP cache before restoring signed filter', async () => {
@@ -59,7 +65,7 @@ test('Cell service refreshes absent GeoIP cache before restoring signed filter',
     load: async () => { order.push('load'); },
     refresh: async () => { order.push('refresh'); geo.current = { database: { RU: {} } }; },
     start: () => { order.push('start'); }, stop: async () => { order.push('stop'); } };
-  const service = await startCellService({ config: config(), bootstrapHost: {},
+  const service = await startCellService({ config: config(), bootstrapHost: bootstrapHost(),
     newStore: () => ({ read: async () => ({ server: {} }) }),
     newGeoUpdater: () => geo,
     openRegistered: async () => ({
@@ -77,7 +83,7 @@ test('Cell service refreshes absent GeoIP cache before restoring signed filter',
 
 test('one-shot Cell sync restores boot, applies signed settings, and opens no poller', async () => {
   const events = [];
-  const result = await syncCellOnce({ config: config(), bootstrapHost: {},
+  const result = await syncCellOnce({ config: config(), bootstrapHost: bootstrapHost(),
     newStore: () => ({ read: async () => ({ server: {} }) }),
     newGeoUpdater: () => ({ current: { database: {} }, load: async () => events.push('geo') }),
     openRegistered: async () => ({

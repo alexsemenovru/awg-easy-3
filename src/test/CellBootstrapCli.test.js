@@ -102,6 +102,12 @@ test('Cell CLI configures a registered user tunnel without leaking key material'
     openHost: async () => ({ connectionStore: { read: async () => null } }),
     newUserStore: () => { throw new Error('must not create store'); },
   }), /Registered Cell required/);
+  await assert.rejects(runCellBootstrapCli({ args: ['configure-user'], env: environment(),
+    input: Readable.from([JSON.stringify(supplied)]), output: { write() {} },
+    openHost: async () => ({ connectionStore: { read: async () => ({ status: 'registered',
+      permanent: { privateKey: 'secret' } }) } }),
+    newUserStore: () => { throw new Error('must not save reused key'); },
+  }), /must be distinct/);
 });
 
 test('Cell CLI starts registered service with bounded readiness status', async () => {

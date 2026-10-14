@@ -79,6 +79,9 @@ async function runCellBootstrapCli({ args, env, input, output,
     let value;
     try { value = JSON.parse(Buffer.concat(chunks).toString('utf8')); }
     catch { throw new Error('Invalid Cell user config JSON'); }
+    if (value?.server?.privateKey === state.permanent?.privateKey) {
+      throw new Error('Cell user and control AWG keys must be distinct');
+    }
     const store = newUserStore(path.join(config.stateDirectory, 'user-config.json'), {
       interfaceName: config.resources.interfaceNames[2],
       listenPort: config.resources.udpPorts[0],
