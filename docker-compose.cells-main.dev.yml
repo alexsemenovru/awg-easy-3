@@ -1,6 +1,11 @@
 # Opt-in development overlay. Not used by install.sh or released installations.
 # Requires an image built from this branch and an initialized Main Cell state.
 services:
+  awg-easy:
+    volumes:
+      - ./cell-status:/cell-status:ro
+    environment:
+      AWG_MAIN_STATUS_FILE: /cell-status/cells.json
   main-cell:
     profiles:
       - cells-main
@@ -15,6 +20,7 @@ services:
     volumes:
       - ./data:/data:ro
       - ./cell-data:/cell-data
+      - ./cell-status:/cell-status
     read_only: true
     tmpfs:
       - /run:mode=0700,size=16m
@@ -24,6 +30,7 @@ services:
     environment:
       AWG_MAIN_CELL_STATE_DIR: /cell-data
       AWG_MAIN_USER_STATE_FILE: /data/state.json
+      AWG_MAIN_STATUS_FILE: /cell-status/cells.json
       AWG_MAIN_USER_INTERFACE: ${AWG_MAIN_USER_INTERFACE:?Set the panel AWG interface from state.json}
       AWG_MAIN_USER_PORT: ${AWG_MAIN_USER_PORT:?Set the panel UDP port from state.json}
       AWG_MAIN_BOOTSTRAP_INTERFACE: ${AWG_MAIN_BOOTSTRAP_INTERFACE:?Set a dedicated bootstrap interface}

@@ -121,6 +121,9 @@ class HttpServer {
     if (url.pathname === '/api/v1/geoip' && request.method === 'GET') {
       return sendJson(response, 200, await this.api.geoInfo(token));
     }
+    if (url.pathname === '/api/v1/cells' && request.method === 'GET') {
+      return sendJson(response, 200, await this.api.cellsInfo(token));
+    }
 
     const client = clientRoute(url.pathname);
     if (client && !client.export && request.method === 'PATCH') {

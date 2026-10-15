@@ -6,6 +6,7 @@ const command = process.argv[2] ?? 'serve';
 const application = new Application({
   dataDirectory: process.env.AWG_EASY_DATA_DIR ?? '/data',
   runtimeDirectory: process.env.AWG_EASY_RUNTIME_DIR ?? '/run/awg-easy-3',
+  mainCellStatusFile: process.env.AWG_MAIN_STATUS_FILE || null,
 });
 
 const printBootstrap = async (result) => {

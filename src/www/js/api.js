@@ -26,6 +26,7 @@ window.awgApi = (() => {
     network: () => request('/api/v1/network'),
     geoInfo: (signal) => request('/api/v1/geoip', { signal, cache: 'no-store' }),
     diagnostics: (signal) => request('/api/v1/diagnostics', { signal }),
+    cellsInfo: (signal) => request('/api/v1/cells', { signal, cache: 'no-store' }),
     createClient: (input) => request('/api/v1/clients', json('POST', input)),
     updateClient: (id, changes) => request(clientPath(id), json('PATCH', changes)),
     deleteClient: (id) => request(clientPath(id), json('DELETE')),

@@ -34,6 +34,8 @@ test('Main CLI reserves dedicated interfaces, UDP ports and nft tables', () => {
   path.resolve('data/state.json'));
   assert.throws(() => configFromEnvironment({ ...environment(),
     AWG_MAIN_USER_STATE_FILE: 'data/state.json' }));
+  assert.throws(() => configFromEnvironment({ ...environment(),
+    AWG_MAIN_STATUS_FILE: 'cell-status/cells.json' }));
 });
 
 test('Main CLI validates arity before opening host and emits only bounded status', async () => {
@@ -139,4 +141,24 @@ test('Main serve closes registration listener when control binding fails', async
     }),
   }), /control unavailable/);
   assert.deepEqual(order, ['registration-closed']);
+});
+
+test('Main serve publishes bounded Cell status before reporting ready', async () => {
+  const order = [];
+  let printed = '';
+  const service = await runMainBootstrapCli({ args: ['serve'], env: {
+    ...environment(), AWG_MAIN_STATUS_FILE: path.resolve('cell-status/cells.json') },
+  output: { write: value => { order.push('ready'); printed += value; } },
+  openHost: async () => ({
+    resume: async () => ({ ready: true }),
+    recoverPermanentBoot: async () => ({ configured: false }),
+    listen: async () => ({ close: async () => order.push('closed') }),
+    cells: async () => [{ id: 'a'.repeat(32), status: 'pending', phase: 'ready', createdAt: 1 }],
+  }),
+  newStatusSnapshot: () => ({ write: async records => { order.push('snapshot');
+    assert.equal(records.length, 1); } }) });
+  assert.deepEqual(order, ['snapshot', 'ready']);
+  assert.match(printed, /"status":"serving"/);
+  await service.close();
+  assert.deepEqual(order, ['snapshot', 'ready', 'closed']);
 });

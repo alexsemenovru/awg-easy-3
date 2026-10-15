@@ -49,6 +49,8 @@
   const { paintRates, createPoller } = window.awgDiagnostics;
   const geoStatus = window.awgGeoStatus?.({ load: signal => api.geoInfo(signal), createPoller,
     node: $('#geo-status'), translate: t, onData: status => { geoCountries = status.countries || []; } });
+  const cellsView = window.awgCells?.({ api, node: $('#cells-view'),
+    summary: $('#cells-summary'), list: $('#cells-list'), translate: t, createPoller });
 
   const savedLanguage = localStorage.getItem('awg-easy-language');
   if (supportedLanguages.includes(savedLanguage)) {
@@ -64,6 +66,7 @@
   };
   const showLogin = () => {
     geoStatus?.stop();
+    cellsView?.stop();
     diagnosticsPoller.stop();
     lastDiagnostics = [];
     $('#totp-secret').value = '';
@@ -75,6 +78,7 @@
   };
   const showApp = () => {
     geoStatus?.start();
+    cellsView?.start();
     loginView.classList.add('hidden'); appView.classList.remove('hidden'); logout.classList.remove('hidden');
   };
   const guarded = async (action) => {
@@ -142,7 +146,9 @@
   }
   document.addEventListener('visibilitychange', () => {
     geoStatus?.stop();
+    cellsView?.stop();
     if (!document.hidden && !appView.classList.contains('hidden')) geoStatus?.start();
+    if (!document.hidden && !appView.classList.contains('hidden')) cellsView?.start();
     diagnosticsPoller.stop();
     clearDiagnostics('checking');
     startDiagnostics();
@@ -274,6 +280,7 @@
     localStorage.setItem('awg-easy-language', languageSelect.value);
     lastDiagnostics.forEach(paintDiagnostics);
     geoStatus?.translate();
+    cellsView?.translate();
   });
   $('#show-create').addEventListener('click', () => createDialog.showModal());
   document.querySelectorAll('.close-dialog').forEach((button) => button.addEventListener('click', () => button.closest('dialog').close()));
@@ -394,7 +401,7 @@
   retryConnection.addEventListener('click', () => connection.retry());
   window.addEventListener('online', () => connection.retry());
   window.addEventListener('pageshow', (event) => { if (event.persisted) connection.start(); });
-  window.addEventListener('pagehide', () => { connection.stop(); geoStatus?.stop(); });
+  window.addEventListener('pagehide', () => { connection.stop(); geoStatus?.stop(); cellsView?.stop(); });
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) connection.start(); else connection.stop();
   });

@@ -45,6 +45,22 @@ test('uses RTL only for Persian', () => {
   assert.equal(documentElement.dir, 'rtl');
 });
 
+test('Cell status labels have distinct translations in all five languages', () => {
+  const { i18n } = loadI18n();
+  for (const key of ['cellsTitle', 'cellsHint', 'cellsCount', 'cellsEmpty',
+    'cellsStale', 'cellsPending', 'cellsJoining', 'cellsJoined',
+    'cellsRevoked', 'cellsRevision']) {
+    const translations = new Set();
+    for (const language of ['en', 'ru', 'fa', 'es', 'zh-cn']) {
+      i18n.setLanguage(language);
+      const value = i18n.t(key);
+      assert.notEqual(value, key);
+      translations.add(value);
+    }
+    assert.equal(translations.size, 5, `${key} needs five translations`);
+  }
+});
+
 test('IP permission labels, safety errors and DNS caveats are translated without English fallback', () => {
   const { i18n } = loadI18n();
   for (const key of ['accessSettings', 'allowIpv4', 'allowIpv6', 'ipBoth', 'ip4Only', 'ip6Only', 'ipPolicyTitle',

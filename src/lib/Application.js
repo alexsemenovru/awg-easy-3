@@ -16,11 +16,13 @@ const { runProcess } = require('./ProcessRunner');
 const { RuntimeApplier } = require('./RuntimeApplier');
 const { SessionManager } = require('./SessionManager');
 const { StateStore } = require('./StateStore');
+const { MainCellStatusSnapshot } = require('./MainCellStatusSnapshot');
 
 class Application {
   constructor({
     dataDirectory = '/data',
     runtimeDirectory = '/run/awg-easy-3',
+    mainCellStatusFile = null,
     publicDirectory = path.join(__dirname, '..', 'www'),
     runner = runProcess,
     fileSystem = fs,
@@ -41,6 +43,8 @@ class Application {
     this.geo = geoFactory({ directory: path.join(this.dataDirectory, 'geoip'),
       onError: error => console.warn(`GeoIP update: ${error.message}`) });
     this.store = new StateStore(path.join(this.dataDirectory, 'state.json'));
+    this.mainCellStatus = mainCellStatusFile
+      ? new MainCellStatusSnapshot(mainCellStatusFile) : null;
     this.applier = new RuntimeApplier({ runtimeDirectory: this.runtimeDirectory, runner });
     this.http = null;
     this.http6 = null;
@@ -138,7 +142,10 @@ class Application {
       this.geo.install = (snapshot, commit) => clientManager.installGeoSnapshot(snapshot, commit);
       const diagnostics = new ClientDiagnostics({ store: this.store, runner: this.runner });
       const api = new ApiService({ store: this.store, passwordManager, sessionManager, clientManager, diagnostics,
-        geoStatus: () => ({ ...this.geo.status, countries: this.geo.current?.countries ?? [] }) });
+        geoStatus: () => ({ ...this.geo.status, countries: this.geo.current?.countries ?? [] }),
+        cellStatus: () => this.mainCellStatus
+          ? this.mainCellStatus.read()
+          : { state: 'unavailable', updatedAt: null, cells: [] } });
       this.http = this.httpFactory({ api, publicDirectory: this.publicDirectory });
       const listening = await this.http.listen({ host: state.server.address4, port: state.server.panelPort });
       if (state.server.address6 && state.server.ipv6Subnet) {

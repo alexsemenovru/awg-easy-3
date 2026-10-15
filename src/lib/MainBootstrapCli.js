@@ -2,6 +2,7 @@
 
 const path = require('node:path');
 const { openMainBootstrapInstallationHost } = require('./MainBootstrapInstallationHost');
+const { MainCellStatusSnapshot } = require('./MainCellStatusSnapshot');
 
 const NAME = /^[a-zA-Z0-9_.-]{1,15}$/;
 const PORT = /^\d{1,5}$/;
@@ -12,6 +13,7 @@ function configFromEnvironment(env) {
   if (!env || typeof env !== 'object') throw new TypeError('Main environment required');
   const stateDirectory = env.AWG_MAIN_CELL_STATE_DIR;
   const userStateFile = env.AWG_MAIN_USER_STATE_FILE;
+  const statusFile = env.AWG_MAIN_STATUS_FILE;
   const interfaceName = env.AWG_MAIN_BOOTSTRAP_INTERFACE;
   const permanentInterface = env.AWG_MAIN_CONTROL_INTERFACE;
   const userInterface = env.AWG_MAIN_USER_INTERFACE;
@@ -24,6 +26,8 @@ function configFromEnvironment(env) {
     || path.normalize(stateDirectory) !== stateDirectory
     || (userStateFile !== undefined && (typeof userStateFile !== 'string'
       || !path.isAbsolute(userStateFile) || path.normalize(userStateFile) !== userStateFile))
+    || (statusFile !== undefined && (typeof statusFile !== 'string'
+      || !path.isAbsolute(statusFile) || path.normalize(statusFile) !== statusFile))
     || !NAME.test(interfaceName || '') || !NAME.test(permanentInterface || '')
     || !NAME.test(userInterface || '')
     || new Set([interfaceName, permanentInterface, userInterface]).size !== 3
@@ -32,7 +36,7 @@ function configFromEnvironment(env) {
     || new Set([listenPort, permanentEndpointPort, userPort]).size !== 3) {
     throw new Error('Explicit Main state path, three distinct interfaces and five ports required');
   }
-  return { stateDirectory, userStateFile, interfaceName,
+  return { stateDirectory, userStateFile, statusFile, interfaceName,
     controllerAddress: env.AWG_MAIN_BOOTSTRAP_ADDRESS,
     registrationPort, listenPort, endpointHost: env.AWG_MAIN_ENDPOINT,
     permanentEndpointPort, permanentControllerAddress: env.AWG_MAIN_CONTROL_ADDRESS,
@@ -63,7 +67,8 @@ async function readSettings(input) {
 }
 
 async function runMainBootstrapCli({ args, env, input, output,
-  openHost = openMainBootstrapInstallationHost } = {}) {
+  openHost = openMainBootstrapInstallationHost,
+  newStatusSnapshot = file => new MainCellStatusSnapshot(file) } = {}) {
   if (!Array.isArray(args) || !output || typeof output.write !== 'function'
     || !['init', 'resume', 'issue', 'join', 'serve', 'listen', 'control-listen', 'cells',
       'publish', 'settings-status'].includes(args[0])
@@ -72,7 +77,8 @@ async function runMainBootstrapCli({ args, env, input, output,
     throw new Error('Usage: main-cell-cli.js init|resume|issue TEMP_IP PERMANENT_IP|join ID|serve|listen|control-listen|cells|publish ID|settings-status ID');
   }
   const settings = args[0] === 'publish' ? await readSettings(input) : null;
-  const host = await openHost(configFromEnvironment(env));
+  const config = configFromEnvironment(env);
+  const host = await openHost(config);
   if (args[0] === 'init' || args[0] === 'resume') {
     const result = await host[args[0] === 'init' ? 'initialize' : 'resume']();
     if (result?.ready !== true) throw new Error('Main bootstrap not ready');
@@ -98,16 +104,36 @@ async function runMainBootstrapCli({ args, env, input, output,
     const boot = await host.recoverPermanentBoot();
     let registration;
     let control;
+    let statusTimer;
+    let statusRefresh = Promise.resolve();
     try {
       registration = await host.listen();
       control = boot.configured ? await host.listenControl() : null;
+      if (config.statusFile) {
+        const snapshot = newStatusSnapshot(config.statusFile);
+        const refresh = () => statusRefresh = statusRefresh.catch(() => {}).then(async () => {
+          await snapshot.write(await host.cells());
+        });
+        await refresh();
+        let warned = false;
+        statusTimer = setInterval(() => {
+          refresh().then(() => { warned = false; }).catch(() => {
+            if (!warned) console.warn('Main Cell status snapshot is unavailable');
+            warned = true;
+          });
+        }, 15000);
+        statusTimer.unref();
+      }
       output.write(`${JSON.stringify({ status: 'serving',
         permanentConfigured: boot.configured === true })}\n`);
       return { close: async () => {
+        if (statusTimer) clearInterval(statusTimer);
+        await statusRefresh.catch(() => {});
         try { if (control) await control.close(); }
         finally { await registration.close(); }
       } };
     } catch (error) {
+      if (statusTimer) clearInterval(statusTimer);
       try { if (control) await control.close(); }
       finally { if (registration) await registration.close(); }
       throw error;

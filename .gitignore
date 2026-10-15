@@ -7,3 +7,6 @@
 *.swp
 .idea
 /private-test-access/
+/data/
+/cell-data/
+/cell-status/

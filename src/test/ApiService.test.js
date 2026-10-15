@@ -57,6 +57,25 @@ test('GeoIP status is authenticated and excludes raw database and internal error
     checkedAt: '2026-09-10T00:00:00Z', source: 'DB-IP Lite', sourceUrl: 'https://db-ip.com', countries: [] });
 });
 
+test('Cell inventory is authenticated and never exposes unvalidated private fields', async () => {
+  const { service } = fixture();
+  const cell = { id: 'a'.repeat(32), status: 'consumed', phase: 'closed',
+    createdAt: 100, settings: { desiredRevision: 2,
+      confirmedRevision: 1, awaitingAck: true } };
+  await assert.rejects(service.cellsInfo('wrong'), error => error.statusCode === 401);
+  assert.deepEqual(await service.cellsInfo('signed-token'),
+    { state: 'unavailable', updatedAt: null, cells: [] });
+  service.cellStatus = async () => ({ state: 'ready', updatedAt: 200, cells: [cell] });
+  assert.deepEqual(await service.cellsInfo('signed-token'),
+    { state: 'ready', updatedAt: 200, cells: [cell] });
+  service.cellStatus = async () => ({ state: 'ready', updatedAt: 200,
+    cells: [{ ...cell, cellKey: 'secret' }] });
+  await assert.rejects(service.cellsInfo('signed-token'), /Invalid Main Cell status/);
+  service.cellStatus = async () => ({ state: 'stale', updatedAt: 200, cells: [cell] });
+  assert.deepEqual(await service.cellsInfo('signed-token'),
+    { state: 'stale', updatedAt: 200, cells: [] });
+});
+
 test('logs in with a generic failure and an HTTP-only cookie', async () => {
   const { service } = fixture();
   assert.deepEqual(await service.login('correct-password'), {

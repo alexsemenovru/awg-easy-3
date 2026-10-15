@@ -2,6 +2,7 @@
 
 const { clientTraffic } = require('./ClientTraffic');
 const { transliterate } = require('transliteration');
+const { validateSnapshot } = require('./MainCellStatusSnapshot');
 
 class ApiError extends Error {
   constructor(statusCode, message) {
@@ -47,7 +48,9 @@ const exportFileName = (name) => {
 };
 
 class ApiService {
-  constructor({ store, passwordManager, sessionManager, clientManager, diagnostics, geoStatus = () => ({}), qrGenerator = defaultQrGenerator, clock = () => Date.now() } = {}) {
+  constructor({ store, passwordManager, sessionManager, clientManager, diagnostics,
+    geoStatus = () => ({}), cellStatus = async () => ({ state: 'unavailable', updatedAt: null, cells: [] }),
+    qrGenerator = defaultQrGenerator, clock = () => Date.now() } = {}) {
     if (!store || typeof store.load !== 'function') throw new TypeError('store must provide load');
     if (!passwordManager || typeof passwordManager.verify !== 'function'
       || typeof passwordManager.changePassword !== 'function') {
@@ -62,6 +65,7 @@ class ApiService {
     }
     if (typeof qrGenerator !== 'function') throw new TypeError('qrGenerator must be a function');
     if (diagnostics && typeof diagnostics.snapshot !== 'function') throw new TypeError('diagnostics must provide snapshot');
+    if (typeof cellStatus !== 'function') throw new TypeError('Cell status reader required');
     this.store = store;
     this.passwordManager = passwordManager;
     this.sessionManager = sessionManager;
@@ -69,6 +73,7 @@ class ApiService {
     this.qrGenerator = qrGenerator;
     this.diagnostics = diagnostics;
     this.geoStatus = geoStatus;
+    this.cellStatus = cellStatus;
     this.clock = clock;
     this.failedLogins = 0;
     this.loginBlockedUntil = 0;
@@ -160,6 +165,26 @@ class ApiService {
       release: status.release ?? null, checkedAt: status.checkedAt ?? null,
       countries: Array.isArray(status.countries) ? status.countries.filter(code => /^[A-Z]{2}$/.test(code)).sort() : [],
     });
+  }
+
+  async cellsInfo(token) {
+    await this.authorize(token);
+    const snapshot = await this.cellStatus();
+    if (!snapshot || !['ready', 'stale', 'unavailable'].includes(snapshot.state)
+      || !Array.isArray(snapshot.cells)) throw new Error('Invalid Main Cell status');
+    if (snapshot.state === 'ready') validateSnapshot({ version: 1,
+      updatedAt: snapshot.updatedAt, cells: snapshot.cells });
+    return Object.freeze({ state: snapshot.state,
+      updatedAt: snapshot.updatedAt ?? null,
+      cells: snapshot.state === 'ready' ? snapshot.cells.map(cell => ({
+        id: cell.id, status: cell.status, phase: cell.phase,
+        createdAt: cell.createdAt,
+        ...(cell.settings ? { settings: {
+          desiredRevision: cell.settings.desiredRevision,
+          confirmedRevision: cell.settings.confirmedRevision,
+          awaitingAck: cell.settings.awaitingAck,
+        } } : {}),
+      })) : [] });
   }
 
   async createClient(token, input) {

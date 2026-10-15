@@ -9,6 +9,7 @@ const { AwgKeyManager } = require('../src/lib/AwgKeyManager');
 const { generateOfficialProfile, renderInterfaceFields } = require('../src/lib/Awg3Config');
 const { decodeAwgBootstrapInvitation } = require('../src/lib/CellAwgBootstrapInvitation');
 const { StateStore } = require('../src/lib/StateStore');
+const { MainCellStatusSnapshot } = require('../src/lib/MainCellStatusSnapshot');
 
 assert.equal(process.env.AWG_CELL_ISOLATED_TEST, '1');
 assert.notEqual(fs.readlinkSync('/proc/self/ns/net'), fs.readlinkSync('/proc/1/ns/net'));
@@ -23,10 +24,12 @@ const mainDir = path.join(root, 'main');
 const cellDir = path.join(root, 'cell');
 const cell2Dir = path.join(root, 'cell2');
 const deviceDir = path.join(root, 'device');
+const statusDir = path.join(root, 'public-status');
 fs.mkdirSync(mainDir, { recursive: true, mode: 0o700 });
 fs.mkdirSync(cellDir, { recursive: true, mode: 0o700 });
 fs.mkdirSync(cell2Dir, { recursive: true, mode: 0o700 });
 fs.mkdirSync(deviceDir, { recursive: true, mode: 0o700 });
+fs.mkdirSync(statusDir, { recursive: true, mode: 0o700 });
 const endpoint = '198.51.100.1';
 const env = directory => ({ ...process.env, CELL_FIELD_STATE: directory,
   CELL_FIELD_CONTROLLER_PUBLIC: endpoint,
@@ -42,7 +45,8 @@ const env = directory => ({ ...process.env, CELL_FIELD_STATE: directory,
     AWG_MAIN_CONTROL_TCP_PORT: '53083', AWG_MAIN_BOOTSTRAP_ADDRESS: '10.90.8.1',
     AWG_MAIN_CONTROL_ADDRESS: '10.91.8.1', AWG_MAIN_ENDPOINT: endpoint,
     AWG_MAIN_USER_INTERFACE: 'awg0', AWG_MAIN_USER_PORT: '51820',
-    AWG_MAIN_USER_STATE_FILE: path.join(root, 'user-state.json') } : {}),
+    AWG_MAIN_USER_STATE_FILE: path.join(root, 'user-state.json'),
+    AWG_MAIN_STATUS_FILE: path.join(statusDir, 'cells.json') } : {}),
   ...(directory !== mainDir ? { CELL_FIELD_PRODUCT_CELL: '1',
     AWG_CELL_STATE_DIR: directory,
     AWG_CELL_BOOTSTRAP_INTERFACE: directory === cell2Dir ? 'awgcell9' : 'awgcell8',
@@ -369,6 +373,10 @@ async function main() {
     const service = startMainService();
     try {
       await service.ready;
+      const statusSnapshot = await new MainCellStatusSnapshot(path.join(statusDir, 'cells.json')).read();
+      assert.equal(statusSnapshot.state, 'ready');
+      assert.equal(statusSnapshot.cells.length, 2);
+      assert.equal(JSON.stringify(statusSnapshot).includes('cellKey'), false);
       assert.equal(JSON.parse(runMainCli('publish', secondId)).revision, 2);
       assert.equal(role('awgcell2', cell2Dir, 'sync', permanentField).status, 'applied');
       assert.equal(JSON.parse(runMainCli('settings-status', secondId)).confirmedRevision, 2);

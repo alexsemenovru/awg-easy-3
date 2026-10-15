@@ -15,7 +15,10 @@ test('Main Cell development sidecar is opt-in and cannot silently replace the us
   assert.match(overlay, /container_name: awg-easy-3-main-cell-dev/);
   assert.match(overlay, /- \.\/data:\/data:ro/);
   assert.match(overlay, /- \.\/cell-data:\/cell-data/);
+  assert.match(overlay, /- \.\/cell-status:\/cell-status/);
+  assert.match(overlay, /awg-easy:\s*\n\s*volumes:\s*\n\s*- \.\/cell-status:\/cell-status:ro/);
   assert.match(overlay, /AWG_MAIN_USER_STATE_FILE: \/data\/state\.json/);
+  assert.match(overlay, /AWG_MAIN_STATUS_FILE: \/cell-status\/cells\.json/);
   assert.match(overlay, /read_only: true/);
   assert.match(overlay, /- no-new-privileges:true/);
   assert.match(overlay, /- \/app\/main-cell-cli\.js/);
