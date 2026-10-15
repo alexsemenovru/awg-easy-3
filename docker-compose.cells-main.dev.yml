@@ -50,3 +50,6 @@ services:
     command:
       - serve
     stop_grace_period: 15s
+    # The image probe targets the user panel, not the Main Cell process.
+    healthcheck:
+      disable: true

@@ -35,3 +35,6 @@ services:
     command:
       - serve
     stop_grace_period: 15s
+    # The image probe targets awg0 and the user panel, neither exists here.
+    healthcheck:
+      disable: true

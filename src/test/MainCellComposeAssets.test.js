@@ -22,6 +22,7 @@ test('Main Cell development sidecar is opt-in and cannot silently replace the us
   assert.match(overlay, /read_only: true/);
   assert.match(overlay, /- no-new-privileges:true/);
   assert.match(overlay, /- \/app\/main-cell-cli\.js/);
+  assert.match(overlay, /main-cell:[\s\S]*healthcheck:\s*\n\s*disable: true/);
   assert.doesNotMatch(overlay, /privileged: true/);
   assert.doesNotMatch(base, /main-cell|cells-main/);
 });
@@ -35,6 +36,7 @@ test('Cell development container has private state and no web panel or automatic
   assert.match(cell, /read_only: true/);
   assert.match(cell, /- no-new-privileges:true/);
   assert.match(cell, /- \/app\/cell-cli\.js/);
+  assert.match(cell, /cell:[\s\S]*healthcheck:\s*\n\s*disable: true/);
   assert.doesNotMatch(cell, /privileged: true|AWG_PANEL_PORT|\/data\/state\.json/);
   assert.doesNotMatch(base, /awg-easy-3-cell-dev|cells-cell/);
 });
