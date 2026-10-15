@@ -8,6 +8,7 @@ const { execFileSync, spawn } = require('node:child_process');
 const { AwgKeyManager } = require('../src/lib/AwgKeyManager');
 const { generateOfficialProfile, renderInterfaceFields } = require('../src/lib/Awg3Config');
 const { decodeAwgBootstrapInvitation } = require('../src/lib/CellAwgBootstrapInvitation');
+const { StateStore } = require('../src/lib/StateStore');
 
 assert.equal(process.env.AWG_CELL_ISOLATED_TEST, '1');
 assert.notEqual(fs.readlinkSync('/proc/self/ns/net'), fs.readlinkSync('/proc/1/ns/net'));
@@ -40,7 +41,8 @@ const env = directory => ({ ...process.env, CELL_FIELD_STATE: directory,
     AWG_MAIN_CONTROL_PORT: '53084', AWG_MAIN_REGISTRATION_PORT: '53082',
     AWG_MAIN_CONTROL_TCP_PORT: '53083', AWG_MAIN_BOOTSTRAP_ADDRESS: '10.90.8.1',
     AWG_MAIN_CONTROL_ADDRESS: '10.91.8.1', AWG_MAIN_ENDPOINT: endpoint,
-    AWG_MAIN_USER_INTERFACE: 'awg0', AWG_MAIN_USER_PORT: '51820' } : {}),
+    AWG_MAIN_USER_INTERFACE: 'awg0', AWG_MAIN_USER_PORT: '51820',
+    AWG_MAIN_USER_STATE_FILE: path.join(root, 'user-state.json') } : {}),
   ...(directory !== mainDir ? { CELL_FIELD_PRODUCT_CELL: '1',
     AWG_CELL_STATE_DIR: directory,
     AWG_CELL_BOOTSTRAP_INTERFACE: directory === cell2Dir ? 'awgcell9' : 'awgcell8',
@@ -116,6 +118,18 @@ async function stopped(child) {
 }
 
 async function main() {
+  // A real Main sidecar reads the existing panel state read-only. The lab
+  // persists a synthetic panel state so the same reservation check runs here.
+  await new StateStore(path.join(root, 'user-state.json')).save({
+    version: 1, auth: { passwordHash: 'synthetic-hash', sessionSecret: 'synthetic-session' },
+    server: { interfaceName: 'awg0', wanInterface: 'veth-main',
+      privateKey: 'synthetic-user-private', publicKey: 'synthetic-user-public',
+      address4: '10.8.0.1', ipv4Subnet: '10.8.0.0/24', listenPort: 51820,
+      panelPort: 51821, endpointHost: endpoint, profile: generateOfficialProfile() },
+    clients: [{ id: 'synthetic-home', name: 'Synthetic Home', enabled: true,
+      networkGroup: 'home', address4: '10.8.0.2',
+      privateKey: 'synthetic-client-private', publicKey: 'synthetic-client-public' }],
+  });
   ip(['netns', 'add', 'awgmain']);
   ip(['netns', 'add', 'awgcell']);
   ip(['netns', 'add', 'awgcell2']);

@@ -1,0 +1,45 @@
+# Opt-in development overlay. Not used by install.sh or released installations.
+# Requires an image built from this branch and an initialized Main Cell state.
+services:
+  main-cell:
+    profiles:
+      - cells-main
+    image: ${AWG_IMAGE:-awg-easy-3:0.1.0-dev}
+    container_name: awg-easy-3-main-cell-dev
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - ./data:/data:ro
+      - ./cell-data:/cell-data
+    read_only: true
+    tmpfs:
+      - /run:mode=0700,size=16m
+      - /tmp:mode=1777,size=32m
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      AWG_MAIN_CELL_STATE_DIR: /cell-data
+      AWG_MAIN_USER_STATE_FILE: /data/state.json
+      AWG_MAIN_USER_INTERFACE: ${AWG_MAIN_USER_INTERFACE:?Set the panel AWG interface from state.json}
+      AWG_MAIN_USER_PORT: ${AWG_MAIN_USER_PORT:?Set the panel UDP port from state.json}
+      AWG_MAIN_BOOTSTRAP_INTERFACE: ${AWG_MAIN_BOOTSTRAP_INTERFACE:?Set a dedicated bootstrap interface}
+      AWG_MAIN_CONTROL_INTERFACE: ${AWG_MAIN_CONTROL_INTERFACE:?Set a dedicated control interface}
+      AWG_MAIN_BOOTSTRAP_PORT: ${AWG_MAIN_BOOTSTRAP_PORT:?Set a dedicated bootstrap UDP port}
+      AWG_MAIN_CONTROL_PORT: ${AWG_MAIN_CONTROL_PORT:?Set a dedicated control UDP port}
+      AWG_MAIN_REGISTRATION_PORT: ${AWG_MAIN_REGISTRATION_PORT:?Set an internal registration TCP port}
+      AWG_MAIN_CONTROL_TCP_PORT: ${AWG_MAIN_CONTROL_TCP_PORT:?Set an internal control TCP port}
+      AWG_MAIN_BOOTSTRAP_ADDRESS: ${AWG_MAIN_BOOTSTRAP_ADDRESS:?Set a private bootstrap address}
+      AWG_MAIN_CONTROL_ADDRESS: ${AWG_MAIN_CONTROL_ADDRESS:?Set a private control address}
+      AWG_MAIN_ENDPOINT: ${AWG_MAIN_ENDPOINT:?Set a reachable public endpoint}
+    entrypoint:
+      - /usr/bin/dumb-init
+      - --
+      - node
+      - /app/main-cell-cli.js
+    command:
+      - serve
+    stop_grace_period: 15s

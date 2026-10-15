@@ -31,6 +31,7 @@ const { listenTunnelControlEndpoint } = require('./CellControlService');
 const { privateAddress } = require('./CellTunnelControlTransport');
 const { validEndpointHost } = require('./CellAwgEndpointHost');
 const { StateStore } = require('./StateStore');
+const { addressInSubnet } = require('./AddressAllocator');
 
 const validName = name => typeof name === 'string' && /^[a-zA-Z0-9_.-]{1,15}$/.test(name);
 const validPort = port => Number.isSafeInteger(port) && port >= 1 && port <= 65535;
@@ -95,7 +96,11 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
     if (!userState || userState.server.interfaceName !== resources.userInterfaceNames[0]
       || userState.server.listenPort !== resources.userUdpPorts[0]
       || userState.server.panelPort === registrationPort
-      || userState.server.panelPort === permanentControlPort) {
+      || userState.server.panelPort === permanentControlPort
+      || [controllerAddress, permanentControllerAddress].some(address =>
+        addressInSubnet(address, userState.server.ipv4Subnet)
+        || userState.server.ipv6Subnet
+          && addressInSubnet(address, userState.server.ipv6Subnet))) {
       throw new Error('Main user panel state does not match the Cell resource reservation');
     }
   }

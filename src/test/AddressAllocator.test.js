@@ -4,12 +4,23 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const {
+  addressInSubnet,
   allocateClientAddresses,
   allocateIPv4,
   allocateIPv6,
   formatIPv6,
   parseIPv6,
 } = require('../lib/AddressAllocator');
+
+test('checks service addresses against IPv4 and IPv6 user tunnel subnets', () => {
+  assert.equal(addressInSubnet('10.8.0.1', '10.8.0.0/24'), true);
+  assert.equal(addressInSubnet('10.90.8.1', '10.8.0.0/24'), false);
+  assert.equal(addressInSubnet('fd42:8:3::1', 'fd42:8:3::/64'), true);
+  assert.equal(addressInSubnet('fd42:8:4::1', 'fd42:8:3::/64'), false);
+  assert.equal(addressInSubnet('10.8.0.1', 'fd42:8:3::/64'), false);
+  assert.throws(() => addressInSubnet('bad', '10.8.0.0/24'), /Valid address/);
+  assert.throws(() => addressInSubnet('10.8.0.1', '10.8.0.0/33'), /CIDR/);
+});
 
 test('allocates the first free IPv4 without using network, server or broadcast', () => {
   assert.equal(allocateIPv4({

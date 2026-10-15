@@ -1,5 +1,7 @@
 'use strict';
 
+const net = require('node:net');
+
 const parseIPv4 = (value) => {
   if (typeof value !== 'string') throw new TypeError('IPv4 address must be a string');
   const parts = value.split('.');
@@ -65,6 +67,19 @@ const parseCidr = (value, bits, parser, family) => {
   return { start, end: start + size - 1n };
 };
 
+const addressInSubnet = (address, subnet) => {
+  const [networkAddress] = typeof subnet === 'string' ? subnet.split('/') : [];
+  const addressFamily = net.isIP(address);
+  const subnetFamily = net.isIP(networkAddress);
+  if (!addressFamily || !subnetFamily) throw new TypeError('Valid address and subnet required');
+  const bits = subnetFamily === 4 ? 32 : 128;
+  const parser = subnetFamily === 4 ? parseIPv4 : parseIPv6;
+  const range = parseCidr(subnet, bits, parser, `IPv${subnetFamily}`);
+  if (addressFamily !== subnetFamily) return false;
+  const candidate = parser(address);
+  return candidate >= range.start && candidate <= range.end;
+};
+
 const allocateIPv4 = ({ subnet, serverAddress, usedAddresses = [] }) => {
   const range = parseCidr(subnet, 32, parseIPv4, 'IPv4');
   const blocked = new Set([serverAddress, ...usedAddresses].map((address) => parseIPv4(address).toString()));
@@ -101,6 +116,7 @@ const allocateClientAddresses = ({ server, clients }) => {
 };
 
 module.exports = {
+  addressInSubnet,
   allocateClientAddresses,
   allocateIPv4,
   allocateIPv6,

@@ -75,9 +75,16 @@ test('Main assembly verifies the persisted user interface and ports before any m
     { ...state.server, listenPort: 51825 },
     { ...state.server, panelPort: 53082 },
     { ...state.server, panelPort: 53083 },
+    { ...state.server, ipv4Subnet: '10.90.8.0/24' },
+    { ...state.server, ipv4Subnet: '10.91.8.0/24' },
   ]) {
     await store.save({ ...state, server });
     await assert.rejects(open(), /does not match/);
   }
+  await store.save({ ...state, server: { ...state.server,
+    address6: 'fd42:8:3::1', ipv6Subnet: 'fd42:8:3::/64' } });
+  await assert.rejects(openMainBootstrapInstallationHost({ ...options(), userStateFile,
+    controllerAddress: 'fd42:8:3::2',
+    prepareStateDirectory: async () => { preparations++; } }), /does not match/);
   assert.equal(preparations, 1);
 });
