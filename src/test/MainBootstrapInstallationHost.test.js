@@ -42,6 +42,7 @@ test('Main assembly refuses incomplete or overlapping reservation before storage
     { ...options(), resources: { ...resources(), userInterfaceNames: ['awgmainb0'] } },
     { ...options(), resources: { ...resources(), userUdpPorts: [53084] } },
     { ...options(), resources: { ...resources(), nftTables: [] } },
+    { ...options(), permanentControlPort: 53082 },
     { ...options(), permanentControllerAddress: '10.90.8.1' },
   ]) {
     await assert.rejects(openMainBootstrapInstallationHost({ ...bad,

@@ -18,16 +18,18 @@ function distinct(values, check, label) {
 
 // New installation only. Recovery of an existing installation must use its
 // ownership journals, not infer ownership from a free-resource scan.
-async function assertFreeCellHostResources({ interfaceNames, udpPorts, nftTables,
+async function assertFreeCellHostResources({ interfaceNames, udpPorts, tcpPorts, nftTables,
   runner = runProcess }) {
   const interfaces = distinct(interfaceNames, interfaceName, 'interface');
   const ports = distinct(udpPorts, port, 'UDP port');
+  const tcp = tcpPorts === undefined ? [] : distinct(tcpPorts, port, 'TCP port');
   const tables = distinct(nftTables, tableName, 'nft table');
   if (typeof runner !== 'function') throw new TypeError('Host runner required');
 
-  const [linksResult, socketsResult, tablesResult] = await Promise.all([
+  const [linksResult, socketsResult, tcpResult, tablesResult] = await Promise.all([
     runner('ip', ['-j', 'link', 'show']),
     runner('ss', ['-H', '-u', '-l', '-n']),
+    ...(tcp.length ? [runner('ss', ['-H', '-t', '-l', '-n'])] : [Promise.resolve(null)]),
     runner('nft', ['-j', 'list', 'tables']),
   ]);
   const links = JSON.parse(linksResult.stdout);
@@ -52,6 +54,23 @@ async function assertFreeCellHostResources({ interfaceNames, udpPorts, nftTables
   }
   for (const value of ports) {
     if (listeningPorts.has(value)) throw new Error(`Host UDP port already in use: ${value}`);
+  }
+
+  if (tcpResult) {
+    if (typeof tcpResult.stdout !== 'string') throw new Error('Invalid TCP socket inventory');
+    const listeningTcp = new Set();
+    for (const line of tcpResult.stdout.split(/\r?\n/).filter(Boolean)) {
+      const columns = line.trim().split(/\s+/);
+      if (columns.length < 5 || columns[0] !== 'LISTEN') {
+        throw new Error('Unrecognized TCP socket inventory');
+      }
+      const match = columns[3].match(/:(\d+)$/);
+      if (!match) throw new Error('Unrecognized TCP socket address');
+      listeningTcp.add(Number(match[1]));
+    }
+    for (const value of tcp) {
+      if (listeningTcp.has(value)) throw new Error(`Host TCP port already in use: ${value}`);
+    }
   }
 
   const inventory = JSON.parse(tablesResult.stdout);

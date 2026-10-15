@@ -29,6 +29,8 @@ test('Main CLI reserves dedicated interfaces, UDP ports and nft tables', () => {
     AWG_MAIN_BOOTSTRAP_PORT: '53084' }));
   assert.throws(() => configFromEnvironment({ ...environment(),
     AWG_MAIN_USER_PORT: '53081' }));
+  assert.throws(() => configFromEnvironment({ ...environment(),
+    AWG_MAIN_CONTROL_TCP_PORT: '53082' }));
   assert.equal(configFromEnvironment({ ...environment(),
     AWG_MAIN_USER_STATE_FILE: path.resolve('data/state.json') }).userStateFile,
   path.resolve('data/state.json'));

@@ -33,6 +33,7 @@ function configFromEnvironment(env) {
     || new Set([interfaceName, permanentInterface, userInterface]).size !== 3
     || [listenPort, permanentEndpointPort, registrationPort, permanentControlPort, userPort]
       .some(value => !Number.isSafeInteger(value))
+    || registrationPort === permanentControlPort
     || new Set([listenPort, permanentEndpointPort, userPort]).size !== 3) {
     throw new Error('Explicit Main state path, three distinct interfaces and five ports required');
   }

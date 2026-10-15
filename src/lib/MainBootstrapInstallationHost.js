@@ -78,6 +78,7 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
   if (!privateAddress(controllerAddress) || controllerAddress.startsWith('127.')
     || controllerAddress === '::1' || !validEndpointHost(endpointHost)
     || !validPort(permanentEndpointPort) || !validPort(permanentControlPort)
+    || registrationPort === permanentControlPort
     || !privateAddress(permanentControllerAddress)
     || permanentControllerAddress.startsWith('127.')
     || permanentControllerAddress === '::1'
@@ -168,7 +169,7 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
         || await deployment.store.read()) {
         throw new Error('Existing Main bootstrap state requires resume');
       }
-      await preflight(resources);
+      await preflight({ ...resources, tcpPorts: [registrationPort, permanentControlPort] });
       let identity;
       try { identity = await identityStore.load('controller'); }
       catch (error) {
@@ -196,7 +197,7 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
         if (records.length) {
           throw new Error('Main invitations exist without bootstrap device');
         }
-        await preflight(resources);
+        await preflight({ ...resources, tcpPorts: [registrationPort, permanentControlPort] });
         const spec = await prepareBootstrapDevice({ interfaceName, listenPort,
           controllerAddress, privateKey: config.privateKey, profile: config.profile,
           userInterfaces: resources.userInterfaceNames,
