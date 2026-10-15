@@ -5,6 +5,7 @@ const { openCellBootstrapInstallationHost } = require('./CellBootstrapInstallati
 const { decodeAwgBootstrapInvitation } = require('./CellAwgBootstrapInvitation');
 const { CellUserConfigStore } = require('./CellUserConfigStore');
 const { startCellService, syncCellOnce } = require('./CellService');
+const { readCellStatus } = require('./CellStatus');
 
 const INTERFACE = /^[a-zA-Z0-9_.-]{1,15}$/;
 const PORT = /^\d{1,5}$/;
@@ -52,13 +53,29 @@ async function runCellBootstrapCli({ args, env, input, output,
   openHost = openCellBootstrapInstallationHost,
   startService = startCellService,
   syncOnce = syncCellOnce,
+  statusReader = readCellStatus,
   newUserStore = (...params) => new CellUserConfigStore(...params) } = {}) {
   if (!Array.isArray(args) || args.length !== 1
-    || !['begin', 'resume', 'register', 'join', 'configure-user', 'sync', 'serve'].includes(args[0])) {
-    throw new Error('Usage: cell-cli.js begin|resume|register|join|configure-user|sync|serve');
+    || !['begin', 'resume', 'register', 'join', 'configure-user', 'sync', 'serve', 'status'].includes(args[0])) {
+    throw new Error('Usage: cell-cli.js begin|resume|register|join|configure-user|sync|serve|status');
   }
   if (!output || typeof output.write !== 'function') throw new TypeError('Cell status output required');
   const config = configFromEnvironment(env);
+  if (args[0] === 'status') {
+    const status = await statusReader(config);
+    const revision = value => value === null || Number.isSafeInteger(value) && value > 0;
+    if (!status || !['absent', 'pending', 'registered'].includes(status.registration)
+      || typeof status.permanentPlan !== 'boolean'
+      || typeof status.userConfigured !== 'boolean'
+      || !revision(status.receivedRevision) || !revision(status.appliedRevision)) {
+      throw new Error('Invalid read-only Cell status');
+    }
+    output.write(`${JSON.stringify({ registration: status.registration,
+      permanentPlan: status.permanentPlan, userConfigured: status.userConfigured,
+      receivedRevision: status.receivedRevision,
+      appliedRevision: status.appliedRevision })}\n`);
+    return;
+  }
   const code = args[0] === 'begin' ? await readInvitation(input) : null;
   if (code) decodeAwgBootstrapInvitation(code);
   const host = await openHost(config);

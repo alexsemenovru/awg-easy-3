@@ -7,6 +7,7 @@ const test = require('node:test');
 const { configFromEnvironment, runCellBootstrapCli } = require('../lib/CellBootstrapCli');
 const { createAwgBootstrapInvitation } = require('../lib/CellAwgBootstrapInvitation');
 const { generateOfficialProfile } = require('../lib/Awg3Config');
+const { readCellStatus } = require('../lib/CellStatus');
 
 const environment = () => ({ AWG_CELL_STATE_DIR: path.resolve('cell-state'),
   AWG_CELL_RUNTIME_DIR: path.resolve('cell-runtime'),
@@ -127,4 +128,23 @@ test('Cell CLI one-shot sync reports only status and revision', async () => {
     syncOnce: async () => ({ status: 'applied', revision: 7,
       privateKey: 'must-not-be-printed' }) });
   assert.equal(printed, '{"status":"applied","revision":7}\n');
+});
+
+test('Cell status is read-only, reports absence and never opens installation host', async () => {
+  const config = configFromEnvironment({ ...environment(),
+    AWG_CELL_STATE_DIR: path.resolve('missing-cell-state-for-status-test') });
+  assert.deepEqual(await readCellStatus(config), { registration: 'absent',
+    permanentPlan: false, userConfigured: false,
+    receivedRevision: null, appliedRevision: null });
+  let printed = '';
+  await runCellBootstrapCli({ args: ['status'], env: environment(),
+    output: { write: value => { printed += value; } },
+    openHost: async () => { throw new Error('status must not open host'); },
+    statusReader: async () => ({ registration: 'registered', permanentPlan: true,
+      userConfigured: true, receivedRevision: 5, appliedRevision: 4,
+      privateKey: 'must-not-be-printed' }) });
+  assert.deepEqual(JSON.parse(printed), { registration: 'registered',
+    permanentPlan: true, userConfigured: true,
+    receivedRevision: 5, appliedRevision: 4 });
+  assert.equal(printed.includes('must-not-be-printed'), false);
 });

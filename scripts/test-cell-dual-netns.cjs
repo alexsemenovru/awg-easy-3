@@ -243,6 +243,9 @@ async function main() {
       stage = 'control-sync-request';
       const result = runCellCli('sync');
       assert.equal(result.status, 'applied');
+      assert.deepEqual(runCellCli('status'), { registration: 'registered',
+        permanentPlan: true, userConfigured: true,
+        receivedRevision: 1, appliedRevision: 1 });
       ip(['-n', 'awgcell', 'link', 'show', 'awgcellu8']);
       ip(['netns', 'exec', 'awgcell', 'nft', 'list', 'table', 'inet', 'awg_easy_3']);
       stage = 'control-sync-ack';
