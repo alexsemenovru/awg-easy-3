@@ -65,11 +65,11 @@ async function readSettings(input) {
 async function runMainBootstrapCli({ args, env, input, output,
   openHost = openMainBootstrapInstallationHost } = {}) {
   if (!Array.isArray(args) || !output || typeof output.write !== 'function'
-    || !['init', 'resume', 'issue', 'join', 'serve', 'listen', 'control-listen',
+    || !['init', 'resume', 'issue', 'join', 'serve', 'listen', 'control-listen', 'cells',
       'publish', 'settings-status'].includes(args[0])
     || args.length !== (args[0] === 'issue' ? 3
       : ['join', 'publish', 'settings-status'].includes(args[0]) ? 2 : 1)) {
-    throw new Error('Usage: main-cell-cli.js init|resume|issue TEMP_IP PERMANENT_IP|join ID|serve|listen|control-listen|publish ID|settings-status ID');
+    throw new Error('Usage: main-cell-cli.js init|resume|issue TEMP_IP PERMANENT_IP|join ID|serve|listen|control-listen|cells|publish ID|settings-status ID');
   }
   const settings = args[0] === 'publish' ? await readSettings(input) : null;
   const host = await openHost(configFromEnvironment(env));
@@ -91,6 +91,8 @@ async function runMainBootstrapCli({ args, env, input, output,
     output.write(`${JSON.stringify({ revision: result.revision })}\n`);
   } else if (args[0] === 'settings-status') {
     output.write(`${JSON.stringify(await host.settingsStatus(args[1]))}\n`);
+  } else if (args[0] === 'cells') {
+    output.write(`${JSON.stringify(await host.cells())}\n`);
   } else if (args[0] === 'serve') {
     await host.resume();
     const boot = await host.recoverPermanentBoot();

@@ -274,6 +274,18 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
       const record = await registeredRecord(invitationId);
       return publisherForCell(record.cellKey).status();
     },
+    cells: async () => {
+      await identityStore.load('controller');
+      const records = (await bootstrapStore.read()).invitations;
+      return Promise.all(records.map(async record => {
+        const publicRecord = { id: record.id, status: record.status,
+          phase: record.phase, createdAt: record.createdAt };
+        if (record.status === 'consumed' && record.phase === 'closed') {
+          publicRecord.settings = await publisherForCell(record.cellKey).status();
+        }
+        return publicRecord;
+      }));
+    },
     listenControl: () => locked(async () => {
       await identityStore.load('controller');
       await bootstrapStore.read();

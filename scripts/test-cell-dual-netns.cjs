@@ -248,6 +248,11 @@ async function main() {
       stage = 'control-sync-ack';
       const synced = JSON.parse(runMainCli('settings-status', invitationId));
       assert.equal(synced.confirmedRevision, synced.desiredRevision);
+      const inventory = JSON.parse(runMainCli('cells'));
+      assert.equal(inventory.length, 1);
+      assert.deepEqual(inventory[0], { id: invitationId, status: 'consumed',
+        phase: 'closed', createdAt: inventory[0].createdAt, settings: synced });
+      assert.equal(JSON.stringify(inventory).includes('cellKey'), false);
     } finally { control.child.kill('SIGTERM'); }
     stage = 'control-outage';
     await new Promise((resolve, reject) => {

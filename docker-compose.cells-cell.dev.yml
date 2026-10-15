@@ -1,0 +1,37 @@
+# Opt-in development-only Cell. No web panel and no default installation hook.
+# Bootstrap registration and user configuration are explicit CLI operations.
+services:
+  cell:
+    profiles:
+      - cells-cell
+    image: ${AWG_IMAGE:-awg-easy-3:0.1.0-dev}
+    container_name: awg-easy-3-cell-dev
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - ./cell-data:/cell-data
+    read_only: true
+    tmpfs:
+      - /run:mode=0700,size=16m
+      - /tmp:mode=1777,size=32m
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      AWG_CELL_STATE_DIR: /cell-data
+      AWG_CELL_RUNTIME_DIR: /run/awg-easy-3-cell
+      AWG_CELL_BOOTSTRAP_INTERFACE: ${AWG_CELL_BOOTSTRAP_INTERFACE:?Set a dedicated bootstrap interface}
+      AWG_CELL_CONTROL_INTERFACE: ${AWG_CELL_CONTROL_INTERFACE:?Set a dedicated control interface}
+      AWG_CELL_USER_INTERFACE: ${AWG_CELL_USER_INTERFACE:?Set a dedicated user interface}
+      AWG_CELL_USER_PORT: ${AWG_CELL_USER_PORT:?Set the user UDP port}
+    entrypoint:
+      - /usr/bin/dumb-init
+      - --
+      - node
+      - /app/cell-cli.js
+    command:
+      - serve
+    stop_grace_period: 15s

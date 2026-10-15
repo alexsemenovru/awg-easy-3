@@ -88,3 +88,20 @@ test('Main assembly verifies the persisted user interface and ports before any m
     prepareStateDirectory: async () => { preparations++; } }), /does not match/);
   assert.equal(preparations, 1);
 });
+
+test('Main Cell inventory exposes only public lifecycle and revision fields', async () => {
+  const host = await openMainBootstrapInstallationHost({ ...options(),
+    prepareStateDirectory: async () => {} });
+  host.identityStore.load = async () => ({ publicKey: 'controller-public' });
+  host.bootstrapStore.read = async () => ({ invitations: [
+    { id: 'a'.repeat(32), status: 'pending', phase: 'ready', createdAt: 1000,
+      secretHash: 'do-not-report', temporaryPresharedKey: 'secret' },
+    { id: 'b'.repeat(32), status: 'consumed', phase: 'closed', createdAt: 2000,
+      cellKey: 'cell-secret', awgPublicKey: 'peer-key', cellAddress: '10.90.8.2' },
+  ] });
+  assert.deepEqual(await host.cells(), [
+    { id: 'a'.repeat(32), status: 'pending', phase: 'ready', createdAt: 1000 },
+    { id: 'b'.repeat(32), status: 'consumed', phase: 'closed', createdAt: 2000,
+      settings: { desiredRevision: null, confirmedRevision: null, awaitingAck: false } },
+  ]);
+});

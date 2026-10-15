@@ -88,6 +88,20 @@ test('Main CLI publishes bounded JSON settings and exposes revision status only'
     + '{"controlListening":true,"transport":"AWG"}\n');
 });
 
+test('Main CLI lists Cells without invitation or transport secrets', async () => {
+  let printed = '';
+  await runMainBootstrapCli({ args: ['cells'], env: environment(),
+    output: { write: value => { printed += value; } },
+    openHost: async () => ({ cells: async () => [{ id: 'a'.repeat(32),
+      status: 'consumed', phase: 'closed', createdAt: 123,
+      settings: { desiredRevision: 2, confirmedRevision: 1, awaitingAck: true } }] }) });
+  assert.deepEqual(JSON.parse(printed), [{ id: 'a'.repeat(32),
+    status: 'consumed', phase: 'closed', createdAt: 123,
+    settings: { desiredRevision: 2, confirmedRevision: 1, awaitingAck: true } }]);
+  await assert.rejects(runMainBootstrapCli({ args: ['cells', 'extra'],
+    env: environment(), output: { write() {} }, openHost: async () => ({}) }), /Usage/);
+});
+
 test('Main CLI rejects oversized settings before opening host state', async () => {
   let opened = false;
   await assert.rejects(runMainBootstrapCli({ args: ['publish', 'a'.repeat(32)],
