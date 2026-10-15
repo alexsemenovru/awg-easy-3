@@ -11,6 +11,7 @@ const port = value => PORT.test(value || '') && Number(value) > 0 && Number(valu
 function configFromEnvironment(env) {
   if (!env || typeof env !== 'object') throw new TypeError('Main environment required');
   const stateDirectory = env.AWG_MAIN_CELL_STATE_DIR;
+  const userStateFile = env.AWG_MAIN_USER_STATE_FILE;
   const interfaceName = env.AWG_MAIN_BOOTSTRAP_INTERFACE;
   const permanentInterface = env.AWG_MAIN_CONTROL_INTERFACE;
   const userInterface = env.AWG_MAIN_USER_INTERFACE;
@@ -21,6 +22,8 @@ function configFromEnvironment(env) {
   const permanentControlPort = port(env.AWG_MAIN_CONTROL_TCP_PORT);
   if (typeof stateDirectory !== 'string' || !path.isAbsolute(stateDirectory)
     || path.normalize(stateDirectory) !== stateDirectory
+    || (userStateFile !== undefined && (typeof userStateFile !== 'string'
+      || !path.isAbsolute(userStateFile) || path.normalize(userStateFile) !== userStateFile))
     || !NAME.test(interfaceName || '') || !NAME.test(permanentInterface || '')
     || !NAME.test(userInterface || '')
     || new Set([interfaceName, permanentInterface, userInterface]).size !== 3
@@ -29,7 +32,8 @@ function configFromEnvironment(env) {
     || new Set([listenPort, permanentEndpointPort, userPort]).size !== 3) {
     throw new Error('Explicit Main state path, three distinct interfaces and five ports required');
   }
-  return { stateDirectory, interfaceName, controllerAddress: env.AWG_MAIN_BOOTSTRAP_ADDRESS,
+  return { stateDirectory, userStateFile, interfaceName,
+    controllerAddress: env.AWG_MAIN_BOOTSTRAP_ADDRESS,
     registrationPort, listenPort, endpointHost: env.AWG_MAIN_ENDPOINT,
     permanentEndpointPort, permanentControllerAddress: env.AWG_MAIN_CONTROL_ADDRESS,
     permanentControlPort,

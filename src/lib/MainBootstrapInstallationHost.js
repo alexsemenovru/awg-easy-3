@@ -30,6 +30,7 @@ const { CellSettingsPublisher } = require('./CellSettingsPublisher');
 const { listenTunnelControlEndpoint } = require('./CellControlService');
 const { privateAddress } = require('./CellTunnelControlTransport');
 const { validEndpointHost } = require('./CellAwgEndpointHost');
+const { StateStore } = require('./StateStore');
 
 const validName = name => typeof name === 'string' && /^[a-zA-Z0-9_.-]{1,15}$/.test(name);
 const validPort = port => Number.isSafeInteger(port) && port >= 1 && port <= 65535;
@@ -37,7 +38,7 @@ const validPort = port => Number.isSafeInteger(port) && port >= 1 && port <= 655
 // Product Main bootstrap assembly. It deliberately does not configure the
 // existing user AWG interface, change Docker, or open a listener on creation.
 // Every host mutation and invitation transition is under one Linux flock.
-async function openMainBootstrapInstallationHost({ stateDirectory, interfaceName,
+async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile, interfaceName,
   controllerAddress, registrationPort, listenPort, endpointHost,
   permanentEndpointPort, permanentControllerAddress, permanentControlPort,
   resources, runner = runProcess,
@@ -45,6 +46,8 @@ async function openMainBootstrapInstallationHost({ stateDirectory, interfaceName
   withLock = withCellInstallationLock,
   prepareStateDirectory = prepareCellInstallationStateDirectory } = {}) {
   if (typeof stateDirectory !== 'string' || !path.isAbsolute(stateDirectory)
+    || (userStateFile !== undefined && (typeof userStateFile !== 'string'
+      || !path.isAbsolute(userStateFile)))
     || !validName(interfaceName) || !validPort(listenPort)
     || !validPort(registrationPort) || !resources
     || !Array.isArray(resources.interfaceNames) || resources.interfaceNames.length !== 2
@@ -83,6 +86,18 @@ async function openMainBootstrapInstallationHost({ stateDirectory, interfaceName
     || typeof keyManager.generateKeyPair !== 'function'
     || typeof keyManager.derivePublicKey !== 'function') {
     throw new TypeError('Invalid Main bootstrap endpoint or key manager');
+  }
+  // A sidecar on a real Main installation must reserve the values from the
+  // persisted panel, not merely trust its own environment. Check before any
+  // state directory or host resource is created; fail closed on a mismatch.
+  if (userStateFile !== undefined) {
+    const userState = await new StateStore(userStateFile).load();
+    if (!userState || userState.server.interfaceName !== resources.userInterfaceNames[0]
+      || userState.server.listenPort !== resources.userUdpPorts[0]
+      || userState.server.panelPort === registrationPort
+      || userState.server.panelPort === permanentControlPort) {
+      throw new Error('Main user panel state does not match the Cell resource reservation');
+    }
   }
   // The descriptor's key and profile are supplied by the persisted Main
   // config at invitation time, not accepted as a second independent secret.

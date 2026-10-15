@@ -20,6 +20,7 @@ test('Main CLI reserves dedicated interfaces, UDP ports and nft tables', () => {
   assert.deepEqual(config.resources.udpPorts, [53081, 53084]);
   assert.deepEqual(config.resources.userInterfaceNames, ['awg0']);
   assert.deepEqual(config.resources.userUdpPorts, [51820]);
+  assert.equal(config.userStateFile, undefined);
   assert.ok(config.resources.nftTables.includes('awg_easy_3_control_guard'));
   assert.throws(() => configFromEnvironment({ ...environment(), AWG_MAIN_CONTROL_PORT: '0' }));
   assert.throws(() => configFromEnvironment({ ...environment(),
@@ -28,6 +29,11 @@ test('Main CLI reserves dedicated interfaces, UDP ports and nft tables', () => {
     AWG_MAIN_BOOTSTRAP_PORT: '53084' }));
   assert.throws(() => configFromEnvironment({ ...environment(),
     AWG_MAIN_USER_PORT: '53081' }));
+  assert.equal(configFromEnvironment({ ...environment(),
+    AWG_MAIN_USER_STATE_FILE: path.resolve('data/state.json') }).userStateFile,
+  path.resolve('data/state.json'));
+  assert.throws(() => configFromEnvironment({ ...environment(),
+    AWG_MAIN_USER_STATE_FILE: 'data/state.json' }));
 });
 
 test('Main CLI validates arity before opening host and emits only bounded status', async () => {
