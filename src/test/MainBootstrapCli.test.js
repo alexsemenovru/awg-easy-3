@@ -71,6 +71,16 @@ test('Main CLI gives invitation only on explicit issue operation', async () => {
   assert.equal(printed, 'one-time-code\n');
 });
 
+test('Main CLI issues automatic invitation without address arguments', async () => {
+  let printed = '';
+  await runMainBootstrapCli({ args: ['issue-auto'], env: environment(),
+    output: { write: value => { printed += value; } },
+    openHost: async () => ({ issueAuto: async () => 'one-time-code' }) });
+  assert.equal(printed, 'one-time-code\n');
+  await assert.rejects(runMainBootstrapCli({ args: ['issue-auto', 'extra'],
+    env: environment(), output: { write() {} }, openHost: async () => ({}) }), /Usage/);
+});
+
 test('Main CLI publishes bounded JSON settings and exposes revision status only', async () => {
   const published = [];
   let printed = '';

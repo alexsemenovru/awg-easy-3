@@ -38,6 +38,7 @@ test('Main installer is opt-in, preserves the existing panel and pins its runnin
   assert.doesNotMatch(overlay, /privileged: true/);
   assert.match(updater, /Main Node is enabled; coordinated Main\/Cell updates are not ready/);
   assert.match(manager, /enable-main-node\) exec "\$project_dir\/enable-main-node\.sh"/);
+  assert.match(manager, /issue-cell\)[\s\S]*compose exec -T main-cell node \/app\/main-cell-cli\.js issue-auto/);
   assert.match(manager, /--env-file "\$project_dir\/\.env\.cells-main"/);
   assert.match(manager, /compose stop main-cell awg-easy/);
   assert.match(baseInstaller, /Main Node state exists; removal is disabled/);

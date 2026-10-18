@@ -73,11 +73,11 @@ async function runMainBootstrapCli({ args, env, input, output,
   openHost = openMainBootstrapInstallationHost,
   newStatusSnapshot = file => new MainCellStatusSnapshot(file) } = {}) {
   if (!Array.isArray(args) || !output || typeof output.write !== 'function'
-    || !['init', 'resume', 'issue', 'join', 'serve', 'listen', 'control-listen', 'cells',
+    || !['init', 'resume', 'issue', 'issue-auto', 'join', 'serve', 'listen', 'control-listen', 'cells',
       'publish', 'settings-status'].includes(args[0])
     || args.length !== (args[0] === 'issue' ? 3
       : ['join', 'publish', 'settings-status'].includes(args[0]) ? 2 : 1)) {
-    throw new Error('Usage: main-cell-cli.js init|resume|issue TEMP_IP PERMANENT_IP|join ID|serve|listen|control-listen|cells|publish ID|settings-status ID');
+    throw new Error('Usage: main-cell-cli.js init|resume|issue TEMP_IP PERMANENT_IP|issue-auto|join ID|serve|listen|control-listen|cells|publish ID|settings-status ID');
   }
   const settings = args[0] === 'publish' ? await readSettings(input) : null;
   const config = configFromEnvironment(env);
@@ -89,6 +89,8 @@ async function runMainBootstrapCli({ args, env, input, output,
   } else if (args[0] === 'issue') {
     const code = await host.issue({ cellAddress: args[1], permanentCellAddress: args[2] });
     output.write(`${code}\n`);
+  } else if (args[0] === 'issue-auto') {
+    output.write(`${await host.issueAuto()}\n`);
   } else if (args[0] === 'join') {
     const result = await host.join(args[1]);
     if (!['ready', 'waiting-for-permanent-path'].includes(result?.status)) {

@@ -32,6 +32,7 @@ const { privateAddress } = require('./CellTunnelControlTransport');
 const { validEndpointHost } = require('./CellAwgEndpointHost');
 const { StateStore } = require('./StateStore');
 const { addressInSubnet } = require('./AddressAllocator');
+const { allocateCellInvitationAddresses } = require('./CellInvitationAddressAllocator');
 
 const validName = name => typeof name === 'string' && /^[a-zA-Z0-9_.-]{1,15}$/.test(name);
 const validPort = port => Number.isSafeInteger(port) && port >= 1 && port <= 65535;
@@ -161,6 +162,20 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
     return { runtime, coordinator: new CellAwgBootstrapCoordinator({ store: bootstrapStore,
       runtime }) };
   }
+  async function issueLocked({ cellAddress, permanentCellAddress }) {
+    const config = await verifiedConfig();
+    const identity = await identityStore.load('controller');
+    const { runtime, coordinator: flow } = await coordinator(config);
+    if (!await runtime.verifyCurrent()) throw new Error('Main bootstrap path is not verified');
+    return flow.issue({ controllerKey: identity.publicKey, endpointHost,
+      endpointPort: listenPort, registrationPort, controllerAddress, cellAddress,
+      serverPublicKey: config.publicKey, profile: config.profile,
+      permanentDescriptor: { version: 1, endpointHost,
+        endpointPort: permanentEndpointPort,
+        controllerAddress: permanentControllerAddress,
+        cellAddress: permanentCellAddress, controlPort: permanentControlPort,
+        serverPublicKey: config.publicKey, profile: config.profile } });
+  }
   await prepareStateDirectory(stateDirectory);
   return Object.freeze({ bootstrapStore, identityStore, configStore, bootstrap, deployment,
     isPristine: async () => {
@@ -252,20 +267,12 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
       await runtime.recover();
       return { ready: true, role: 'controller' };
     }),
-    issue: ({ cellAddress, permanentCellAddress } = {}) => locked(async () => {
-      const config = await verifiedConfig();
-      const identity = await identityStore.load('controller');
-      const { runtime, coordinator: flow } = await coordinator(config);
-      if (!await runtime.verifyCurrent()) throw new Error('Main bootstrap path is not verified');
-      return flow.issue({ controllerKey: identity.publicKey, endpointHost,
-        endpointPort: listenPort, registrationPort, controllerAddress, cellAddress,
-        serverPublicKey: config.publicKey, profile: config.profile,
-        permanentDescriptor: { version: 1, endpointHost,
-          endpointPort: permanentEndpointPort,
-          controllerAddress: permanentControllerAddress,
-          cellAddress: permanentCellAddress, controlPort: permanentControlPort,
-          serverPublicKey: config.publicKey, profile: config.profile } });
-    }),
+    issue: ({ cellAddress, permanentCellAddress } = {}) => locked(() =>
+      issueLocked({ cellAddress, permanentCellAddress })),
+    issueAuto: () => locked(async () => issueLocked(allocateCellInvitationAddresses({
+      controllerAddress, permanentControllerAddress,
+      invitations: (await bootstrapStore.read()).invitations,
+    }))),
     join: invitationId => locked(async () => {
       if (typeof invitationId !== 'string' || !/^[a-f0-9]{32}$/.test(invitationId)) {
         throw new TypeError('Registered invitation identifier required');

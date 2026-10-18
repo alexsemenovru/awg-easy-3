@@ -55,6 +55,7 @@ AWG-Easy 3 management commands:
                               Export an existing client by name or ID
   awg-easy-3 enable-main-node
                               Enable Main Node on this installed panel
+  awg-easy-3 issue-cell     Issue one short-lived Cell invitation
   awg-easy-3 uninstall       Remove AWG-Easy 3 and all its settings
   awg-easy-3 reinstall       Reinstall from scratch
   awg-easy-3 help            Show this help
@@ -118,6 +119,10 @@ case "$command" in
     compose run --rm --no-deps awg-easy export-client "$2"
     ;;
   enable-main-node) exec "$project_dir/enable-main-node.sh" ;;
+  issue-cell)
+    [ "$main_node_enabled" = true ] || die 'Main Node is not enabled'
+    compose exec -T main-cell node /app/main-cell-cli.js issue-auto
+    ;;
   uninstall|--uninstall) exec "$project_dir/install.sh" --uninstall ;;
   reinstall|--reinstall) exec "$project_dir/install.sh" --reinstall ;;
   help|-h|--help) show_help ;;
