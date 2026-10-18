@@ -373,6 +373,11 @@ has_command ss || die "iproute2 installation did not provide the ss command"
 has_command nft || die "nftables installation did not provide the nft command"
 
 remove_existing_installation() {
+  if [ -e "$EXISTING_INSTALL_DIR/.env.cells-main" ] \
+    || [ -L "$EXISTING_INSTALL_DIR/.env.cells-main" ] \
+    || docker container inspect awg-easy-3-main-cell >/dev/null 2>&1; then
+    die 'Main Node state exists; removal is disabled until Cell-safe removal and backup are implemented'
+  fi
   confirm_data_removal || die "removal cancelled; the existing installation was left unchanged"
   if ! awg_easy_acquire_update_lock; then
     die "an AWG-Easy 3 update is running; wait for it to finish before removing the installation"

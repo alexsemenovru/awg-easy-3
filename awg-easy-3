@@ -14,7 +14,24 @@ case "$project_dir" in /*) ;; *) die "invalid installation location" ;; esac
 # shellcheck disable=SC1091
 . "$project_dir/lib/auto-update.sh"
 
+main_node_enabled=false
+if [ -e "$project_dir/.env.cells-main" ] || [ -L "$project_dir/.env.cells-main" ]; then
+  [ -f "$project_dir/.env.cells-main" ] && [ ! -L "$project_dir/.env.cells-main" ] \
+    && [ -f "$project_dir/docker-compose.cells-main.yml" ] \
+    || die 'Main Node installation record or compose file is unsafe or missing'
+  main_node_enabled=true
+elif docker container inspect awg-easy-3-main-cell >/dev/null 2>&1; then
+  die 'Main Node container exists without its installation record; refusing panel-only management'
+fi
+
 compose() {
+  if [ "$main_node_enabled" = true ]; then
+    docker compose --project-directory "$project_dir" \
+      --env-file "$project_dir/.env.cells-main" \
+      -f "$project_dir/docker-compose.yml" \
+      -f "$project_dir/docker-compose.cells-main.yml" --profile cells-main "$@"
+    return
+  fi
   docker compose --project-directory "$project_dir" -f "$project_dir/docker-compose.yml" "$@"
 }
 
@@ -36,6 +53,8 @@ AWG-Easy 3 management commands:
   awg-easy-3 reset-password  Generate a new panel password
   awg-easy-3 export-client NAME
                               Export an existing client by name or ID
+  awg-easy-3 enable-main-node
+                              Enable Main Node on this installed panel
   awg-easy-3 uninstall       Remove AWG-Easy 3 and all its settings
   awg-easy-3 reinstall       Reinstall from scratch
   awg-easy-3 help            Show this help
@@ -45,11 +64,21 @@ EOF
 command=${1:-menu}
 case "$command" in
   menu) exec "$project_dir/install.sh" ;;
-  start) compose up -d awg-easy ;;
-  stop) compose stop awg-easy ;;
-  restart) compose restart awg-easy ;;
+  start)
+    if [ "$main_node_enabled" = true ]; then compose up -d awg-easy main-cell
+    else compose up -d awg-easy; fi
+    ;;
+  stop)
+    if [ "$main_node_enabled" = true ]; then compose stop main-cell awg-easy
+    else compose stop awg-easy; fi
+    ;;
+  restart)
+    if [ "$main_node_enabled" = true ]; then compose restart awg-easy main-cell
+    else compose restart awg-easy; fi
+    ;;
   status)
-    compose ps awg-easy
+    if [ "$main_node_enabled" = true ]; then compose ps awg-easy main-cell
+    else compose ps awg-easy; fi
     if ip link show dev awg0 >/dev/null 2>&1; then printf 'AWG interface: active\n'; else printf 'AWG interface: inactive\n'; fi
     if nft list table inet awg_easy_3 >/dev/null 2>&1; then printf 'nftables policy: active\n'; else printf 'nftables policy: inactive\n'; fi
     ;;
@@ -60,7 +89,8 @@ case "$command" in
     ;;
   logs) compose logs --tail=100 -f awg-easy ;;
   diagnose)
-    compose ps awg-easy
+    if [ "$main_node_enabled" = true ]; then compose ps awg-easy main-cell
+    else compose ps awg-easy; fi
     printf '\nRecent logs:\n'
     compose logs --tail=50 awg-easy
     ;;
@@ -87,6 +117,7 @@ case "$command" in
     [ "$#" -ge 2 ] || die "client name or ID is required"
     compose run --rm --no-deps awg-easy export-client "$2"
     ;;
+  enable-main-node) exec "$project_dir/enable-main-node.sh" ;;
   uninstall|--uninstall) exec "$project_dir/install.sh" --uninstall ;;
   reinstall|--reinstall) exec "$project_dir/install.sh" --reinstall ;;
   help|-h|--help) show_help ;;

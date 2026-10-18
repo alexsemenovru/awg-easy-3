@@ -10,6 +10,8 @@ const root = path.join(__dirname, '..', '..');
 const installer = fs.readFileSync(path.join(root, 'enable-main-node.sh'), 'utf8');
 const overlay = fs.readFileSync(path.join(root, 'docker-compose.cells-main.yml'), 'utf8');
 const updater = fs.readFileSync(path.join(root, 'lib', 'auto-update.sh'), 'utf8');
+const manager = fs.readFileSync(path.join(root, 'awg-easy-3'), 'utf8');
+const baseInstaller = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
 
 test('Main installer exports only validated public panel metadata', () => {
   const state = { server: { interfaceName: 'awg0', listenPort: 51820,
@@ -34,4 +36,8 @@ test('Main installer is opt-in, preserves the existing panel and pins its runnin
   assert.match(overlay, /container_name: awg-easy-3-main-cell/);
   assert.doesNotMatch(overlay, /privileged: true/);
   assert.match(updater, /Main Node is enabled; coordinated Main\/Cell updates are not ready/);
+  assert.match(manager, /enable-main-node\) exec "\$project_dir\/enable-main-node\.sh"/);
+  assert.match(manager, /--env-file "\$project_dir\/\.env\.cells-main"/);
+  assert.match(manager, /compose stop main-cell awg-easy/);
+  assert.match(baseInstaller, /Main Node state exists; removal is disabled/);
 });
