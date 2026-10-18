@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('node:path');
+const fs = require('node:fs/promises');
 const { openCellBootstrapInstallationHost } = require('./CellBootstrapInstallationHost');
 const { decodeAwgBootstrapInvitation } = require('./CellAwgBootstrapInvitation');
 const { CellUserConfigStore } = require('./CellUserConfigStore');
@@ -13,6 +14,7 @@ const PORT = /^\d{1,5}$/;
 function configFromEnvironment(env) {
   if (!env || typeof env !== 'object') throw new TypeError('Cell environment required');
   const stateDirectory = env.AWG_CELL_STATE_DIR;
+  const invitationFile = env.AWG_CELL_INVITATION_FILE;
   const interfaceName = env.AWG_CELL_BOOTSTRAP_INTERFACE;
   const controlInterface = env.AWG_CELL_CONTROL_INTERFACE;
   const userInterface = env.AWG_CELL_USER_INTERFACE;
@@ -20,12 +22,13 @@ function configFromEnvironment(env) {
   const userPort = PORT.test(portText || '') ? Number(portText) : NaN;
   if (typeof stateDirectory !== 'string' || !path.isAbsolute(stateDirectory)
     || path.normalize(stateDirectory) !== stateDirectory
+    || (invitationFile !== undefined && invitationFile !== path.join(stateDirectory, 'invitation'))
     || [interfaceName, controlInterface, userInterface].some(name => !INTERFACE.test(name || ''))
     || new Set([interfaceName, controlInterface, userInterface]).size !== 3
     || !Number.isInteger(userPort) || userPort < 1 || userPort > 65535) {
     throw new Error('Explicit Cell state path, three distinct interfaces and user UDP port required');
   }
-  return { stateDirectory, interfaceName, runtimeDirectory: env.AWG_CELL_RUNTIME_DIR, resources: {
+  return { stateDirectory, invitationFile, interfaceName, runtimeDirectory: env.AWG_CELL_RUNTIME_DIR, resources: {
     interfaceNames: [interfaceName, controlInterface, userInterface],
     udpPorts: [userPort], nftTables: [
       'awg_easy_3_bootstrap', 'awg_easy_3_bootstrap_guard',
@@ -46,6 +49,18 @@ async function readInvitation(input) {
   }
   const code = Buffer.concat(chunks).toString('utf8').trim();
   if (!code) throw new Error('Cell invitation required on stdin');
+  return code;
+}
+
+async function readPrivateInvitationFile(file) {
+  const stat = await fs.lstat(file);
+  if (!stat.isFile() || stat.nlink !== 1 || stat.size < 1 || stat.size > 8194
+    || (process.platform !== 'win32'
+      && (stat.uid !== process.getuid() || (stat.mode & 0o077)))) {
+    throw new Error('Unsafe Cell invitation file');
+  }
+  const code = (await fs.readFile(file, 'utf8')).trim();
+  decodeAwgBootstrapInvitation(code);
   return code;
 }
 
@@ -109,9 +124,22 @@ async function runCellBootstrapCli({ args, env, input, output,
   }
   if (args[0] === 'serve') {
     let connection = await host.connectionStore.read();
+    let beganNow = false;
+    if (!connection && config.invitationFile) {
+      const code = await readPrivateInvitationFile(config.invitationFile);
+      const begun = await host.initial.begin(code);
+      if (begun?.ready !== true) throw new Error('Cell bootstrap did not become ready');
+      beganNow = true;
+      connection = await host.connectionStore.read();
+    }
     if (connection?.status === 'pending') {
-      const resumed = await host.initial.resume();
-      if (resumed?.ready !== true) throw new Error('Pending Cell bootstrap did not recover');
+      if (!beganNow) {
+        const resumed = await host.initial.resume();
+        if (resumed?.ready !== true) throw new Error('Pending Cell bootstrap did not recover');
+      }
+      if (config.invitationFile) {
+        await fs.unlink(config.invitationFile).catch(error => { if (error.code !== 'ENOENT') throw error; });
+      }
       const registered = await host.registration.register();
       if (registered?.status !== 'registered') throw new Error('Cell registration not complete');
       connection = await host.connectionStore.read();

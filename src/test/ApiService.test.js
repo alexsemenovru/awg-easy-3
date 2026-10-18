@@ -82,6 +82,8 @@ test('Cell invitation requires authentication and an enabled Main Node', async (
   await assert.rejects(service.issueCellInvitation('signed-token'), error => error.statusCode === 503);
   service.cellInvitationIssuer = async () => 'x'.repeat(40);
   assert.deepEqual(await service.issueCellInvitation('signed-token'), { code: 'x'.repeat(40) });
+  await assert.rejects(service.issueCellInvitation('signed-token'), error => error.statusCode === 429);
+  service.lastCellInvitationAt = -Infinity;
   service.cellInvitationIssuer = async () => { throw new Error('secret details'); };
   await assert.rejects(service.issueCellInvitation('signed-token'), error => error.statusCode === 503
     && !error.message.includes('secret details'));

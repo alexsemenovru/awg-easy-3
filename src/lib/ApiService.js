@@ -76,6 +76,8 @@ class ApiService {
     this.geoStatus = geoStatus;
     this.cellStatus = cellStatus;
     this.cellInvitationIssuer = cellInvitationIssuer;
+    this.cellInvitationQueue = Promise.resolve();
+    this.lastCellInvitationAt = -Infinity;
     this.clock = clock;
     this.failedLogins = 0;
     this.loginBlockedUntil = 0;
@@ -192,11 +194,21 @@ class ApiService {
   async issueCellInvitation(token) {
     await this.authorize(token);
     if (!this.cellInvitationIssuer) throw new ApiError(503, 'Main Node is not enabled');
-    try {
-      const code = await this.cellInvitationIssuer();
-      if (typeof code !== 'string' || code.length < 32 || code.length > 4096) throw new Error();
-      return { code };
-    } catch { throw new ApiError(503, 'Cell invitation unavailable'); }
+    const issue = async () => {
+      const now = this.clock();
+      if (now - this.lastCellInvitationAt < 10000) {
+        throw new ApiError(429, 'Wait before creating another Cell invitation');
+      }
+      this.lastCellInvitationAt = now;
+      try {
+        const code = await this.cellInvitationIssuer();
+        if (typeof code !== 'string' || code.length < 32 || code.length > 8192) throw new Error();
+        return { code };
+      } catch { throw new ApiError(503, 'Cell invitation unavailable'); }
+    };
+    const result = this.cellInvitationQueue.then(issue);
+    this.cellInvitationQueue = result.catch(() => {});
+    return result;
   }
 
   async createClient(token, input) {

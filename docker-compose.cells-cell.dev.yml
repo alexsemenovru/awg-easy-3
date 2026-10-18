@@ -24,6 +24,7 @@ services:
       - no-new-privileges:true
     environment:
       AWG_CELL_STATE_DIR: /cell-data
+      AWG_CELL_INVITATION_FILE: /cell-data/invitation
       AWG_CELL_RUNTIME_DIR: /cell-data/runtime
       AWG_CELL_BOOTSTRAP_INTERFACE: ${AWG_CELL_BOOTSTRAP_INTERFACE:?Set a dedicated bootstrap interface}
       AWG_CELL_CONTROL_INTERFACE: ${AWG_CELL_CONTROL_INTERFACE:?Set a dedicated control interface}

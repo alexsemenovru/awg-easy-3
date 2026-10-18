@@ -3,7 +3,7 @@
 const fs = require('node:fs/promises');
 const http = require('node:http');
 
-const MAX_REPLY = 8192;
+const MAX_REPLY = 9000;
 
 async function listenInvitationSocket(socketPath, issue) {
   if (typeof issue !== 'function') throw new TypeError('Invitation issuer required');
@@ -68,7 +68,7 @@ async function requestInvitation(socketPath) {
         if (response.statusCode !== 200) { reject(new Error('Cell invitation unavailable')); return; }
         try {
           const { code } = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-          if (typeof code !== 'string' || code.length < 32 || code.length > 4096) throw new Error();
+          if (typeof code !== 'string' || code.length < 32 || code.length > 8192) throw new Error();
           resolve(code);
         } catch { reject(new Error('Invalid Cell invitation response')); }
       });

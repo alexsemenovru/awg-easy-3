@@ -2,6 +2,8 @@
 
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const fs = require('node:fs/promises');
+const os = require('node:os');
 const { Readable } = require('node:stream');
 const test = require('node:test');
 const { configFromEnvironment, runCellBootstrapCli } = require('../lib/CellBootstrapCli');
@@ -139,6 +141,34 @@ test('Cell serve completes pending registration and permanent join before user s
   await runCellBootstrapCli({ args: ['serve'], env: environment(), output: { write() {} },
     openHost: async () => host, startService: async () => { order.push('serve'); return service; } });
   assert.deepEqual(order, ['resume', 'register', 'join', 'serve']);
+});
+
+test('Cell serve consumes a private first-run invitation without exposing it', async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-cell-first-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const file = path.join(directory, 'invitation');
+  const code = await invitation();
+  await fs.writeFile(file, code, { mode: 0o600 });
+  const steps = [];
+  let state = null;
+  let printed = '';
+  const host = {
+    connectionStore: { read: async () => state },
+    initial: { begin: async supplied => { assert.equal(supplied, code);
+      steps.push('begin'); state = { status: 'pending' }; return { ready: true }; },
+    resume: async () => { throw new Error('must not resume a live first boot'); } },
+    registration: { register: async () => { steps.push('register'); state = { status: 'registered' };
+      return { status: 'registered' }; } },
+    permanentPlanStore: { read: async () => null },
+    bootstrap: { lifecycle: { load: async () => ({ phase: 'ready' }) } },
+    permanentJoin: { join: async () => { steps.push('join'); return { status: 'ready' }; } },
+  };
+  await runCellBootstrapCli({ args: ['serve'], env: { ...environment(), AWG_CELL_STATE_DIR: directory,
+    AWG_CELL_INVITATION_FILE: file }, output: { write: value => { printed += value; } },
+  openHost: async () => host, startService: async () => { steps.push('serve'); return { close() {} }; } });
+  assert.deepEqual(steps, ['begin', 'register', 'join', 'serve']);
+  assert.equal(printed.includes(code), false);
+  await assert.rejects(fs.lstat(file), { code: 'ENOENT' });
 });
 
 test('Cell serve does not open user traffic without invitation or verified permanent path', async () => {
