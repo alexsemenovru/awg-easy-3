@@ -1,0 +1,38 @@
+# Standalone headless Cell. Install only through install-cell.sh.
+services:
+  cell:
+    image: ${AWG_IMAGE:?Set the verified Cell image}
+    container_name: awg-easy-3-cell
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - ./cell-data:/cell-data
+    read_only: true
+    tmpfs:
+      - /run:mode=0700,size=16m
+      - /tmp:mode=1777,size=32m
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      AWG_CELL_STATE_DIR: /cell-data
+      AWG_CELL_INVITATION_FILE: /cell-data/invitation
+      AWG_CELL_RUNTIME_DIR: /cell-data/runtime
+      AWG_CELL_BOOTSTRAP_INTERFACE: awgcellb0
+      AWG_CELL_CONTROL_INTERFACE: awgcellc0
+      AWG_CELL_USER_INTERFACE: awgcellu0
+      AWG_CELL_WAN_INTERFACE: ${AWG_CELL_WAN_INTERFACE:?Missing WAN interface}
+      AWG_CELL_USER_PORT: ${AWG_CELL_USER_PORT:?Missing user UDP port}
+    entrypoint:
+      - /usr/bin/dumb-init
+      - --
+      - node
+      - /app/cell-cli.js
+    command:
+      - serve
+    stop_grace_period: 15s
+    healthcheck:
+      disable: true
