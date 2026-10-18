@@ -26,7 +26,8 @@ async function ensureCellUserBootstrap({ config, connection, wanInterface,
   keyManager = new AwgKeyManager(), makeProfile = generateOfficialProfile } = {}) {
   if (!config || typeof config.stateDirectory !== 'string'
     || typeof wanInterface !== 'string' || !/^[a-zA-Z0-9_.-]{1,15}$/.test(wanInterface)
-    || wanInterface === config.resources?.interfaceNames?.[2]
+    || !Array.isArray(config.resources?.interfaceNames)
+    || config.resources.interfaceNames.includes(wanInterface)
     || connection?.status !== 'registered' || !connection.controllerPath) {
     throw new Error('Registered Cell, permanent path and WAN interface required');
   }

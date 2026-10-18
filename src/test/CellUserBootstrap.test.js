@@ -33,6 +33,8 @@ test('Cell user bootstrap persists a private empty tunnel once and preserves it 
   const key = Buffer.alloc(32, 7).toString('base64');
   const options = { config, connection, wanInterface: 'eth0',
     keyManager: { generatePrivateKey: async () => key }, makeProfile: generateOfficialProfile };
+  await assert.rejects(ensureCellUserBootstrap({ ...options,
+    wanInterface: 'awgctl0' }), /WAN interface required/);
   assert.deepEqual(await ensureCellUserBootstrap(options), { created: true });
   const file = path.join(directory, 'user-config.json');
   const saved = JSON.parse(await fs.readFile(file, 'utf8'));
