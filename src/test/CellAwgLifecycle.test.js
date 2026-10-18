@@ -54,6 +54,13 @@ test('userspace lifecycle journals creation before mutations, owns only its devi
   assert.deepEqual(kernel.addresses.sort(), spec.addresses); assert.equal(kernel.guard, true);
   assert.deepEqual(await fs.readdir(dir), ['lifecycle.json']);
 });
+test('already inherited loose rp_filter needs no write in a read-only sidecar', async t => {
+  const { life, spec, kernel } = await fixture(t);
+  kernel.rpFilter = 2;
+  await life.create(spec);
+  assert.ok(!kernel.calls.some(([file]) => file === 'sysctl'));
+  assert.equal((await life.load()).phase, 'ready');
+});
 test('userspace lifecycle never adopts existing same-name interface', async t => {
   const { life, spec, kernel } = await fixture(t); kernel.link = { ifname: 'cell0' };
   await assert.rejects(life.create(spec), /not be adopted/); assert.equal(kernel.calls.length, 0);

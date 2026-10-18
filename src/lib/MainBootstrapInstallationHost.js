@@ -197,7 +197,22 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
         if (records.length) {
           throw new Error('Main invitations exist without bootstrap device');
         }
-        await preflight({ ...resources, tcpPorts: [registrationPort, permanentControlPort] });
+        // An interrupted first install can have persisted the fail-closed
+        // guard before the lifecycle journal. Verify that guard from its own
+        // journal, then exclude only that owned table from the free scan.
+        const guardState = await guard.load();
+        const guarded = guardState.interfaces.length > 0 || guardState.pending !== null;
+        if (guarded) {
+          if (guardState.interfaces.some(name => name !== interfaceName)
+            || guardState.pending?.interfaces?.some(name => name !== interfaceName)) {
+            throw new Error('Unrelated Main bootstrap guard requires manual recovery');
+          }
+          await guard.recover();
+        }
+        await preflight({ ...resources,
+          nftTables: guarded ? resources.nftTables.filter(name => name !== guard.table)
+            : resources.nftTables,
+          tcpPorts: [registrationPort, permanentControlPort] });
         const spec = await prepareBootstrapDevice({ interfaceName, listenPort,
           controllerAddress, privateKey: config.privateKey, profile: config.profile,
           userInterfaces: resources.userInterfaceNames,

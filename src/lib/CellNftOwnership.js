@@ -34,18 +34,38 @@ function normalizeNftSnapshot(snapshot, table) {
   if (Buffer.byteLength(JSON.stringify(normalized)) > 32 * 1024 * 1024) throw new TypeError('Cell nft snapshot too large');
   return normalized;
 }
+// nft -j list groups declarations before rules on some kernels, while our
+// declarative batches may interleave each chain with its rules. Canonicalize
+// only for ownership comparison, not for the batch sent to nft; retain rule
+// order *within* each chain.
+function canonicalNftSnapshot(snapshot, table) {
+  const objects = normalizeNftSnapshot(snapshot, table).nftables;
+  const rank = { table: 0, chain: 1, set: 2, rule: 3 };
+  objects.sort((left, right) => {
+    const leftKind = Object.keys(left)[0], rightKind = Object.keys(right)[0];
+    if (rank[leftKind] !== rank[rightKind]) return rank[leftKind] - rank[rightKind];
+    if (leftKind === 'rule') return left.rule.chain.localeCompare(right.rule.chain);
+    if (leftKind === 'chain' || leftKind === 'set') {
+      return left[leftKind].name.localeCompare(right[rightKind].name);
+    }
+    return 0;
+  });
+  return { nftables: objects };
+}
 function nftFingerprint(snapshot, table) {
-  return crypto.createHash('sha256').update(JSON.stringify(normalizeNftSnapshot(snapshot, table))).digest('hex');
+  return crypto.createHash('sha256').update(JSON.stringify(canonicalNftSnapshot(snapshot, table))).digest('hex');
 }
 function planNftReplacement({ table, current, owned, desired }) {
   if (!TABLES.has(table)) throw new TypeError('Not a cell routing table');
   const normalize = value => value === null ? null : normalizeNftSnapshot(value, table);
   const actual = normalize(current), previous = normalize(owned), next = normalize(desired);
-  if (actual && (!previous || JSON.stringify(actual) !== JSON.stringify(previous))) {
+  const same = (a, b) => a === null || b === null ? a === b
+    : nftFingerprint(a, table) === nftFingerprint(b, table);
+  if (actual && !same(actual, previous)) {
     throw new Error('Foreign or changed cell nft table; refusing replacement');
   }
   const nftables = [];
-  if (JSON.stringify(actual) === JSON.stringify(next)) return { batch: { nftables }, changed: false, desired: next };
+  if (same(actual, next)) return { batch: { nftables }, changed: false, desired: next };
   if (actual) nftables.push({ delete: { table: { family: 'inet', name: table } } });
   if (next) for (const item of next.nftables) nftables.push({ add: item });
   return { batch: { nftables }, changed: true, desired: next };
@@ -66,8 +86,8 @@ function routingGuardSnapshot(interfaces, table = 'awg_easy_3_routing_guard') {
         expr: [{ match: { op: '==', left: { meta: { key } }, right: name } }, { drop: null }] } });
     }
   }
-  // Kernel list output groups each chain immediately with its rules. The
-  // construction above already has that exact order; do not hoist chains.
+  // Fingerprinting groups declarations before rules while retaining the order
+  // of rules inside each chain; the actual nft batch remains interleaved.
   return normalizeNftSnapshot({ nftables }, table);
 }
 module.exports = { normalizeNftSnapshot, nftFingerprint, planNftReplacement, routingGuardSnapshot };

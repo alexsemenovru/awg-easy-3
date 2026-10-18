@@ -1,5 +1,7 @@
 # Opt-in development-only Cell. No web panel and no default installation hook.
 # Bootstrap registration and user configuration are explicit CLI operations.
+# Runtime artifacts must survive a container restart so the Cell can prove
+# ownership of an existing nft table before replacing it.
 services:
   cell:
     profiles:
@@ -22,7 +24,7 @@ services:
       - no-new-privileges:true
     environment:
       AWG_CELL_STATE_DIR: /cell-data
-      AWG_CELL_RUNTIME_DIR: /run/awg-easy-3-cell
+      AWG_CELL_RUNTIME_DIR: /cell-data/runtime
       AWG_CELL_BOOTSTRAP_INTERFACE: ${AWG_CELL_BOOTSTRAP_INTERFACE:?Set a dedicated bootstrap interface}
       AWG_CELL_CONTROL_INTERFACE: ${AWG_CELL_CONTROL_INTERFACE:?Set a dedicated control interface}
       AWG_CELL_USER_INTERFACE: ${AWG_CELL_USER_INTERFACE:?Set a dedicated user interface}

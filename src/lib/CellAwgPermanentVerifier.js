@@ -70,6 +70,12 @@ class CellAwgPermanentVerifier {
 
   async verify() {
     if (!await this.path.verifyOperational()) return false;
+    // After a reboot AWG has no handshake until it sends a packet. Probing the
+    // Cell's bound control TCP endpoint first initiates that handshake; the
+    // fresh peer proof is still required immediately afterwards. Inspecting
+    // freshness first would permanently prevent the Cell from reconnecting.
+    if (this.role === 'cell' && !await this.probe({ address: this.controlAddress,
+      port: this.controlPort, localAddress: this.localAddress })) return false;
     let output;
     try {
       output = (await this.runner('awg', ['show', this.path.interfaceName,
@@ -80,10 +86,6 @@ class CellAwgPermanentVerifier {
     if (timestamp === null || timestamp === 0 || !Number.isSafeInteger(nowSeconds)
       || nowSeconds < 0
       || timestamp > nowSeconds + 2 || nowSeconds - timestamp > this.maxAgeSeconds) return false;
-    if (this.role === 'cell') {
-      return Boolean(await this.probe({ address: this.controlAddress,
-        port: this.controlPort, localAddress: this.localAddress }));
-    }
     return true;
   }
 }

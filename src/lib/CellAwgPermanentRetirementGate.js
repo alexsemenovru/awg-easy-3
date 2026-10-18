@@ -5,8 +5,13 @@ const { normalizeAwgConfig } = require('./CellAwgSnapshot');
 const { permanentCellPlan, permanentControllerPlan } = require('./CellAwgPermanentPlan');
 const { CellAwgPermanentVerifier } = require('./CellAwgPermanentVerifier');
 const { validatePermanentDescriptor } = require('./CellAwgPermanentDescriptor');
+const { nftFingerprint } = require('./CellNftOwnership');
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const samePlan = (expected, saved) => same(expected.spec, saved.spec)
+  && same(expected.routeCommands, saved.routeCommands)
+  && nftFingerprint(expected.policy, 'awg_easy_3_control')
+    === nftFingerprint(saved.policy, 'awg_easy_3_control');
 function endpointHost(endpoint) {
   if (typeof endpoint !== 'string') return null;
   const match = endpoint.match(/^\[([^\]]+)\]:\d+$/) || endpoint.match(/^([^:]+):\d+$/);
@@ -56,8 +61,7 @@ class CellAwgPermanentRetirementGate {
         interfaceName: saved.plan.spec.owner.interfaceName,
         resolvedEndpointHost: endpointHost(peer.endpoint), owner: saved.plan.spec.owner });
     } catch { return false; }
-    if (!same(expected, { spec: saved.plan.spec, policy: saved.plan.policy,
-      routeCommands: saved.plan.routeCommands })) return false;
+    if (!samePlan(expected, saved.plan)) return false;
     return this.verifierFactory({ path: saved.path, role: 'cell',
       peerPublicKey: descriptor.serverPublicKey,
       controlAddress: descriptor.controllerAddress,
@@ -86,8 +90,7 @@ class CellAwgPermanentRetirementGate {
         descriptor, peers, interfaceName: saved.plan.spec.owner.interfaceName,
         owner: saved.plan.spec.owner, keyManager: this.keyManager });
     } catch { return false; }
-    if (!same(expected, { spec: saved.plan.spec, policy: saved.plan.policy,
-      routeCommands: saved.plan.routeCommands })) return false;
+    if (!samePlan(expected, saved.plan)) return false;
     return this.verifierFactory({ path: saved.path, role: 'controller',
       peerPublicKey: record.awgPublicKey,
       controlAddress: descriptor.controllerAddress,

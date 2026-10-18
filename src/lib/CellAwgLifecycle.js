@@ -160,7 +160,12 @@ class CellAwgLifecycle {
     await this.verify(spec, true);
     // Loose reverse-path validation is required for policy-routed remote exits.
     // Only our proven device is changed; all/default/WAN remain untouched.
-    await this.run('sysctl', ['-w', `net/ipv4/conf/${name}/rp_filter=2`]);
+    // Host-network Docker sidecars can read /proc/sys but Docker mounts it
+    // read-only. If the interface already inherited the required setting,
+    // avoid a redundant write; otherwise still fail closed until the host
+    // installer explicitly configures it.
+    const rpFilter = (await this.run('sysctl', ['-n', `net/ipv4/conf/${name}/rp_filter`])).stdout.trim();
+    if (rpFilter !== '2') await this.run('sysctl', ['-w', `net/ipv4/conf/${name}/rp_filter=2`]);
     const actual = await this.addresses(spec);
     for (const cidr of spec.addresses.filter(a => !actual.includes(a))) {
       await this.run('ip', ['address', 'add', cidr, 'dev', name]);

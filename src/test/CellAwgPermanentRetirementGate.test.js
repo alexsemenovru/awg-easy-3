@@ -46,6 +46,20 @@ test('cell retirement gate binds signed descriptor and private identity to exact
   assert.equal(calls.length, 1);
 });
 
+test('cell gate accepts equivalent nft declaration grouping but rejects changed policy', async () => {
+  const f = fixture();
+  const plan = permanentCellPlan({ connection: f.connection, interfaceName: 'awgperm8' });
+  const grouped = structuredClone(plan);
+  grouped.policy.nftables = [
+    ...plan.policy.nftables.filter(item => !item.rule),
+    ...plan.policy.nftables.filter(item => item.rule),
+  ];
+  assert.equal(await gateFor(grouped, f.keyManager).gate.verifyCell(f.connection), true);
+  const changed = structuredClone(grouped);
+  changed.policy.nftables.find(item => item.rule).rule.expr.at(-1).drop = { changed: true };
+  assert.equal(await gateFor(changed, f.keyManager).gate.verifyCell(f.connection), false);
+});
+
 test('controller retirement gate refuses another AWG peer or changed signed cell address', async () => {
   const f = fixture(), privateKey = key();
   const plan = await permanentControllerPlan({ privateKey, descriptor: f.descriptor,

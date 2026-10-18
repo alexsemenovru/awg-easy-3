@@ -55,3 +55,22 @@ test('guard JSON is deterministic, blocks all managed directions and no unrelate
   assert.ok(!JSON.stringify(a).includes('eth0'));
   for (const input of [[], ['bad name'], ['same', 'same'], ['a\nflush ruleset']]) assert.throws(() => routingGuardSnapshot(input));
 });
+test('kernel declaration grouping preserves owned guard and same-chain rule order', () => {
+  const declared = routingGuardSnapshot(['awgb0'], 'awg_easy_3_bootstrap_guard');
+  const interleaved = { nftables: [declared.nftables[0]] };
+  for (const name of ['forward', 'input', 'output']) {
+    interleaved.nftables.push(...declared.nftables.filter(item => item.chain?.name === name
+      || item.rule?.chain === name));
+  }
+  assert.equal(nftFingerprint(interleaved, 'awg_easy_3_bootstrap_guard'),
+    nftFingerprint(declared, 'awg_easy_3_bootstrap_guard'));
+  assert.equal(planNftReplacement({ table: 'awg_easy_3_bootstrap_guard',
+    current: interleaved, owned: declared, desired: declared }).changed, false);
+  const changed = structuredClone(interleaved);
+  const forward = changed.nftables.filter(item => item.rule?.chain === 'forward');
+  const first = changed.nftables.indexOf(forward[0]);
+  const second = changed.nftables.indexOf(forward[1]);
+  [changed.nftables[first], changed.nftables[second]] = [forward[1], forward[0]];
+  assert.notEqual(nftFingerprint(changed, 'awg_easy_3_bootstrap_guard'),
+    nftFingerprint(declared, 'awg_easy_3_bootstrap_guard'));
+});

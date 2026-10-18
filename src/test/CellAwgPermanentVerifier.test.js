@@ -8,7 +8,7 @@ const { CellAwgPermanentVerifier, parseHandshake } = require('../lib/CellAwgPerm
 const key = () => crypto.randomBytes(32).toString('base64');
 function fixture(role = 'cell') {
   const peerPublicKey = key();
-  let owned = true, timestamp = 1000, probed = false, calls = 0;
+  let owned = true, timestamp = 1000, probed = false, calls = 0, onProbe = () => {};
   const verifier = new CellAwgPermanentVerifier({
     path: { interfaceName: 'awgperm8', verifyOperational: async () => owned }, peerPublicKey, role,
     controlAddress: '10.91.8.1', localAddress: '10.91.8.2', controlPort: 53083,
@@ -23,11 +23,12 @@ function fixture(role = 'cell') {
       probed = true;
       assert.deepEqual(options, { address: '10.91.8.1', port: 53083,
         localAddress: '10.91.8.2' });
+      onProbe();
       return true;
     },
   });
   return { verifier, setOwned: value => { owned = value; },
-    setTimestamp: value => { timestamp = value; },
+    setTimestamp: value => { timestamp = value; }, onProbe: fn => { onProbe = fn; },
     probed: () => probed, calls: () => calls };
 }
 
@@ -36,8 +37,16 @@ test('cell retirement proof requires owned path, fresh exact peer and bound TCP 
   f.setOwned(false); assert.equal(await f.verifier.verify(), false);
   assert.equal(f.calls(), 0); assert.equal(f.probed(), false);
   f.setOwned(true); f.setTimestamp(800); assert.equal(await f.verifier.verify(), false);
-  assert.equal(f.probed(), false);
+  assert.equal(f.probed(), true);
   f.setTimestamp(1000); assert.equal(await f.verifier.verify(), true);
+  assert.equal(f.probed(), true);
+});
+
+test('cell TCP probe initiates a fresh AWG handshake after reboot', async () => {
+  const f = fixture();
+  f.setTimestamp(0);
+  f.onProbe(() => f.setTimestamp(1000));
+  assert.equal(await f.verifier.verify(), true);
   assert.equal(f.probed(), true);
 });
 

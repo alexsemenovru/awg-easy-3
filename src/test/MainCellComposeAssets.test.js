@@ -32,7 +32,7 @@ test('Cell development container has private state and no web panel or automatic
   assert.match(cell, /container_name: awg-easy-3-cell-dev/);
   assert.match(cell, /- \.\/cell-data:\/cell-data/);
   assert.match(cell, /AWG_CELL_STATE_DIR: \/cell-data/);
-  assert.match(cell, /AWG_CELL_RUNTIME_DIR: \/run\/awg-easy-3-cell/);
+  assert.match(cell, /AWG_CELL_RUNTIME_DIR: \/cell-data\/runtime/);
   assert.match(cell, /read_only: true/);
   assert.match(cell, /- no-new-privileges:true/);
   assert.match(cell, /- \/app\/cell-cli\.js/);
