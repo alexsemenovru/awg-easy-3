@@ -30,7 +30,7 @@ if [ ! -e "$env_file" ]; then
   fi
   [ "${AWG_IMAGE+x}" = x ] && [ -n "$AWG_IMAGE" ] \
     || die 'set AWG_IMAGE to the tested Cell-capable image before installation'
-  case "$AWG_IMAGE" in *[!A-Za-z0-9_./:@-]*|'') die 'unsafe Cell image reference' ;; esac
+  case "$AWG_IMAGE" in -*|*[!A-Za-z0-9_./:@-]*|'') die 'unsafe Cell image reference' ;; esac
   docker image inspect "$AWG_IMAGE" >/dev/null 2>&1 \
     || die 'Cell image is not available locally; pull or load the tested image first'
   docker run --rm --entrypoint test "$AWG_IMAGE" -r /app/cell-cli.js >/dev/null 2>&1 \
@@ -56,7 +56,7 @@ if [ ! -e "$env_file" ]; then
   }')
   case "$wan_interface" in ''|*[!A-Za-z0-9_.-]*) die 'cannot detect a safe WAN interface' ;; esac
   [ "${#wan_interface}" -le 15 ] || die 'WAN interface name is too long'
-  case "$wan_interface" in awgcellb0|awgcellc0|awgcellu0) die 'WAN interface overlaps Cell' ;; esac
+  case "$wan_interface" in lo|awgcellb0|awgcellc0|awgcellu0) die 'WAN interface is not suitable for Cell traffic' ;; esac
   user_port=51830
   while [ "$user_port" -le 60000 ]; do
     sockets=$(ss -H -lun) || die 'cannot inspect UDP listeners'
