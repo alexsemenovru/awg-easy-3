@@ -146,6 +146,8 @@ attempt=0
 while [ "$attempt" -lt 30 ]; do
   if [ -s cell-status/cells.json ] \
     && [ "$(stat -c %Y cell-status/cells.json)" -gt "$started_at" ] \
+    && [ -S cell-status/control.sock ] \
+    && [ "$(stat -c %a cell-status/control.sock)" = 600 ] \
     && docker inspect -f '{{.State.Running}}' awg-easy-3-main-cell 2>/dev/null | grep -qx true; then
     break
   fi

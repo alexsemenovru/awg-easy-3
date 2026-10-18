@@ -29,6 +29,8 @@ test('Main installer is opt-in, preserves the existing panel and pins its runnin
   assert.match(installer, /docker inspect -f '\{\{\.Image\}\}' awg-easy-3/);
   assert.match(installer, /compose up -d --no-deps main-cell/);
   assert.match(installer, /stat -c %Y cell-status\/cells\.json/);
+  assert.match(installer, /-S cell-status\/control\.sock/);
+  assert.match(installer, /stat -c %a cell-status\/control\.sock/);
   assert.match(installer, /compose up -d --no-deps awg-easy/);
   assert.doesNotMatch(installer, /--reinstall|--remove-orphans|docker compose down/);
   assert.match(overlay, /profiles:\s*\n\s*- cells-main/);

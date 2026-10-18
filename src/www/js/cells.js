@@ -7,7 +7,8 @@ window.awgCells = ({ api, node, summary, list, translate, createPoller }) => {
   const invitationDialog = document.querySelector?.('#cell-invitation-dialog');
   const invitationCode = document.querySelector?.('#cell-invitation-code');
   const copyButton = document.querySelector?.('#copy-cell-invitation');
-  invitationDialog?.addEventListener('close', () => { invitationCode.value = ''; });
+  const copyStatus = document.querySelector?.('#cell-copy-status');
+  invitationDialog?.addEventListener('close', () => { invitationCode.value = ''; if (copyStatus) copyStatus.textContent = ''; });
   issueButton?.addEventListener('click', async () => {
     issueButton.disabled = true;
     actionStatus.textContent = '';
@@ -21,8 +22,9 @@ window.awgCells = ({ api, node, summary, list, translate, createPoller }) => {
     finally { issueButton.disabled = false; }
   });
   copyButton?.addEventListener('click', async () => {
-    try { await navigator.clipboard.writeText(invitationCode.value); }
-    catch { invitationCode.select(); }
+    try { await navigator.clipboard.writeText(invitationCode.value);
+      if (copyStatus) copyStatus.textContent = translate('cellsCopied'); }
+    catch { invitationCode.select(); if (copyStatus) copyStatus.textContent = translate('cellsCopyManual'); }
   });
   const render = () => {
     list.replaceChildren();

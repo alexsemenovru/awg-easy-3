@@ -4,7 +4,7 @@ window.awgI18n = (() => {
   const messages = {
     en: {
       cellsTitle: 'Cells', cellsHint: 'Registration and settings delivery; not a live connectivity check.',
-      cellsAdd: 'Add Cell', cellsInvitationTitle: 'Cell invitation', cellsInvitationHint: 'Use this one-time code during Cell installation. Keep it private; it will not be shown again.', cellsInvitationCode: 'Invitation code', cellsInvitationError: 'Could not create a Cell invitation. Try again later.', cellsCopy: 'Copy',
+      cellsAdd: 'Add Cell', cellsInvitationTitle: 'Cell invitation', cellsInvitationHint: 'Use this one-time code during Cell installation. Keep it private; it will not be shown again.', cellsInvitationCode: 'Invitation code', cellsInvitationError: 'Could not create a Cell invitation. Try again later.', cellsCopy: 'Copy or select', cellsCopied: 'Copied.', cellsCopyManual: 'Code selected. Use Copy from the browser menu or press Ctrl+C.',
       cellsCount: 'Cells in registry: {count}', cellsEmpty: 'No Cells are attached.',
       cellsStale: 'Cell status is unavailable or out of date.',
       cellsPending: 'Pending registration', cellsJoining: 'Joining',
@@ -67,7 +67,7 @@ window.awgI18n = (() => {
     },
     ru: {
       cellsTitle: 'Ячейки', cellsHint: 'Регистрация и доставка настроек; это не проверка связи в реальном времени.',
-      cellsAdd: 'Добавить Ячейку', cellsInvitationTitle: 'Приглашение Ячейки', cellsInvitationHint: 'Введите этот одноразовый код при установке Ячейки. Храните его в тайне: повторно он не появится.', cellsInvitationCode: 'Код приглашения', cellsInvitationError: 'Не удалось создать приглашение Ячейки. Попробуйте позже.', cellsCopy: 'Скопировать',
+      cellsAdd: 'Добавить Ячейку', cellsInvitationTitle: 'Приглашение Ячейки', cellsInvitationHint: 'Введите этот одноразовый код при установке Ячейки. Храните его в тайне: повторно он не появится.', cellsInvitationCode: 'Код приглашения', cellsInvitationError: 'Не удалось создать приглашение Ячейки. Попробуйте позже.', cellsCopy: 'Скопировать или выделить', cellsCopied: 'Скопировано.', cellsCopyManual: 'Код выделен. Выберите «Копировать» в меню браузера или нажмите Ctrl+C.',
       cellsCount: 'Ячеек в реестре: {count}', cellsEmpty: 'Подключённых Ячеек нет.',
       cellsStale: 'Данные о Ячейках недоступны или устарели.',
       cellsPending: 'Ожидает регистрации', cellsJoining: 'Присоединяется',
@@ -130,7 +130,7 @@ window.awgI18n = (() => {
     },
     es: {
       cellsTitle: 'Celdas', cellsHint: 'Registro y entrega de ajustes; no comprueba la conexión en tiempo real.',
-      cellsAdd: 'Añadir celda', cellsInvitationTitle: 'Invitación de celda', cellsInvitationHint: 'Use este código de un solo uso al instalar la celda. Manténgalo en privado; no se volverá a mostrar.', cellsInvitationCode: 'Código de invitación', cellsInvitationError: 'No se pudo crear la invitación. Inténtelo más tarde.', cellsCopy: 'Copiar',
+      cellsAdd: 'Añadir celda', cellsInvitationTitle: 'Invitación de celda', cellsInvitationHint: 'Use este código de un solo uso al instalar la celda. Manténgalo en privado; no se volverá a mostrar.', cellsInvitationCode: 'Código de invitación', cellsInvitationError: 'No se pudo crear la invitación. Inténtelo más tarde.', cellsCopy: 'Copiar o seleccionar', cellsCopied: 'Copiado.', cellsCopyManual: 'Código seleccionado. Use Copiar en el menú del navegador o Ctrl+C.',
       cellsCount: 'Celdas registradas: {count}', cellsEmpty: 'No hay celdas conectadas.',
       cellsStale: 'El estado de las celdas no está disponible o está desactualizado.',
       cellsPending: 'Registro pendiente', cellsJoining: 'Conectando',
@@ -192,7 +192,7 @@ window.awgI18n = (() => {
     },
     'zh-cn': {
       cellsTitle: '单元', cellsHint: '显示注册和设置送达状态，不代表实时连接状态。',
-      cellsAdd: '添加单元', cellsInvitationTitle: '单元邀请', cellsInvitationHint: '安装单元时使用此一次性代码。请妥善保管，之后不会再次显示。', cellsInvitationCode: '邀请码', cellsInvitationError: '无法创建单元邀请，请稍后重试。', cellsCopy: '复制',
+      cellsAdd: '添加单元', cellsInvitationTitle: '单元邀请', cellsInvitationHint: '安装单元时使用此一次性代码。请妥善保管，之后不会再次显示。', cellsInvitationCode: '邀请码', cellsInvitationError: '无法创建单元邀请，请稍后重试。', cellsCopy: '复制或选中', cellsCopied: '已复制。', cellsCopyManual: '代码已选中。请使用浏览器菜单中的“复制”或按 Ctrl+C。',
       cellsCount: '已登记单元：{count}', cellsEmpty: '尚无已连接的单元。',
       cellsStale: '单元状态不可用或已过期。',
       cellsPending: '等待注册', cellsJoining: '正在加入',
@@ -254,7 +254,7 @@ window.awgI18n = (() => {
     },
     fa: {
       cellsTitle: 'سلول‌ها', cellsHint: 'وضعیت ثبت و تحویل تنظیمات؛ نه بررسی اتصال لحظه‌ای.',
-      cellsAdd: 'افزودن سلول', cellsInvitationTitle: 'دعوت‌نامهٔ سلول', cellsInvitationHint: 'این کد یک‌بارمصرف را هنگام نصب سلول وارد کنید. آن را محرمانه نگه دارید؛ دوباره نمایش داده نمی‌شود.', cellsInvitationCode: 'کد دعوت', cellsInvitationError: 'ساخت دعوت‌نامهٔ سلول ممکن نشد. بعداً دوباره تلاش کنید.', cellsCopy: 'کپی',
+      cellsAdd: 'افزودن سلول', cellsInvitationTitle: 'دعوت‌نامهٔ سلول', cellsInvitationHint: 'این کد یک‌بارمصرف را هنگام نصب سلول وارد کنید. آن را محرمانه نگه دارید؛ دوباره نمایش داده نمی‌شود.', cellsInvitationCode: 'کد دعوت', cellsInvitationError: 'ساخت دعوت‌نامهٔ سلول ممکن نشد. بعداً دوباره تلاش کنید.', cellsCopy: 'کپی یا انتخاب', cellsCopied: 'کپی شد.', cellsCopyManual: 'کد انتخاب شد. از منوی مرورگر «کپی» را بزنید یا Ctrl+C را فشار دهید.',
       cellsCount: 'سلول‌های ثبت‌شده: {count}', cellsEmpty: 'هنوز سلولی متصل نیست.',
       cellsStale: 'وضعیت سلول‌ها در دسترس نیست یا قدیمی است.',
       cellsPending: 'در انتظار ثبت', cellsJoining: 'در حال پیوستن',
