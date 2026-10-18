@@ -35,6 +35,9 @@ test('Cell CLI reserves all intended interfaces, port and nft tables', () => {
   assert.ok(config.resources.nftTables.includes('awg_easy_3_cell_guard'));
   assert.throws(() => configFromEnvironment({ ...environment(), AWG_CELL_USER_PORT: '0' }));
   assert.throws(() => configFromEnvironment({ ...environment(), AWG_CELL_CONTROL_INTERFACE: 'awg0' }));
+  assert.throws(() => configFromEnvironment({ ...environment(), AWG_CELL_WAN_INTERFACE: 'awg0' }));
+  assert.throws(() => configFromEnvironment({ ...environment(),
+    AWG_CELL_INVITATION_FILE: path.resolve('other/invitation') }));
 });
 
 test('Cell CLI reads invitation only from stdin and prints no secret', async () => {
@@ -182,6 +185,21 @@ test('Cell serve consumes a private first-run invitation without exposing it', a
   assert.deepEqual(steps, ['begin', 'register', 'join', 'serve']);
   assert.equal(printed.includes(code), false);
   await assert.rejects(fs.lstat(file), { code: 'ENOENT' });
+});
+
+test('Cell serve refuses an unsafe first-run code without beginning registration', async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-cell-unsafe-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const file = path.join(directory, 'invitation');
+  await fs.writeFile(file, 'not-an-invitation', { mode: 0o600 });
+  let begun = false;
+  await assert.rejects(runCellBootstrapCli({ args: ['serve'], env: { ...environment(),
+    AWG_CELL_STATE_DIR: directory, AWG_CELL_INVITATION_FILE: file },
+  output: { write() {} }, openHost: async () => ({ connectionStore: { read: async () => null },
+    initial: { begin: async () => { begun = true; } } }) }),
+  /Invalid or unavailable AWG cell invitation/);
+  assert.equal(begun, false);
+  assert.equal(await fs.readFile(file, 'utf8'), 'not-an-invitation');
 });
 
 test('Cell serve does not open user traffic without invitation or verified permanent path', async () => {
