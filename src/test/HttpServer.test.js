@@ -47,6 +47,11 @@ const fixture = async (t) => {
         { statusCode: 401 });
       return { state: 'unavailable', updatedAt: null, cells: [] };
     },
+    issueCellInvitation: async token => {
+      if (token !== 'valid') throw Object.assign(new Error('Authentication required'), { statusCode: 401 });
+      calls.push(['issueCellInvitation']);
+      return { code: 'private-invitation' };
+    },
     createClient: async (token, input) => ({ client: { id: 'new', ...input }, vpnLink: 'vpn://share' }),
     updateClient: async (token, id, input) => ({ id, ...input }),
     deleteClient: async () => ({ success: true }),
@@ -88,6 +93,20 @@ test('Cell status API is authenticated and never cached', async t => {
   assert.equal(status.headers['cache-control'], 'no-store');
   assert.deepEqual(JSON.parse(status.body),
     { state: 'unavailable', updatedAt: null, cells: [] });
+});
+
+test('Cell invitation is authenticated, same-origin and never cached', async t => {
+  const { calls, port } = await fixture(t);
+  const path = '/api/v1/cells/invitations';
+  assert.equal((await request(port, 'POST', path)).status, 401);
+  const cookie = 'awg_easy_3_session=valid';
+  assert.equal((await request(port, 'POST', path, { cookie,
+    headers: { Origin: 'http://attacker.example' } })).status, 403);
+  const issued = await request(port, 'POST', path, { cookie });
+  assert.equal(issued.status, 201);
+  assert.equal(issued.headers['cache-control'], 'no-store');
+  assert.deepEqual(JSON.parse(issued.body), { code: 'private-invitation' });
+  assert.deepEqual(calls, [['issueCellInvitation']]);
 });
 
 test('supports policy mutation and explicit export routes', async (t) => {

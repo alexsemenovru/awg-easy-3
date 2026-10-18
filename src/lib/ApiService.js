@@ -50,6 +50,7 @@ const exportFileName = (name) => {
 class ApiService {
   constructor({ store, passwordManager, sessionManager, clientManager, diagnostics,
     geoStatus = () => ({}), cellStatus = async () => ({ state: 'unavailable', updatedAt: null, cells: [] }),
+    cellInvitationIssuer = null,
     qrGenerator = defaultQrGenerator, clock = () => Date.now() } = {}) {
     if (!store || typeof store.load !== 'function') throw new TypeError('store must provide load');
     if (!passwordManager || typeof passwordManager.verify !== 'function'
@@ -74,6 +75,7 @@ class ApiService {
     this.diagnostics = diagnostics;
     this.geoStatus = geoStatus;
     this.cellStatus = cellStatus;
+    this.cellInvitationIssuer = cellInvitationIssuer;
     this.clock = clock;
     this.failedLogins = 0;
     this.loginBlockedUntil = 0;
@@ -185,6 +187,16 @@ class ApiService {
           awaitingAck: cell.settings.awaitingAck,
         } } : {}),
       })) : [] });
+  }
+
+  async issueCellInvitation(token) {
+    await this.authorize(token);
+    if (!this.cellInvitationIssuer) throw new ApiError(503, 'Main Node is not enabled');
+    try {
+      const code = await this.cellInvitationIssuer();
+      if (typeof code !== 'string' || code.length < 32 || code.length > 4096) throw new Error();
+      return { code };
+    } catch { throw new ApiError(503, 'Cell invitation unavailable'); }
   }
 
   async createClient(token, input) {

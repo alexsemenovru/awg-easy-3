@@ -2,6 +2,28 @@
 
 window.awgCells = ({ api, node, summary, list, translate, createPoller }) => {
   let snapshot = null;
+  const issueButton = node.querySelector?.('#issue-cell');
+  const actionStatus = node.querySelector?.('#cells-action-status');
+  const invitationDialog = document.querySelector?.('#cell-invitation-dialog');
+  const invitationCode = document.querySelector?.('#cell-invitation-code');
+  const copyButton = document.querySelector?.('#copy-cell-invitation');
+  invitationDialog?.addEventListener('close', () => { invitationCode.value = ''; });
+  issueButton?.addEventListener('click', async () => {
+    issueButton.disabled = true;
+    actionStatus.textContent = '';
+    try {
+      const result = await api.issueCellInvitation();
+      if (typeof result?.code !== 'string') throw new Error();
+      invitationCode.value = result.code;
+      invitationDialog.showModal();
+      invitationCode.focus();
+    } catch { actionStatus.textContent = translate('cellsInvitationError'); }
+    finally { issueButton.disabled = false; }
+  });
+  copyButton?.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(invitationCode.value); }
+    catch { invitationCode.select(); }
+  });
   const render = () => {
     list.replaceChildren();
     if (!snapshot || snapshot.state === 'unavailable') {
@@ -55,6 +77,6 @@ window.awgCells = ({ api, node, summary, list, translate, createPoller }) => {
       render();
     } });
   return Object.freeze({ start: () => poller.start(),
-    stop: () => { poller.stop(); snapshot = null; render(); },
+    stop: () => { poller.stop(); snapshot = null; if (actionStatus) actionStatus.textContent = ''; if (invitationDialog?.open) invitationDialog.close(); render(); },
     translate: render });
 };

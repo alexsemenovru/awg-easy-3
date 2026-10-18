@@ -3,6 +3,7 @@
 const path = require('node:path');
 const { openMainBootstrapInstallationHost } = require('./MainBootstrapInstallationHost');
 const { MainCellStatusSnapshot } = require('./MainCellStatusSnapshot');
+const { listenInvitationSocket } = require('./MainCellInvitationSocket');
 
 const NAME = /^[a-zA-Z0-9_.-]{1,15}$/;
 const PORT = /^\d{1,5}$/;
@@ -16,6 +17,7 @@ function configFromEnvironment(env) {
   const stateDirectory = env.AWG_MAIN_CELL_STATE_DIR;
   const userStateFile = env.AWG_MAIN_USER_STATE_FILE;
   const statusFile = env.AWG_MAIN_STATUS_FILE;
+  const invitationSocket = env.AWG_MAIN_INVITATION_SOCKET;
   const interfaceName = env.AWG_MAIN_BOOTSTRAP_INTERFACE;
   const permanentInterface = env.AWG_MAIN_CONTROL_INTERFACE;
   const userInterface = env.AWG_MAIN_USER_INTERFACE;
@@ -28,6 +30,8 @@ function configFromEnvironment(env) {
     || path.normalize(stateDirectory) !== stateDirectory
     || (userStateFile !== undefined && (typeof userStateFile !== 'string'
       || !path.isAbsolute(userStateFile) || path.normalize(userStateFile) !== userStateFile))
+    || (invitationSocket !== undefined && (typeof invitationSocket !== 'string'
+      || !path.isAbsolute(invitationSocket) || path.normalize(invitationSocket) !== invitationSocket))
     || (statusFile !== undefined && (typeof statusFile !== 'string'
       || !path.isAbsolute(statusFile) || path.normalize(statusFile) !== statusFile))
     || !NAME.test(interfaceName || '') || !NAME.test(permanentInterface || '')
@@ -39,7 +43,7 @@ function configFromEnvironment(env) {
     || new Set([listenPort, permanentEndpointPort, userPort]).size !== 3) {
     throw new Error('Explicit Main state path, three distinct interfaces and five ports required');
   }
-  return { stateDirectory, userStateFile, statusFile, interfaceName,
+  return { stateDirectory, userStateFile, statusFile, invitationSocket, interfaceName,
     controllerAddress: env.AWG_MAIN_BOOTSTRAP_ADDRESS,
     registrationPort, listenPort, endpointHost: env.AWG_MAIN_ENDPOINT,
     permanentEndpointPort, permanentControllerAddress: env.AWG_MAIN_CONTROL_ADDRESS,
@@ -121,6 +125,7 @@ async function runMainBootstrapCli({ args, env, input, output,
     let registration;
     let control;
     let statusTimer;
+    let invitationListener;
     let reconcileTimer;
     let statusRefresh = Promise.resolve();
     let reconciliation = Promise.resolve();
@@ -167,6 +172,9 @@ async function runMainBootstrapCli({ args, env, input, output,
         }, 15000);
         statusTimer.unref();
       }
+      if (config.invitationSocket) {
+        invitationListener = await listenInvitationSocket(config.invitationSocket, () => host.issueAuto());
+      }
       output.write(`${JSON.stringify({ status: 'serving',
         permanentConfigured: boot.configured === true })}\n`);
       return { close: async () => {
@@ -174,12 +182,14 @@ async function runMainBootstrapCli({ args, env, input, output,
         if (reconcileTimer) clearInterval(reconcileTimer);
         await statusRefresh.catch(() => {});
         await reconciliation.catch(() => {});
+        if (invitationListener) await invitationListener.close();
         try { if (control) await control.close(); }
         finally { await registration.close(); }
       }, reconcile };
     } catch (error) {
       if (statusTimer) clearInterval(statusTimer);
       if (reconcileTimer) clearInterval(reconcileTimer);
+      if (invitationListener) await invitationListener.close();
       try { if (control) await control.close(); }
       finally { if (registration) await registration.close(); }
       throw error;

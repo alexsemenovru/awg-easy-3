@@ -39,3 +39,28 @@ test('Cell view hides missing data and never turns stale data into a false zero'
   view.stop();
   assert.equal(stopped, 1);
 });
+
+test('Cell invitation is shown only on request and cleared when dialog closes', async () => {
+  const handlers = {};
+  const button = { disabled: false, addEventListener: (event, handler) => { handlers[event] = handler; } };
+  const status = element();
+  const code = { value: '', focus() {} };
+  const dialog = { open: false, addEventListener: (event, handler) => { dialog[event] = handler; },
+    showModal() { this.open = true; }, close() { this.open = false; this['close'](); } };
+  const node = { ...element(), querySelector: selector => ({ '#issue-cell': button,
+    '#cells-action-status': status })[selector] };
+  const context = { window: {}, document: { createElement: () => element(),
+    querySelector: selector => ({ '#cell-invitation-dialog': dialog,
+      '#cell-invitation-code': code })[selector] } };
+  vm.runInNewContext(script, context);
+  const view = context.window.awgCells({ api: { cellsInfo() {},
+    issueCellInvitation: async () => ({ code: 'x'.repeat(40) }) }, node, summary: element(), list: element(),
+  translate: key => key, createPoller: () => ({ start() {}, stop() {} }) });
+  await handlers.click();
+  assert.equal(dialog.open, true, status.textContent);
+  assert.equal(code.value, 'x'.repeat(40));
+  assert.equal(button.disabled, false);
+  dialog.close();
+  assert.equal(code.value, '');
+  view.stop();
+});

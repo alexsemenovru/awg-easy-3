@@ -124,6 +124,9 @@ class HttpServer {
     if (url.pathname === '/api/v1/cells' && request.method === 'GET') {
       return sendJson(response, 200, await this.api.cellsInfo(token));
     }
+    if (url.pathname === '/api/v1/cells/invitations' && request.method === 'POST') {
+      return sendJson(response, 201, await this.api.issueCellInvitation(token));
+    }
 
     const client = clientRoute(url.pathname);
     if (client && !client.export && request.method === 'PATCH') {

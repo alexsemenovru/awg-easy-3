@@ -17,6 +17,7 @@ const { RuntimeApplier } = require('./RuntimeApplier');
 const { SessionManager } = require('./SessionManager');
 const { StateStore } = require('./StateStore');
 const { MainCellStatusSnapshot } = require('./MainCellStatusSnapshot');
+const { requestInvitation } = require('./MainCellInvitationSocket');
 
 class Application {
   constructor({
@@ -45,6 +46,8 @@ class Application {
     this.store = new StateStore(path.join(this.dataDirectory, 'state.json'));
     this.mainCellStatus = mainCellStatusFile
       ? new MainCellStatusSnapshot(mainCellStatusFile) : null;
+    this.mainCellInvitationSocket = mainCellStatusFile
+      ? path.join(path.dirname(mainCellStatusFile), 'control.sock') : null;
     this.applier = new RuntimeApplier({ runtimeDirectory: this.runtimeDirectory, runner });
     this.http = null;
     this.http6 = null;
@@ -145,7 +148,9 @@ class Application {
         geoStatus: () => ({ ...this.geo.status, countries: this.geo.current?.countries ?? [] }),
         cellStatus: () => this.mainCellStatus
           ? this.mainCellStatus.read()
-          : { state: 'unavailable', updatedAt: null, cells: [] } });
+          : { state: 'unavailable', updatedAt: null, cells: [] },
+        cellInvitationIssuer: this.mainCellInvitationSocket
+          ? () => requestInvitation(this.mainCellInvitationSocket) : null });
       this.http = this.httpFactory({ api, publicDirectory: this.publicDirectory });
       const listening = await this.http.listen({ host: state.server.address4, port: state.server.panelPort });
       if (state.server.address6 && state.server.ipv6Subnet) {

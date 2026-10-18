@@ -1,0 +1,6 @@
+.cells-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.cells-heading h2{margin-bottom:0!important}
+#cell-invitation-dialog p{line-height:1.5;color:#b8c8da}
+#cell-invitation-code{width:100%;resize:vertical;overflow-wrap:anywhere;padding:12px;border:1px solid #304760;border-radius:10px;background:#081523;color:#fff;font:inherit;direction:ltr}
+#cell-invitation-code:focus{outline:2px solid #36a5ff;outline-offset:2px}
+@media(max-width:600px){.cells-heading .button{width:100%}}

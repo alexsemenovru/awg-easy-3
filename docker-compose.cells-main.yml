@@ -6,6 +6,7 @@ services:
       - ./cell-status:/cell-status:ro
     environment:
       AWG_MAIN_STATUS_FILE: /cell-status/cells.json
+      AWG_MAIN_INVITATION_SOCKET: /cell-status/control.sock
   main-cell:
     profiles:
       - cells-main
@@ -31,6 +32,7 @@ services:
       AWG_MAIN_CELL_STATE_DIR: /cell-data
       AWG_MAIN_USER_STATE_FILE: /data/state.json
       AWG_MAIN_STATUS_FILE: /cell-status/cells.json
+      AWG_MAIN_INVITATION_SOCKET: /cell-status/control.sock
       AWG_MAIN_USER_INTERFACE: ${AWG_MAIN_USER_INTERFACE:?Missing panel interface}
       AWG_MAIN_USER_PORT: ${AWG_MAIN_USER_PORT:?Missing panel UDP port}
       AWG_MAIN_BOOTSTRAP_INTERFACE: ${AWG_MAIN_BOOTSTRAP_INTERFACE:?Missing bootstrap interface}

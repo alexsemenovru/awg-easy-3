@@ -76,6 +76,17 @@ test('Cell inventory is authenticated and never exposes unvalidated private fiel
     { state: 'stale', updatedAt: 200, cells: [] });
 });
 
+test('Cell invitation requires authentication and an enabled Main Node', async () => {
+  const { service } = fixture();
+  await assert.rejects(service.issueCellInvitation('wrong'), error => error.statusCode === 401);
+  await assert.rejects(service.issueCellInvitation('signed-token'), error => error.statusCode === 503);
+  service.cellInvitationIssuer = async () => 'x'.repeat(40);
+  assert.deepEqual(await service.issueCellInvitation('signed-token'), { code: 'x'.repeat(40) });
+  service.cellInvitationIssuer = async () => { throw new Error('secret details'); };
+  await assert.rejects(service.issueCellInvitation('signed-token'), error => error.statusCode === 503
+    && !error.message.includes('secret details'));
+});
+
 test('logs in with a generic failure and an HTTP-only cookie', async () => {
   const { service } = fixture();
   assert.deepEqual(await service.login('correct-password'), {
