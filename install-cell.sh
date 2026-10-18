@@ -35,6 +35,9 @@ if [ ! -e "$env_file" ]; then
     || die 'Cell image is not available locally; pull or load the tested image first'
   docker run --rm --entrypoint test "$AWG_IMAGE" -r /app/cell-cli.js >/dev/null 2>&1 \
     || die 'image does not contain the Cell service'
+  docker run --rm --entrypoint node "$AWG_IMAGE" -e \
+    "if(typeof require('/app/lib/CellUserBootstrap').ensureCellUserBootstrap!=='function')process.exit(1)" >/dev/null 2>&1 \
+    || die 'image does not contain automatic Cell user bootstrap'
   image=$(docker image inspect -f '{{.Id}}' "$AWG_IMAGE") || die 'cannot pin Cell image'
   case "$image" in sha256:*) image_hash=${image#sha256:} ;;
     *) die 'invalid Cell image ID' ;;
@@ -82,8 +85,18 @@ else
 fi
 
 if [ ! -e cell-data/connection.json ] && [ ! -e cell-data/invitation ]; then
-  if [ -t 0 ]; then printf 'Paste the one-time Cell invitation code: ' >&2; fi
-  IFS= read -r invitation || die 'Cell invitation was not supplied'
+  if [ -t 0 ]; then
+    printf 'Paste the one-time Cell invitation code: ' >&2
+    old_tty=$(stty -g) || die 'cannot protect terminal input'
+    trap 'stty "$old_tty" 2>/dev/null || true' EXIT HUP INT TERM
+    stty -echo || die 'cannot hide terminal input'
+    if ! IFS= read -r invitation; then die 'Cell invitation was not supplied'; fi
+    stty "$old_tty" || die 'cannot restore terminal input'
+    trap - EXIT HUP INT TERM
+    printf '\n' >&2
+  else
+    IFS= read -r invitation || die 'Cell invitation was not supplied'
+  fi
   [ -n "$invitation" ] && [ "${#invitation}" -le 8192 ] \
     || die 'invalid Cell invitation length'
   case "$invitation" in *[!A-Za-z0-9_-]*) die 'invalid Cell invitation characters' ;; esac

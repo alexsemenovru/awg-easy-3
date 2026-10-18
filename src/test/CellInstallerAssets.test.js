@@ -12,7 +12,10 @@ const compose = fs.readFileSync(path.join(root, 'docker-compose.cells-cell.yml')
 test('standalone Cell installer pins its image and keeps the invitation out of env and arguments', () => {
   assert.match(script, /set -eu/);
   assert.match(script, /docker image inspect -f '\{\{\.Id\}\}'/);
+  assert.match(script, /CellUserBootstrap'\)\.ensureCellUserBootstrap/);
   assert.match(script, /IFS= read -r invitation/);
+  assert.match(script, /stty -echo/);
+  assert.match(script, /stty "\$old_tty"/);
   assert.match(script, /ln "\$secret_tmp" cell-data\/invitation/);
   assert.match(script, /stat -c %a "\$env_file"/);
   assert.doesNotMatch(script, /printf ['"]AWG_CELL_INVITATION=/);
