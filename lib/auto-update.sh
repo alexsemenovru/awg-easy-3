@@ -288,6 +288,11 @@ awg_easy_update_on_exit() {
 
 awg_easy_run_stable_update() {
   update_mode=${1:-manual}
+  # Until the Main/Cell coordinated updater is integrated, never advance only
+  # the panel image while its live sidecar remains on the previous protocol.
+  if [ -e "$project_dir/.env.cells-main" ] || [ -L "$project_dir/.env.cells-main" ]; then
+    die "Main Node is enabled; coordinated Main/Cell updates are not ready, so this update was not started"
+  fi
   command -v git >/dev/null 2>&1 || die "git is required for updates"
   command -v tar >/dev/null 2>&1 || die "tar is required for updates"
   git -C "$project_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
