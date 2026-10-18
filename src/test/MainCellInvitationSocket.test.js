@@ -20,3 +20,11 @@ test('private control socket issues one bounded invitation and closes cleanly', 
   await listener.close();
   await assert.rejects(fs.lstat(socketPath), { code: 'ENOENT' });
 });
+
+test('control socket rejects a directory readable by other users', { skip: process.platform === 'win32' }, async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-cell-public-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  await fs.chmod(directory, 0o755);
+  await assert.rejects(listenInvitationSocket(path.join(directory, 'control.sock'),
+    async () => 'x'.repeat(40)), /Private control socket directory required/);
+});

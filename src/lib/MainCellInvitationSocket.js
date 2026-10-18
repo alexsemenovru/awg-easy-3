@@ -2,11 +2,21 @@
 
 const fs = require('node:fs/promises');
 const http = require('node:http');
+const path = require('node:path');
 
 const MAX_REPLY = 9000;
 
 async function listenInvitationSocket(socketPath, issue) {
   if (typeof issue !== 'function') throw new TypeError('Invitation issuer required');
+  if (typeof socketPath !== 'string' || !path.isAbsolute(socketPath)) {
+    throw new TypeError('Absolute control socket required');
+  }
+  const parent = await fs.lstat(path.dirname(socketPath));
+  if (!parent.isDirectory() || parent.isSymbolicLink()
+    || (process.platform !== 'win32'
+      && (parent.uid !== process.getuid() || (parent.mode & 0o077)))) {
+    throw new Error('Private control socket directory required');
+  }
   try {
     const entry = await fs.lstat(socketPath);
     if (!entry.isSocket()) throw new Error('Control path is not a socket');
