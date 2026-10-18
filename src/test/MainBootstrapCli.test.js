@@ -118,6 +118,7 @@ test('Main serve recovers paths before binding and closes listeners only', async
   const order = [];
   let printed = '';
   const host = {
+    isPristine: async () => false,
     resume: async () => { order.push('bootstrap'); return { ready: true }; },
     recoverPermanentBoot: async () => { order.push('permanent'); return { configured: true }; },
     listen: async () => { order.push('registration'); return { close: async () => order.push('close-registration') }; },
@@ -136,6 +137,7 @@ test('Main serve closes registration listener when control binding fails', async
   await assert.rejects(runMainBootstrapCli({ args: ['serve'], env: environment(),
     output: { write() { throw new Error('must not report ready'); } },
     openHost: async () => ({
+      isPristine: async () => false,
       resume: async () => ({ ready: true }),
       recoverPermanentBoot: async () => ({ configured: true }),
       listen: async () => ({ close: async () => order.push('registration-closed') }),
@@ -152,6 +154,7 @@ test('Main serve publishes bounded Cell status before reporting ready', async ()
     ...environment(), AWG_MAIN_STATUS_FILE: path.resolve('cell-status/cells.json') },
   output: { write: value => { order.push('ready'); printed += value; } },
   openHost: async () => ({
+    isPristine: async () => false,
     resume: async () => ({ ready: true }),
     recoverPermanentBoot: async () => ({ configured: false }),
     listen: async () => ({ close: async () => order.push('closed') }),
@@ -163,4 +166,70 @@ test('Main serve publishes bounded Cell status before reporting ready', async ()
   assert.match(printed, /"status":"serving"/);
   await service.close();
   assert.deepEqual(order, ['snapshot', 'ready', 'closed']);
+});
+
+test('Main serve initializes only a verified pristine host and never retries failed recovery', async () => {
+  const steps = [];
+  const openHost = async () => ({
+    isPristine: async () => { steps.push('check'); return true; },
+    initialize: async () => { steps.push('initialize'); return { ready: true }; },
+    resume: async () => { throw new Error('must not resume new installation'); },
+    recoverPermanentBoot: async () => ({ configured: false }),
+    listen: async () => ({ close: async () => {} }),
+  });
+  const service = await runMainBootstrapCli({ args: ['serve'], env: environment(),
+    output: { write() {} }, openHost });
+  assert.deepEqual(steps, ['check', 'initialize']);
+  await service.close();
+
+  let initialized = false;
+  await assert.rejects(runMainBootstrapCli({ args: ['serve'], env: environment(),
+    output: { write() {} }, openHost: async () => ({
+      isPristine: async () => false,
+      initialize: async () => { initialized = true; },
+      resume: async () => { throw new Error('partial state'); },
+    }) }), /partial state/);
+  assert.equal(initialized, false);
+});
+
+test('Main serve reconciles registered Cell automatically and opens control only after recovery', async () => {
+  const calls = [];
+  let ready = false;
+  let controlOpen = false;
+  const host = {
+    isPristine: async () => false,
+    resume: async () => ({ ready: true }),
+    recoverPermanentBoot: async () => {
+      calls.push('recover');
+      if (!ready) throw new Error('Permanent AWG path is not operational after boot recovery');
+      return { configured: true };
+    },
+    listen: async () => { calls.push('registration'); return { close: async () => {} }; },
+    listenControl: async () => {
+      calls.push('control');
+      if (!ready) throw new Error('Permanent Main control path is not operational');
+      controlOpen = true; return { close: async () => {} };
+    },
+    cells: async () => [{ id: 'a'.repeat(32), status: 'consumed', phase: 'ready' }],
+    join: async () => { calls.push('join'); ready = true; return { status: 'ready' }; },
+  };
+  const service = await runMainBootstrapCli({ args: ['serve'], env: environment(),
+    output: { write() {} }, openHost: async () => host });
+  assert.deepEqual(calls, ['recover', 'registration', 'control']);
+  assert.equal(controlOpen, false);
+  await service.reconcile();
+  assert.equal(controlOpen, true);
+  assert.ok(calls.includes('join'));
+  await service.close();
+});
+
+test('Main serve does not reinterpret corrupt permanent state as a transient disconnect', async () => {
+  let listened = false;
+  await assert.rejects(runMainBootstrapCli({ args: ['serve'], env: environment(),
+    output: { write() {} }, openHost: async () => ({
+      isPristine: async () => false, resume: async () => ({ ready: true }),
+      recoverPermanentBoot: async () => { throw new Error('Invalid permanent revision journal'); },
+      listen: async () => { listened = true; },
+    }) }), /Invalid permanent revision journal/);
+  assert.equal(listened, false);
 });

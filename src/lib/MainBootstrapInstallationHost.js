@@ -163,6 +163,15 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
   }
   await prepareStateDirectory(stateDirectory);
   return Object.freeze({ bootstrapStore, identityStore, configStore, bootstrap, deployment,
+    isPristine: async () => {
+      const [config, life, records, permanent, guardState] = await Promise.all([
+        configStore.read(), lifecycle.load(), bootstrapStore.read(),
+        deployment.store.read(), guard.load(),
+      ]);
+      return config === null && life.phase === 'empty'
+        && records.invitations.length === 0 && permanent === null
+        && guardState.interfaces.length === 0 && guardState.pending === null;
+    },
     initialize: () => locked(async () => {
       if ((await lifecycle.load()).phase !== 'empty' || await configStore.read()
         || (await bootstrapStore.read()).invitations.length

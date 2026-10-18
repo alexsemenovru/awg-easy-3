@@ -8,6 +8,8 @@ const NAME = /^[a-zA-Z0-9_.-]{1,15}$/;
 const PORT = /^\d{1,5}$/;
 const port = value => PORT.test(value || '') && Number(value) > 0 && Number(value) <= 65535
   ? Number(value) : NaN;
+const transientPath = error => error?.message === 'Permanent AWG path is not operational after boot recovery'
+  || error?.message === 'Permanent Main control path is not operational';
 
 function configFromEnvironment(env) {
   if (!env || typeof env !== 'object') throw new TypeError('Main environment required');
@@ -101,26 +103,64 @@ async function runMainBootstrapCli({ args, env, input, output,
   } else if (args[0] === 'cells') {
     output.write(`${JSON.stringify(await host.cells())}\n`);
   } else if (args[0] === 'serve') {
-    await host.resume();
-    const boot = await host.recoverPermanentBoot();
+    // The long-lived service must own the userspace AWG process on first boot.
+    // A short-lived compose run --rm init would destroy that process. Never
+    // interpret a failed recovery as permission to create a new identity.
+    if (await host.isPristine()) await host.initialize();
+    else await host.resume();
+    let boot;
+    try { boot = await host.recoverPermanentBoot(); }
+    catch (error) {
+      if (!transientPath(error)) throw error;
+      // A disconnected Cell cannot suppress the Main registration listener.
+      // The permanent control listener remains closed until verified recovery.
+      boot = { configured: true };
+    }
     let registration;
     let control;
     let statusTimer;
+    let reconcileTimer;
     let statusRefresh = Promise.resolve();
+    let reconciliation = Promise.resolve();
     try {
       registration = await host.listen();
-      control = boot.configured ? await host.listenControl() : null;
+      if (boot.configured) {
+        try { control = await host.listenControl(); }
+        catch (error) { if (!transientPath(error)) throw error; }
+      }
+      const reconcile = () => reconciliation = reconciliation.catch(() => {}).then(async () => {
+        const cells = await host.cells();
+        for (const cell of cells) {
+          if (cell.status === 'consumed' && cell.phase !== 'closed') {
+            await host.join(cell.id);
+          }
+        }
+        if (!control) {
+          try {
+            const current = await host.recoverPermanentBoot();
+            if (current.configured) control = await host.listenControl();
+          } catch (error) { if (!transientPath(error)) throw error; }
+        }
+      });
+      let warned = false;
+      reconcileTimer = setInterval(() => {
+        reconcile().then(() => { warned = false; }).catch(() => {
+          if (!warned) console.warn('Main Cell reconciliation needs attention');
+          warned = true;
+        });
+      }, 5000);
+      reconcileTimer.unref();
       if (config.statusFile) {
         const snapshot = newStatusSnapshot(config.statusFile);
         const refresh = () => statusRefresh = statusRefresh.catch(() => {}).then(async () => {
           await snapshot.write(await host.cells());
         });
         await refresh();
-        let warned = false;
+        let statusWarned = false;
         statusTimer = setInterval(() => {
-          refresh().then(() => { warned = false; }).catch(() => {
-            if (!warned) console.warn('Main Cell status snapshot is unavailable');
-            warned = true;
+          refresh().then(() => { statusWarned = false; }).catch(() => {
+            if (!statusWarned) console.warn('Main Cell status snapshot is unavailable');
+            statusWarned = true;
           });
         }, 15000);
         statusTimer.unref();
@@ -129,12 +169,15 @@ async function runMainBootstrapCli({ args, env, input, output,
         permanentConfigured: boot.configured === true })}\n`);
       return { close: async () => {
         if (statusTimer) clearInterval(statusTimer);
+        if (reconcileTimer) clearInterval(reconcileTimer);
         await statusRefresh.catch(() => {});
+        await reconciliation.catch(() => {});
         try { if (control) await control.close(); }
         finally { await registration.close(); }
-      } };
+      }, reconcile };
     } catch (error) {
       if (statusTimer) clearInterval(statusTimer);
+      if (reconcileTimer) clearInterval(reconcileTimer);
       try { if (control) await control.close(); }
       finally { if (registration) await registration.close(); }
       throw error;

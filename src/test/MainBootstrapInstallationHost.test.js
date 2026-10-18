@@ -34,6 +34,36 @@ test('Main assembly opens one private state root without host mutations', async 
   }
 });
 
+test('Main auto-start treats any partial bootstrap or guard as recovery state', async () => {
+  const host = await openMainBootstrapInstallationHost({ ...options(),
+    prepareStateDirectory: async () => {} });
+  let config = null;
+  let phase = 'empty';
+  let invitations = [];
+  let permanent = null;
+  let guardInterfaces = [];
+  host.configStore.read = async () => config;
+  host.bootstrap.lifecycle.load = async () => ({ phase });
+  host.bootstrapStore.read = async () => ({ invitations });
+  host.deployment.store.read = async () => permanent;
+  host.bootstrap.guard.load = async () => ({ interfaces: guardInterfaces, pending: null });
+  assert.equal(await host.isPristine(), true);
+  config = { version: 1 };
+  assert.equal(await host.isPristine(), false);
+  config = null;
+  phase = 'ready';
+  assert.equal(await host.isPristine(), false);
+  phase = 'empty';
+  invitations = [{ id: 'a'.repeat(32) }];
+  assert.equal(await host.isPristine(), false);
+  invitations = [];
+  permanent = { version: 1 };
+  assert.equal(await host.isPristine(), false);
+  permanent = null;
+  guardInterfaces = ['awgmainb0'];
+  assert.equal(await host.isPristine(), false);
+});
+
 test('Main assembly refuses incomplete or overlapping reservation before storage', async () => {
   let prepared = false;
   for (const bad of [

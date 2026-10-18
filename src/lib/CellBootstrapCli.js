@@ -108,6 +108,23 @@ async function runCellBootstrapCli({ args, env, input, output,
     return;
   }
   if (args[0] === 'serve') {
+    let connection = await host.connectionStore.read();
+    if (connection?.status === 'pending') {
+      const resumed = await host.initial.resume();
+      if (resumed?.ready !== true) throw new Error('Pending Cell bootstrap did not recover');
+      const registered = await host.registration.register();
+      if (registered?.status !== 'registered') throw new Error('Cell registration not complete');
+      connection = await host.connectionStore.read();
+    }
+    if (connection?.status !== 'registered') {
+      throw new Error('Cell invitation required before starting the service');
+    }
+    const plan = await host.permanentPlanStore.read();
+    const temporary = await host.bootstrap.lifecycle.load();
+    if (!plan || temporary.phase !== 'empty') {
+      const joined = await host.permanentJoin.join();
+      if (joined?.status !== 'ready') throw new Error('Permanent Cell path is not ready');
+    }
     const service = await startService({ config, bootstrapHost: host });
     output.write('{"status":"serving","transport":"AWG"}\n');
     return service;

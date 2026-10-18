@@ -116,8 +116,46 @@ test('Cell CLI starts registered service with bounded readiness status', async (
   const service = { close: async () => {}, running: new Promise(() => {}) };
   assert.equal(await runCellBootstrapCli({ args: ['serve'], env: environment(),
     output: { write: value => { printed += value; } },
-    openHost: async () => ({}), startService: async () => service }), service);
+    openHost: async () => ({ connectionStore: { read: async () => ({ status: 'registered' }) },
+      permanentPlanStore: { read: async () => ({ version: 1 }) },
+      bootstrap: { lifecycle: { load: async () => ({ phase: 'empty' }) } } }),
+    startService: async () => service }), service);
   assert.equal(printed, '{"status":"serving","transport":"AWG"}\n');
+});
+
+test('Cell serve completes pending registration and permanent join before user service', async () => {
+  const order = [];
+  let state = { status: 'pending' };
+  const host = {
+    connectionStore: { read: async () => state },
+    initial: { resume: async () => { order.push('resume'); return { ready: true }; } },
+    registration: { register: async () => { order.push('register');
+      state = { status: 'registered' }; return { status: 'registered' }; } },
+    permanentPlanStore: { read: async () => null },
+    bootstrap: { lifecycle: { load: async () => ({ phase: 'ready' }) } },
+    permanentJoin: { join: async () => { order.push('join'); return { status: 'ready' }; } },
+  };
+  const service = { close: async () => {}, running: new Promise(() => {}) };
+  await runCellBootstrapCli({ args: ['serve'], env: environment(), output: { write() {} },
+    openHost: async () => host, startService: async () => { order.push('serve'); return service; } });
+  assert.deepEqual(order, ['resume', 'register', 'join', 'serve']);
+});
+
+test('Cell serve does not open user traffic without invitation or verified permanent path', async () => {
+  let started = false;
+  const base = {
+    permanentPlanStore: { read: async () => null },
+    bootstrap: { lifecycle: { load: async () => ({ phase: 'ready' }) } },
+    permanentJoin: { join: async () => ({ status: 'waiting-for-permanent-path' }) },
+  };
+  for (const state of [null, { status: 'registered' }]) {
+    await assert.rejects(runCellBootstrapCli({ args: ['serve'], env: environment(),
+      output: { write() {} }, openHost: async () => ({ ...base,
+        connectionStore: { read: async () => state } }),
+      startService: async () => { started = true; } }),
+    state ? /not ready/ : /invitation required/);
+  }
+  assert.equal(started, false);
 });
 
 test('Cell CLI one-shot sync reports only status and revision', async () => {
