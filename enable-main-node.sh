@@ -139,11 +139,13 @@ compose() {
 compose config --quiet || die 'Main Node compose configuration is invalid'
 install -d -m 0700 cell-data cell-status
 info 'Starting the Main Node service without changing the running panel'
+started_at=$(date +%s)
 compose up -d --no-deps main-cell || die 'Main Node service could not be started'
 
 attempt=0
 while [ "$attempt" -lt 30 ]; do
   if [ -s cell-status/cells.json ] \
+    && [ "$(stat -c %Y cell-status/cells.json)" -gt "$started_at" ] \
     && docker inspect -f '{{.State.Running}}' awg-easy-3-main-cell 2>/dev/null | grep -qx true; then
     break
   fi
