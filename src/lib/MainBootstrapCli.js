@@ -140,6 +140,9 @@ async function runMainBootstrapCli({ args, env, input, output,
         for (const cell of cells) {
           if (cell.status === 'consumed' && cell.phase !== 'closed') {
             await host.join(cell.id);
+          } else if (cell.status === 'consumed' && cell.phase === 'closed'
+            && cell.settings?.desiredRevision === null) {
+            await host.ensureInitialSettings(cell.id);
           }
         }
         if (!control) {

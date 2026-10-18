@@ -143,6 +143,19 @@ test('Cell serve completes pending registration and permanent join before user s
   assert.deepEqual(order, ['resume', 'register', 'join', 'serve']);
 });
 
+test('Cell serve prepares the local user tunnel only after verified join', async () => {
+  const order = [];
+  const host = { connectionStore: { read: async () => ({ status: 'registered' }) },
+    permanentPlanStore: { read: async () => null },
+    bootstrap: { lifecycle: { load: async () => ({ phase: 'ready' }) } },
+    permanentJoin: { join: async () => { order.push('join'); return { status: 'ready' }; } } };
+  await runCellBootstrapCli({ args: ['serve'], env: { ...environment(), AWG_CELL_WAN_INTERFACE: 'eth0' },
+    output: { write() {} }, openHost: async () => host,
+    ensureUser: async ({ wanInterface }) => { assert.equal(wanInterface, 'eth0'); order.push('user'); },
+    startService: async () => { order.push('serve'); return { close() {} }; } });
+  assert.deepEqual(order, ['join', 'user', 'serve']);
+});
+
 test('Cell serve consumes a private first-run invitation without exposing it', async t => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-cell-first-'));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));

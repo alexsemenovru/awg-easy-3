@@ -302,6 +302,13 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
       const signed = await publisherForCell(record.cellKey).publish(settings);
       return { revision: signed.revision };
     }),
+    ensureInitialSettings: invitationId => locked(async () => {
+      const record = await registeredRecord(invitationId);
+      const publisher = publisherForCell(record.cellKey);
+      if ((await publisher.status()).desiredRevision !== null) return { created: false };
+      await publisher.publish({ schema: 1, clients: [] });
+      return { created: true };
+    }),
     settingsStatus: async invitationId => {
       const record = await registeredRecord(invitationId);
       return publisherForCell(record.cellKey).status();

@@ -243,3 +243,22 @@ test('Main serve does not reinterpret corrupt permanent state as a transient dis
     }) }), /Invalid permanent revision journal/);
   assert.equal(listened, false);
 });
+
+test('Main serve seeds joined Cell settings during reconciliation', async () => {
+  const id = 'b'.repeat(32);
+  const seeded = [];
+  const host = {
+    isPristine: async () => false,
+    resume: async () => ({ ready: true }),
+    recoverPermanentBoot: async () => ({ configured: false }),
+    listen: async () => ({ close: async () => {} }),
+    cells: async () => [{ id, status: 'consumed', phase: 'closed', settings: {
+      desiredRevision: null, confirmedRevision: null, awaitingAck: false } }],
+    ensureInitialSettings: async value => { seeded.push(value); },
+  };
+  const service = await runMainBootstrapCli({ args: ['serve'], env: environment(),
+    output: { write() {} }, openHost: async () => host });
+  await service.reconcile();
+  await service.close();
+  assert.deepEqual(seeded, [id]);
+});

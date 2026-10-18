@@ -136,3 +136,20 @@ test('Main Cell inventory exposes only public lifecycle and revision fields', as
       settings: { desiredRevision: null, confirmedRevision: null, awaitingAck: false } },
   ]);
 });
+
+test('Main publishes one empty signed revision for a newly joined Cell', async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-main-settings-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const host = await openMainBootstrapInstallationHost({ ...options(), stateDirectory: directory,
+    prepareStateDirectory: async () => {},
+    withLock: async ({ work }) => work() });
+  await host.identityStore.create('controller');
+  const cellKey = Buffer.alloc(32, 9).toString('base64url');
+  const id = 'b'.repeat(32);
+  host.bootstrapStore.read = async () => ({ invitations: [{ id, status: 'consumed',
+    phase: 'closed', cellKey, awgPublicKey: Buffer.alloc(32, 8).toString('base64') }] });
+  assert.deepEqual(await host.ensureInitialSettings(id), { created: true });
+  assert.deepEqual(await host.ensureInitialSettings(id), { created: false });
+  assert.deepEqual(await host.settingsStatus(id), { desiredRevision: 1,
+    confirmedRevision: null, awaitingAck: true });
+});

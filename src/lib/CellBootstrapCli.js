@@ -7,6 +7,7 @@ const { decodeAwgBootstrapInvitation } = require('./CellAwgBootstrapInvitation')
 const { CellUserConfigStore } = require('./CellUserConfigStore');
 const { startCellService, syncCellOnce } = require('./CellService');
 const { readCellStatus } = require('./CellStatus');
+const { ensureCellUserBootstrap } = require('./CellUserBootstrap');
 
 const INTERFACE = /^[a-zA-Z0-9_.-]{1,15}$/;
 const PORT = /^\d{1,5}$/;
@@ -18,17 +19,20 @@ function configFromEnvironment(env) {
   const interfaceName = env.AWG_CELL_BOOTSTRAP_INTERFACE;
   const controlInterface = env.AWG_CELL_CONTROL_INTERFACE;
   const userInterface = env.AWG_CELL_USER_INTERFACE;
+  const wanInterface = env.AWG_CELL_WAN_INTERFACE;
   const portText = env.AWG_CELL_USER_PORT;
   const userPort = PORT.test(portText || '') ? Number(portText) : NaN;
   if (typeof stateDirectory !== 'string' || !path.isAbsolute(stateDirectory)
     || path.normalize(stateDirectory) !== stateDirectory
     || (invitationFile !== undefined && invitationFile !== path.join(stateDirectory, 'invitation'))
     || [interfaceName, controlInterface, userInterface].some(name => !INTERFACE.test(name || ''))
+    || (wanInterface !== undefined && (!INTERFACE.test(wanInterface)
+      || [interfaceName, controlInterface, userInterface].includes(wanInterface)))
     || new Set([interfaceName, controlInterface, userInterface]).size !== 3
     || !Number.isInteger(userPort) || userPort < 1 || userPort > 65535) {
     throw new Error('Explicit Cell state path, three distinct interfaces and user UDP port required');
   }
-  return { stateDirectory, invitationFile, interfaceName, runtimeDirectory: env.AWG_CELL_RUNTIME_DIR, resources: {
+  return { stateDirectory, invitationFile, wanInterface, interfaceName, runtimeDirectory: env.AWG_CELL_RUNTIME_DIR, resources: {
     interfaceNames: [interfaceName, controlInterface, userInterface],
     udpPorts: [userPort], nftTables: [
       'awg_easy_3_bootstrap', 'awg_easy_3_bootstrap_guard',
@@ -69,6 +73,7 @@ async function runCellBootstrapCli({ args, env, input, output,
   startService = startCellService,
   syncOnce = syncCellOnce,
   statusReader = readCellStatus,
+  ensureUser = ensureCellUserBootstrap,
   newUserStore = (...params) => new CellUserConfigStore(...params) } = {}) {
   if (!Array.isArray(args) || args.length !== 1
     || !['begin', 'resume', 'register', 'join', 'configure-user', 'sync', 'serve', 'status'].includes(args[0])) {
@@ -153,6 +158,8 @@ async function runCellBootstrapCli({ args, env, input, output,
       const joined = await host.permanentJoin.join();
       if (joined?.status !== 'ready') throw new Error('Permanent Cell path is not ready');
     }
+    if (config.wanInterface) await ensureUser({ config,
+      connection: await host.connectionStore.read(), wanInterface: config.wanInterface });
     const service = await startService({ config, bootstrapHost: host });
     output.write('{"status":"serving","transport":"AWG"}\n');
     return service;
