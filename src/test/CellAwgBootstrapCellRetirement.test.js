@@ -72,11 +72,28 @@ function fixture() {
 test('verified permanent path permits fail-closed temporary retirement', async () => {
   const f = fixture();
   assert.deepEqual(await f.retirement.retire(), { retired: true });
+  assert.ok(f.events.indexOf('life-recover') < f.events.indexOf('route-recover'));
   assert.deepEqual(f.events.filter(x => ['nft-apply', 'route-apply', 'life-remove',
     'awg-retire', 'guard-release'].includes(x)),
   ['nft-apply', 'route-apply', 'life-remove', 'awg-retire', 'guard-release']);
   assert.equal(f.guarded, false);
   assert.deepEqual(await f.retirement.retire(), { retired: true });
+});
+
+test('missing userspace interface is restored before route recovery on restart', async () => {
+  const f = fixture();
+  let linkExists = false;
+  f.retirement.lifecycle.recover = async () => {
+    assert.equal(f.guarded, true);
+    linkExists = true;
+    f.events.push('life-recover');
+  };
+  f.retirement.routes.recover = async () => {
+    assert.equal(linkExists, true);
+    f.events.push('route-recover');
+  };
+  await f.retirement.retire();
+  assert.equal(f.guarded, false);
 });
 
 test('unverified permanent path retains temporary peer without mutation', async () => {

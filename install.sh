@@ -595,8 +595,14 @@ export AWG_PORT="$AWG_PORT_VALUE"
 export AWG_PANEL_PORT="$AWG_PANEL_PORT_VALUE"
 export AWG_LANG="$AWG_LANG_VALUE"
 
-info "Pulling the pinned linux/amd64 image"
-docker compose pull awg-easy
+if [ -n "${AWG_IMAGE:-}" ]; then
+  info "Using the explicitly selected local linux/amd64 image"
+  docker image inspect "$AWG_IMAGE" >/dev/null 2>&1 \
+    || die "AWG_IMAGE does not exist locally; build or load it before installation"
+else
+  info "Pulling the pinned linux/amd64 image"
+  docker compose pull awg-easy
+fi
 
 info "Enabling IPv4/IPv6 forwarding"
 umask 077
@@ -630,15 +636,19 @@ docker compose up -d awg-easy
 awg_easy_wait_healthy || die "AWG-Easy 3 did not become healthy; automatic updates were not enabled"
 install_management_command
 
-info "Enabling the stable update check after OS boot"
-if awg_easy_auto_update_enable; then
-  :
+if [ -n "${AWG_IMAGE:-}" ]; then
+  info "Custom image selected; automatic stable updates are not enabled"
 else
-  auto_update_status=$?
-  if [ "$auto_update_status" -eq 2 ]; then
-    printf 'The panel is installed, but this init system has no supported automatic-update hook.\n' >&2
+  info "Enabling the stable update check after OS boot"
+  if awg_easy_auto_update_enable; then
+    :
   else
-    die "the panel is installed, but its automatic-update hook could not be enabled"
+    auto_update_status=$?
+    if [ "$auto_update_status" -eq 2 ]; then
+      printf 'The panel is installed, but this init system has no supported automatic-update hook.\n' >&2
+    else
+      die "the panel is installed, but its automatic-update hook could not be enabled"
+    fi
   fi
 fi
 
@@ -648,5 +658,7 @@ printf 'Panel language: %s\n' "$AWG_LANG_VALUE"
 printf 'The panel has no public TCP listener. Connect the first Home profile, then open http://10.8.0.1:%s\n' "$AWG_PANEL_PORT_VALUE"
 printf 'If your provider has a cloud firewall, allow inbound UDP %s manually.\n' "$AWG_PORT_VALUE"
 printf 'Run sudo awg-easy-3 from any directory to manage, uninstall or reinstall the panel.\n'
-printf 'Automatic stable update checks are enabled when systemd or OpenRC is available.\n'
-printf 'Disable them with: sudo awg-easy-3 auto-update disable\n'
+if [ -z "${AWG_IMAGE:-}" ]; then
+  printf 'Automatic stable update checks are enabled when systemd or OpenRC is available.\n'
+  printf 'Disable them with: sudo awg-easy-3 auto-update disable\n'
+fi

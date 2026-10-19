@@ -9,6 +9,9 @@ has() { command -v "$1" >/dev/null 2>&1; }
 [ "$(uname -s)" = Linux ] || die 'Main Node requires Linux'
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$script_dir"
+[ -r "$script_dir/lib/owned-rp-filter.sh" ] || die 'owned interface sysctl helper is missing'
+# shellcheck disable=SC1091
+. "$script_dir/lib/owned-rp-filter.sh"
 [ -f docker-compose.yml ] && [ -f docker-compose.cells-main.yml ] \
   || die 'Main Node compose assets are missing'
 [ -f data/state.json ] || die 'an existing AWG-Easy 3 panel is required'
@@ -137,6 +140,8 @@ compose() {
     -f docker-compose.cells-main.yml --profile cells-main "$@"
 }
 compose config --quiet || die 'Main Node compose configuration is invalid'
+awg_cells_install_rp_filter main awgmainb0 awgmainc0 \
+  || die 'cannot reserve loose rp_filter for Main-owned AWG interfaces'
 install -d -m 0700 cell-data cell-status
 info 'Starting the Main Node service without changing the running panel'
 started_at=$(date +%s)

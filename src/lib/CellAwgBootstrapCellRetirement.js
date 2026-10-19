@@ -73,13 +73,17 @@ class CellAwgBootstrapCellRetirement {
     // Recheck under the guard so a concurrent registration state change cannot
     // make a previously verified permanent path disappear unnoticed.
     await this.authorization();
+    // A crashed/restarted Cell loses its userspace TUN device while the
+    // lifecycle journal can still say ready. Route recovery may need that
+    // interface, so restore it under the guard before touching route state.
+    const before = await this.lifecycle.load();
+    if (before.phase === 'ready') await this.lifecycle.recover();
     await this.firewall.recover();
     await this.firewall.apply(null);
     await this.routes.recover();
     await this.routes.apply([]);
     const current = await this.lifecycle.load();
     if (current.phase === 'ready') {
-      await this.lifecycle.recover();
       await this.lifecycle.remove();
     } else if (current.phase === 'removing') await this.lifecycle.recover();
     else if (current.phase !== 'empty') throw new Error('Cell bootstrap creation requires recovery');
