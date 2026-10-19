@@ -46,11 +46,23 @@ test('cell runtime protects before changing peers and releases only after readba
   const adapter = new CellRuntimeAdapter({ server: server(),
     runner: async file => { if (file === 'ip') throw missing(); return { stdout: '' }; },
     guard: guard(events), verifyRuntime: async () => { events.push('verify'); return true; },
+    dockerForwarding: { ensure: async () => { events.push('docker-forwarding'); } },
     runtime: runtime(async value => { events.push('apply');
       assert.equal(value.interfaceActive, false); }) });
   await adapter.apply({ schema: 1, clients: [] });
-  assert.deepEqual(events, ['guard-recover', 'guard-protect', 'apply',
+  assert.deepEqual(events, ['guard-recover', 'guard-protect', 'apply', 'docker-forwarding',
     'guard-release-start', 'verify', 'guard-release']);
+});
+
+test('failed Docker forwarding leaves Cell traffic guarded', async () => {
+  const events = [];
+  const adapter = new CellRuntimeAdapter({ server: server(),
+    runner: async file => { if (file === 'ip') throw missing(); return { stdout: '' }; },
+    guard: guard(events), verifyRuntime: async () => true,
+    dockerForwarding: { ensure: async () => { throw new Error('Docker chain changed'); } },
+    runtime: runtime(async () => { events.push('apply'); }) });
+  await assert.rejects(adapter.apply({ schema: 1, clients: [] }), /Docker chain changed/);
+  assert.deepEqual(events, ['guard-recover', 'guard-protect', 'apply']);
 });
 
 test('runtime failure retains durable guard; invalid settings touch no system objects', async () => {

@@ -7,6 +7,7 @@ const { CellNftPolicyReceipt } = require('./CellNftPolicyReceipt');
 const { matchesAwgConfig } = require('./CellAwgSnapshot');
 const { TABLE_NAME } = require('./NftablesPolicy');
 const { RuntimeApplier } = require('./RuntimeApplier');
+const { CellDockerForwarding } = require('./CellDockerForwarding');
 const { runProcess } = require('./ProcessRunner');
 
 const GUARD = 'awg_easy_3_cell_guard';
@@ -17,7 +18,7 @@ class CellRuntimeAdapter {
   constructor({ server, runtimeDirectory, stateDirectory,
     geoDatabase = async () => ({}), runner = runProcess,
     runtime = new RuntimeApplier({ runtimeDirectory, runner }),
-    guard = null, policyReceipt = null, verifyRuntime = null }) {
+    guard = null, policyReceipt = null, verifyRuntime = null, dockerForwarding = null }) {
     if (!guard && (typeof stateDirectory !== 'string' || !path.isAbsolute(stateDirectory)
       || (process.platform !== 'win32' && /^\/run(?:\/|$)/.test(stateDirectory)))) {
       throw new TypeError('Persistent absolute cell state directory required');
@@ -38,6 +39,7 @@ class CellRuntimeAdapter {
     this.runtime = runtime;
     this.guard = ownedGuard;
     this.policyReceipt = ownedReceipt;
+    this.dockerForwarding = dockerForwarding || new CellDockerForwarding({ server, runner });
     this.verifyRuntime = verifyRuntime || (artifacts => this.verifyApplied(artifacts));
   }
 
@@ -108,6 +110,7 @@ class CellRuntimeAdapter {
     // retry restores the last signed applied snapshot before removing it.
     await this.runtime.apply({ ...artifacts, interfaceActive: active });
     if (this.policyReceipt) await this.policyReceipt.recordCurrent();
+    await this.dockerForwarding.ensure();
     await this.guard.release(() => this.verifyRuntime(artifacts));
   }
 }

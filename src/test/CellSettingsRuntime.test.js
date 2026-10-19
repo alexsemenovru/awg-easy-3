@@ -13,7 +13,7 @@ const options = () => ({
     controllerKey: Buffer.alloc(32, 2).toString('base64url') }) },
   stateDirectory: path.resolve('private-cell-state'),
   runtimeDirectory: path.resolve('cell-runtime'),
-  server: { interfaceName: 'awgcell0' },
+  server: { interfaceName: 'awgcell0', wanInterface: 'eth0', ipv4Subnet: '10.64.0.0/24' },
 });
 
 test('settings assembly binds registered identity, receiver and durable cell guard', async () => {
