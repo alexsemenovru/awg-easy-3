@@ -3,6 +3,7 @@
 const { clientTraffic } = require('./ClientTraffic');
 const { transliterate } = require('transliteration');
 const { validateSnapshot } = require('./MainCellStatusSnapshot');
+const { assignmentFromClient, assignmentFingerprint } = require('./CellAssignedSettings');
 
 class ApiError extends Error {
   constructor(statusCode, message) {
@@ -23,12 +24,15 @@ const authError = (error) => {
   return error;
 };
 
-const publicClient = (client) => Object.freeze({
+const publicClient = (client, entryDetails = {}) => Object.freeze({
   id: client.id,
   name: client.name,
   ...clientTraffic(client),
   ipv6Available: Boolean(client.address6),
   networkGroup: client.networkGroup,
+  ...(client.entryCellId ? { entryCellId: client.entryCellId,
+    entryReady: entryDetails[client.entryCellId]?.confirmed?.[client.id]
+      === assignmentFingerprint(assignmentFromClient(client)) } : {}),
   address4: client.address4,
   ...(client.geoPolicy ? { geoPolicy: client.geoPolicy } : {}),
   ...(client.address6 ? { address6: client.address6 } : {}),
@@ -51,6 +55,7 @@ class ApiService {
   constructor({ store, passwordManager, sessionManager, clientManager, diagnostics,
     geoStatus = () => ({}), cellStatus = async () => ({ state: 'unavailable', updatedAt: null, cells: [] }),
     cellInvitationIssuer = null,
+    cellEntryDetails = async () => ({}),
     qrGenerator = defaultQrGenerator, clock = () => Date.now() } = {}) {
     if (!store || typeof store.load !== 'function') throw new TypeError('store must provide load');
     if (!passwordManager || typeof passwordManager.verify !== 'function'
@@ -76,6 +81,7 @@ class ApiService {
     this.geoStatus = geoStatus;
     this.cellStatus = cellStatus;
     this.cellInvitationIssuer = cellInvitationIssuer;
+    this.cellEntryDetails = cellEntryDetails;
     this.cellInvitationQueue = Promise.resolve();
     this.lastCellInvitationAt = -Infinity;
     this.clock = clock;
@@ -140,7 +146,8 @@ class ApiService {
     await this.authorize(token);
     const state = await this.store.load();
     if (!state) throw new ApiError(503, 'AWG-Easy 3 is not initialized');
-    return Object.freeze(state.clients.map(publicClient));
+    const details = await this.cellEntryDetails();
+    return Object.freeze(state.clients.map(client => publicClient(client, details)));
   }
 
   async clientDiagnostics(token) {
@@ -174,6 +181,7 @@ class ApiService {
   async cellsInfo(token) {
     await this.authorize(token);
     const snapshot = await this.cellStatus();
+    const entryDetails = await this.cellEntryDetails();
     if (!snapshot || !['ready', 'stale', 'unavailable'].includes(snapshot.state)
       || !Array.isArray(snapshot.cells)) throw new Error('Invalid Main Cell status');
     if (snapshot.state === 'ready') validateSnapshot({ version: 1,
@@ -183,6 +191,8 @@ class ApiService {
       cells: snapshot.state === 'ready' ? snapshot.cells.map(cell => ({
         id: cell.id, status: cell.status, phase: cell.phase,
         createdAt: cell.createdAt,
+        entryReady: cell.status === 'consumed' && cell.phase === 'closed'
+          && Boolean(entryDetails[cell.id]?.descriptor),
         ...(cell.settings ? { settings: {
           desiredRevision: cell.settings.desiredRevision,
           confirmedRevision: cell.settings.confirmedRevision,
@@ -220,13 +230,13 @@ class ApiService {
       if (error.code === 'CLIENT_NAME_EXISTS') throw new ApiError(409, error.message);
       throw error;
     }
-    return Object.freeze({ client: publicClient(result.client) });
+    return Object.freeze({ client: publicClient(result.client, await this.cellEntryDetails()) });
   }
 
   async updateClient(token, clientId, changes, context) {
     await this.authorize(token);
     const result = await this.clientManager.updateClient(clientId, changes, context);
-    return publicClient(result.client);
+    return publicClient(result.client, await this.cellEntryDetails());
   }
 
   async deleteClient(token, clientId, context) {
@@ -237,7 +247,12 @@ class ApiService {
 
   async exportClient(token, clientId, format) {
     await this.authorize(token);
-    const artifact = await this.clientManager.getClientExport(clientId);
+    let artifact;
+    try { artifact = await this.clientManager.getClientExport(clientId); }
+    catch (error) {
+      if (error.code === 'CELL_PENDING') throw new ApiError(409, error.message);
+      throw error;
+    }
     if (format === 'vpn-link') {
       return Object.freeze({ contentType: 'text/plain; charset=utf-8', value: artifact.vpnLink });
     }

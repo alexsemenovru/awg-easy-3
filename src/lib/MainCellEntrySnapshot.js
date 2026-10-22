@@ -16,12 +16,19 @@ function validateEntries(value) {
   const seen = new Set();
   const entries = value.entries.map(entry => {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)
-      || Object.keys(entry).sort().join(',') !== 'descriptor,id'
+      || !['descriptor,id', 'confirmed,descriptor,id'].includes(Object.keys(entry).sort().join(','))
       || typeof entry.id !== 'string' || !/^[a-f0-9]{32}$/.test(entry.id)
       || seen.has(entry.id)) throw new Error('Invalid Main Cell entry snapshot');
     seen.add(entry.id);
+    const confirmed = entry.confirmed ?? {};
+    if (!confirmed || typeof confirmed !== 'object' || Array.isArray(confirmed)
+      || Object.keys(confirmed).length > 1000
+      || Object.entries(confirmed).some(([clientId, fingerprint]) =>
+        !/^[A-Za-z0-9_-]{1,64}$/.test(clientId) || !/^[a-f0-9]{64}$/.test(fingerprint))) {
+      throw new Error('Invalid Main Cell entry confirmations');
+    }
     return { id: entry.id, descriptor: entry.descriptor === null ? null
-      : validateCellUserDescriptor(entry.descriptor) };
+      : validateCellUserDescriptor(entry.descriptor), confirmed: { ...confirmed } };
   });
   return { version: 1, entries };
 }
@@ -62,6 +69,12 @@ class MainCellEntrySnapshot {
   }
 
   async read() {
+    const details = await this.readDetails();
+    return Object.fromEntries(Object.entries(details).filter(([, entry]) => entry.descriptor)
+      .map(([id, entry]) => [id, entry.descriptor]));
+  }
+
+  async readDetails() {
     let stat;
     try { stat = await fs.lstat(this.filePath); }
     catch (error) { if (error.code === 'ENOENT') return {}; throw error; }
@@ -71,8 +84,8 @@ class MainCellEntrySnapshot {
       throw new Error('Unsafe Main Cell entry snapshot');
     }
     const value = validateEntries(JSON.parse(await fs.readFile(this.filePath, 'utf8')));
-    return Object.fromEntries(value.entries.filter(entry => entry.descriptor)
-      .map(entry => [entry.id, entry.descriptor]));
+    return Object.fromEntries(value.entries.map(entry => [entry.id,
+      { descriptor: entry.descriptor, confirmed: entry.confirmed }]));
   }
 }
 

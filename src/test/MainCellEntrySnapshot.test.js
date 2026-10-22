@@ -20,8 +20,10 @@ test('Main shares only validated public Cell entries in a durable private snapsh
   const snapshot = new MainCellEntrySnapshot(file);
   const publicEntry = descriptor();
   assert.deepEqual(await snapshot.read(), {});
-  await snapshot.write([{ id, descriptor: publicEntry }, { id: 'b'.repeat(32), descriptor: null }]);
+  await snapshot.write([{ id, descriptor: publicEntry, confirmed: { friend: 'c'.repeat(64) } },
+    { id: 'b'.repeat(32), descriptor: null }]);
   assert.deepEqual(await snapshot.read(), { [id]: publicEntry });
+  assert.deepEqual((await snapshot.readDetails())[id].confirmed, { friend: 'c'.repeat(64) });
   assert.equal((await fs.readFile(file, 'utf8')).includes('privateKey'), false);
   await assert.rejects(snapshot.write([{ id, descriptor: { ...publicEntry, privateKey: 'secret' } }]));
   assert.deepEqual(await snapshot.read(), { [id]: publicEntry });

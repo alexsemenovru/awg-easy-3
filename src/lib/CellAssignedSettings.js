@@ -6,6 +6,25 @@ const { validateCellUserDescriptor } = require('./CellUserDescriptor');
 const { addressInSubnet } = require('./AddressAllocator');
 const { clientTraffic } = require('./ClientTraffic');
 const { normalizeGeoPolicy } = require('./GeoIpPolicy');
+const crypto = require('node:crypto');
+
+function assignmentFromClient(client) {
+  const traffic = clientTraffic(client, { ipv6Available: Boolean(client.address6) });
+  return { id: client.id, publicKey: client.publicKey,
+    address4: client.address4, ...(client.address6 ? { address6: client.address6 } : {}),
+    ...(client.presharedKey ? { presharedKey: client.presharedKey } : {}),
+    networkGroup: client.networkGroup, ipv4Enabled: traffic.ipv4Enabled,
+    ipv6Enabled: traffic.ipv6Enabled, geoPolicy: normalizeGeoPolicy(client.geoPolicy) };
+}
+
+function assignmentFingerprint(assignment) {
+  const value = validateCellSettings({ schema: 1, clients: [assignment] }).clients[0];
+  return crypto.createHash('sha256').update(JSON.stringify([
+    value.id, value.publicKey, value.address4, value.address6 ?? null,
+    value.presharedKey ?? null, value.networkGroup, value.ipv4Enabled,
+    value.ipv6Enabled, value.geoPolicy.mode, value.geoPolicy.countries,
+  ])).digest('hex');
+}
 
 // Build all desired Cell views before publishing any one revision. A Cell only
 // receives its own public client peers and policy, never client private keys,
@@ -36,15 +55,10 @@ function assignedSettingsFromState(input, cells) {
         || client.address6 === descriptor.address6)) {
       throw new TypeError('Assigned client address conflicts with its Cell network');
     }
-    const traffic = clientTraffic(client, { ipv6Available: Boolean(descriptor.address6 && client.address6) });
-    result[client.entryCellId].push({ id: client.id, publicKey: client.publicKey,
-      address4: client.address4, ...(client.address6 ? { address6: client.address6 } : {}),
-      ...(client.presharedKey ? { presharedKey: client.presharedKey } : {}),
-      networkGroup: client.networkGroup, ipv4Enabled: traffic.ipv4Enabled,
-      ipv6Enabled: traffic.ipv6Enabled, geoPolicy: normalizeGeoPolicy(client.geoPolicy) });
+    result[client.entryCellId].push(assignmentFromClient(client));
   }
   return Object.freeze(Object.fromEntries(Object.entries(result).map(([id, clients]) =>
     [id, validateCellSettings({ schema: 1, clients })])));
 }
 
-module.exports = { assignedSettingsFromState };
+module.exports = { assignedSettingsFromState, assignmentFromClient, assignmentFingerprint };

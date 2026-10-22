@@ -19,6 +19,7 @@ const { StateStore } = require('./StateStore');
 const { MainCellStatusSnapshot } = require('./MainCellStatusSnapshot');
 const { MainCellEntrySnapshot } = require('./MainCellEntrySnapshot');
 const { requestInvitation } = require('./MainCellInvitationSocket');
+const { assignmentFromClient, assignmentFingerprint } = require('./CellAssignedSettings');
 
 class Application {
   constructor({
@@ -50,6 +51,7 @@ class Application {
     this.mainCellEntries = mainCellStatusFile
       ? new MainCellEntrySnapshot(path.join(path.dirname(mainCellStatusFile), 'entries.json')) : null;
     this.entryDescriptors = () => this.mainCellEntries ? this.mainCellEntries.read() : Promise.resolve({});
+    this.entryDetails = () => this.mainCellEntries ? this.mainCellEntries.readDetails() : Promise.resolve({});
     this.mainCellInvitationSocket = mainCellStatusFile
       ? path.join(path.dirname(mainCellStatusFile), 'control.sock') : null;
     this.applier = new RuntimeApplier({ runtimeDirectory: this.runtimeDirectory, runner });
@@ -144,6 +146,7 @@ class Application {
         applier: this.applier,
         geoDatabase: () => this.geo.current?.database ?? {},
         entryDescriptors: this.entryDescriptors,
+        entryDetails: this.entryDetails,
         onStateChanged: (nextState) => this.discovery.refresh(nextState),
         serializeOperation,
       });
@@ -155,7 +158,8 @@ class Application {
           ? this.mainCellStatus.read()
           : { state: 'unavailable', updatedAt: null, cells: [] },
         cellInvitationIssuer: this.mainCellInvitationSocket
-          ? () => requestInvitation(this.mainCellInvitationSocket) : null });
+          ? () => requestInvitation(this.mainCellInvitationSocket) : null,
+        cellEntryDetails: this.entryDetails });
       this.http = this.httpFactory({ api, publicDirectory: this.publicDirectory });
       const listening = await this.http.listen({ host: state.server.address4, port: state.server.panelPort });
       if (state.server.address6 && state.server.ipv6Subnet) {
@@ -205,6 +209,13 @@ class Application {
     const client = state.clients.find((item) => item.id === query
       || item.name.trim().toLocaleLowerCase() === folded);
     if (!client) throw new Error(`Unknown client: ${query}`);
+    if (client.entryCellId) {
+      const detail = (await this.entryDetails())[client.entryCellId];
+      if (detail?.confirmed?.[client.id]
+        !== assignmentFingerprint(assignmentFromClient(client))) {
+        throw new Error('Cell has not yet applied this client profile');
+      }
+    }
     // Exporting keys/routes does not need a country database or firewall build.
     const artifacts = buildAwgArtifacts({ server: state.server,
       clients: state.clients.map(client => ({ ...client, geoPolicy: undefined })),

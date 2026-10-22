@@ -9,6 +9,8 @@ const { assertActiveHomeRemains, normalizeClientPolicy } = require('./ClientPoli
 const { changeClientTraffic, assertCurrentPanelPathRemains } = require('./ClientTraffic');
 const { validateState } = require('./StateStore');
 const { normalizeGeoPolicy, validatePrefixes } = require('./GeoIpPolicy');
+const { assignmentFromClient, assignmentFingerprint } = require('./CellAssignedSettings');
+const { validateCellUserDescriptor } = require('./CellUserDescriptor');
 
 const ALLOWED_CHANGES = new Set(['name', 'enabled', 'networkGroup', 'ipv4Enabled', 'ipv6Enabled', 'geoPolicy']);
 
@@ -22,6 +24,7 @@ class ClientManager {
     onStateChanged = () => {},
     geoDatabase = () => ({}),
     entryDescriptors = async () => ({}),
+    entryDetails = async () => ({}),
     serializeOperation,
   } = {}) {
     if (!store || typeof store.load !== 'function' || typeof store.save !== 'function') {
@@ -43,6 +46,7 @@ class ClientManager {
     this.onStateChanged = onStateChanged;
     this.geoDatabase = geoDatabase;
     this.entryDescriptors = entryDescriptors;
+    this.entryDetails = entryDetails;
     this.queue = Promise.resolve();
     this.serializeOperation = serializeOperation;
   }
@@ -125,8 +129,12 @@ class ClientManager {
     return Object.freeze({ artifacts: nextArtifacts, state: savedState });
   }
 
-  createClient({ name, networkGroup } = {}) {
+  createClient({ name, networkGroup, entryCellId } = {}) {
     return this.serialize(async () => {
+      if (entryCellId !== undefined && (typeof entryCellId !== 'string'
+        || !/^[a-f0-9]{32}$/.test(entryCellId))) {
+        throw new TypeError('Valid Cell entry identifier required');
+      }
       const state = await this.requireState();
       const normalizedName = typeof name === 'string' ? name.trim() : '';
       if (state.clients.some((client) => client.name.trim().toLocaleLowerCase() === normalizedName.toLocaleLowerCase())) {
@@ -135,17 +143,23 @@ class ClientManager {
         throw error;
       }
       const policy = normalizeClientPolicy({ networkGroup });
-      const addresses = allocateClientAddresses({ server: state.server, clients: state.clients });
+      const descriptor = entryCellId
+        ? validateCellUserDescriptor((await this.entryDescriptors())[entryCellId]) : null;
+      const addresses = allocateClientAddresses({ server: descriptor || state.server,
+        clients: state.clients.filter(client => client.entryCellId === entryCellId) });
       const keys = await this.keyManager.generatePeerKeys();
       const client = {
         id: this.idGenerator(),
         name: normalizedName,
         enabled: true,
         ...policy,
+        ...(entryCellId ? { entryCellId } : {}),
         ...addresses,
         ...keys,
       };
-      const result = await this.applyState(state, { ...state, clients: [...state.clients, client] });
+      const result = await this.applyState(state, { ...state,
+        version: entryCellId ? 4 : state.version,
+        clients: [...state.clients, client] });
       return Object.freeze({
         client: result.state.clients.find((item) => item.id === client.id),
         export: result.artifacts.clientArtifacts[client.id],
@@ -188,8 +202,11 @@ class ClientManager {
         changes = { ...changes, geoPolicy: policy };
       }
       const target = state.clients.find((client) => client.id === clientId);
+      const descriptor = target?.entryCellId
+        ? validateCellUserDescriptor((await this.entryDescriptors())[target.entryCellId]) : null;
       const nextClient = changeClientTraffic(target, changes, {
-        ipv6Available: Boolean(state.server.address6 && state.server.ipv6Subnet && target.address6),
+        ipv6Available: Boolean(target.address6 && (descriptor
+          ? descriptor.address6 : state.server.address6 && state.server.ipv6Subnet)),
       });
       assertCurrentPanelPathRemains(target, nextClient, remoteAddress);
       const clients = state.clients.map((client) => client.id === clientId ? nextClient : client);
@@ -214,7 +231,16 @@ class ClientManager {
 
   async getClientExport(clientId) {
     const state = await this.requireState();
-    if (!state.clients.some((client) => client.id === clientId)) throw new TypeError(`Unknown client: ${clientId}`);
+    const client = state.clients.find((item) => item.id === clientId);
+    if (!client) throw new TypeError(`Unknown client: ${clientId}`);
+    if (client.entryCellId) {
+      const detail = (await this.entryDetails())[client.entryCellId];
+      if (detail?.confirmed?.[client.id]
+        !== assignmentFingerprint(assignmentFromClient(client))) {
+        throw Object.assign(new Error('Cell has not yet applied this client profile'),
+          { code: 'CELL_PENDING' });
+      }
+    }
     return this.build(state, await this.entryDescriptors()).clientArtifacts[clientId];
   }
 }

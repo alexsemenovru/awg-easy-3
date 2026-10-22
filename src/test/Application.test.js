@@ -7,6 +7,7 @@ const { Application } = require('../lib/Application');
 const { decodeVpnLink } = require('../lib/AmneziaVpnLink');
 const { generateOfficialProfile } = require('../lib/Awg3Config');
 const { validateState } = require('../lib/StateStore');
+const { assignmentFromClient, assignmentFingerprint } = require('../lib/CellAssignedSettings');
 
 const stateFixture = () => validateState({
   version: 1,
@@ -107,11 +108,14 @@ test('a Cell-entry profile remains exportable after Main restart without install
   application.store.load = async () => validateState({ ...original, version: 4,
     clients: [...original.clients, { id: 'remote', name: 'Remote', networkGroup: 'guest',
       entryCellId: id, enabled: true, address4: '10.64.0.2',
-      privateKey: 'remote-private', publicKey: 'remote-public' }] });
+      privateKey: 'remote-private', publicKey: Buffer.alloc(32, 8).toString('base64') }] });
   const descriptor = { version: 1, endpointHost: 'cell.example.test', endpointPort: 51830,
     serverPublicKey: Buffer.alloc(32, 4).toString('base64'),
     address4: '10.64.0.1', ipv4Subnet: '10.64.0.0/24', profile: generateOfficialProfile() };
   application.entryDescriptors = async () => ({ [id]: descriptor });
+  const remote = (await application.store.load()).clients[1];
+  application.entryDetails = async () => ({ [id]: { descriptor,
+    confirmed: { remote: assignmentFingerprint(assignmentFromClient(remote)) } } });
   const applied = [];
   application.applier.apply = async value => applied.push(value);
   await application.start();
@@ -121,7 +125,8 @@ test('a Cell-entry profile remains exportable after Main restart without install
   await application.start();
   assert.equal((await application.exportClient('remote')).vpnLink, first.vpnLink);
   assert.equal(applied.length, 2);
-  for (const value of applied) assert.doesNotMatch(value.serverConfig, /remote-public/);
+  for (const value of applied) assert.doesNotMatch(value.serverConfig,
+    new RegExp(Buffer.alloc(32, 8).toString('base64')));
   await application.stop();
 });
 

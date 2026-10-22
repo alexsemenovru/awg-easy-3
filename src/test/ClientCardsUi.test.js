@@ -20,6 +20,7 @@ const setup = async ({ mode = 'password' } = {}) => {
         toggle: (name, enabled) => enabled ? classes.add(name) : classes.delete(name),
       },
       addEventListener: (name, handler) => { value.handlers[name] = handler; },
+      setAttribute: (name, content) => { value[name] = content; },
       replaceChildren: () => {}, reset: () => {},
       matches: (candidate) => candidate === selector,
       focus: () => { document.activeElement = value; },
@@ -95,6 +96,11 @@ const setup = async ({ mode = 'password' } = {}) => {
   await new Promise(setImmediate);
   return {
     document, calls, loginInputs, card: (index = 0) => container.cards[index],
+    setRows: async (next) => {
+      rows = next;
+      await document.querySelector('#login-form').handlers.submit({ preventDefault() {} });
+      await new Promise(setImmediate);
+    },
     fail: (code) => { failure = Object.assign(new Error('Request rejected'), { code }); },
     failLogin: () => { loginFailure = Object.assign(new Error('Invalid credentials'), { status: 401 }); },
     failRefresh: () => { refreshFailure = true; },
@@ -107,6 +113,18 @@ const setup = async ({ mode = 'password' } = {}) => {
     },
   };
 };
+
+test('a Cell-assigned client cannot export a profile before the Cell confirms settings', async () => {
+  const f = await setup();
+  await f.setRows([{ id: 'cell-client', name: 'Cell client', address4: '10.9.0.2',
+    networkGroup: 'guest', enabled: true, ipv4Enabled: true, ipv6Enabled: false,
+    ipv6Available: false, entryCellId: 'a'.repeat(32), entryReady: false }]);
+  const button = f.card().querySelector('.show-profile');
+  assert.equal(f.card().dataset.clientId, 'cell-client', f.document.querySelector('#notice').textContent);
+  assert.equal(button.disabled, true);
+  assert.equal(button.dataset.i18n, 'cellPendingShort');
+  assert.equal(button.handlers.click, undefined);
+});
 
 test('wrong panel password shows a translated visible error', async () => {
   const f = await setup();

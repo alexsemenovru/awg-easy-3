@@ -24,6 +24,7 @@
   let lastDiagnostics = [];
   let geoCountries = [];
   let authMode = 'password';
+  let pendingEntryTimer;
   const applyAuthMode = (mode) => {
     const previousMode = authMode;
     authMode = ['password', 'password_totp', 'totp'].includes(mode) ? mode : 'password';
@@ -65,6 +66,7 @@
     if (timeout) showNotice.timer = setTimeout(() => notice.classList.add('hidden'), timeout);
   };
   const showLogin = () => {
+    clearTimeout(pendingEntryTimer);
     geoStatus?.stop();
     cellsView?.stop();
     diagnosticsPoller.stop();
@@ -215,7 +217,14 @@
     node.querySelector('.ipv6-unavailable').classList.toggle('hidden', client.ipv6Available);
     window.awgTooltips?.attach(node);
     node.querySelector('.ipv6-only-warning').classList.toggle('hidden', !client.ipv6Enabled || client.ipv4Enabled);
-    node.querySelector('.show-profile').addEventListener('click', () => openProfile(client));
+    const profileButton = node.querySelector('.show-profile');
+    if (client.entryCellId && !client.entryReady) {
+      profileButton.disabled = true;
+      profileButton.dataset.i18n = 'cellPendingShort';
+      profileButton.textContent = t('cellPendingShort');
+      profileButton.title = t('cellProfilePending');
+      profileButton.setAttribute('aria-label', t('cellProfilePending'));
+    } else profileButton.addEventListener('click', () => openProfile(client));
     node.querySelector('.delete-client').addEventListener('click', () => askDelete(client));
     window.awgGeoClient?.attach({ node, client, codes: () => geoCountries,
       language: () => languageSelect.value || 'en', t,
@@ -230,6 +239,7 @@
     return node;
   };
   const loadClients = async () => {
+    clearTimeout(pendingEntryTimer);
     diagnosticsPoller.stop();
     clearDiagnostics('checking');
     clients = await guarded(() => api.clients());
@@ -237,6 +247,11 @@
       try { geoCountries = (await api.geoInfo()).countries || []; } catch { geoCountries = []; }
     }
     clientsNode.replaceChildren(...clients.map(renderClient));
+    if (clients.some(client => client.entryCellId && !client.entryReady)) {
+      pendingEntryTimer = setTimeout(() => {
+        if (!document.hidden && !appView.classList.contains('hidden')) loadClients().catch(() => {});
+      }, 15000);
+    }
     startDiagnostics();
     // Failure here must not undo a successful client mutation or hide its result.
     try {
@@ -278,11 +293,28 @@
   languageSelect.addEventListener('change', () => {
     i18n.setLanguage(languageSelect.value);
     localStorage.setItem('awg-easy-language', languageSelect.value);
+    for (const option of $('#client-entry').options) {
+      if (option.value) option.textContent = t('cellOption', { id: option.value.slice(0, 8) });
+    }
     lastDiagnostics.forEach(paintDiagnostics);
     geoStatus?.translate();
     cellsView?.translate();
   });
-  $('#show-create').addEventListener('click', () => createDialog.showModal());
+  $('#show-create').addEventListener('click', async () => {
+    const entrySelect = $('#client-entry');
+    entrySelect.replaceChildren(entrySelect.querySelector('option[value=""]'));
+    createDialog.showModal();
+    try {
+      const inventory = await api.cellsInfo();
+      if (!createDialog.open || inventory.state !== 'ready') return;
+      for (const cell of inventory.cells.filter(item => item.entryReady)) {
+        const option = document.createElement('option');
+        option.value = cell.id;
+        option.textContent = t('cellOption', { id: cell.id.slice(0, 8) });
+        entrySelect.append(option);
+      }
+    } catch { /* The Main Node remains available when Cell status cannot be loaded. */ }
+  });
   document.querySelectorAll('.close-dialog').forEach((button) => button.addEventListener('click', () => button.closest('dialog').close()));
   $('#cancel-delete').addEventListener('click', () => deleteDialog.close());
   $('#confirm-delete').addEventListener('click', async () => {
@@ -314,11 +346,13 @@
       return;
     }
     try {
-      const result = await guarded(() => api.createClient({ name, networkGroup: $('#client-group').value }));
+      const result = await guarded(() => api.createClient({ name, networkGroup: $('#client-group').value,
+        ...($('#client-entry').value ? { entryCellId: $('#client-entry').value } : {}) }));
       createDialog.close();
       event.target.reset();
       await loadClients();
-      openProfile(result.client);
+      if (result.client.entryCellId && !result.client.entryReady) showNotice(t('cellAssignmentPending'));
+      else openProfile(result.client);
     } catch (error) {
       if (error.status === 409) showNotice(t('duplicateName'), true);
     }
@@ -401,9 +435,13 @@
   retryConnection.addEventListener('click', () => connection.retry());
   window.addEventListener('online', () => connection.retry());
   window.addEventListener('pageshow', (event) => { if (event.persisted) connection.start(); });
-  window.addEventListener('pagehide', () => { connection.stop(); geoStatus?.stop(); cellsView?.stop(); });
+  window.addEventListener('pagehide', () => { clearTimeout(pendingEntryTimer); connection.stop(); geoStatus?.stop(); cellsView?.stop(); });
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) connection.start(); else connection.stop();
+    if (!document.hidden) {
+      connection.start();
+      if (clients.some(client => client.entryCellId && !client.entryReady)
+        && !appView.classList.contains('hidden')) loadClients().catch(() => {});
+    } else connection.stop();
   });
   connection.start();
 })();

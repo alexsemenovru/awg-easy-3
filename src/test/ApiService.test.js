@@ -67,7 +67,10 @@ test('Cell inventory is authenticated and never exposes unvalidated private fiel
     { state: 'unavailable', updatedAt: null, cells: [] });
   service.cellStatus = async () => ({ state: 'ready', updatedAt: 200, cells: [cell] });
   assert.deepEqual(await service.cellsInfo('signed-token'),
-    { state: 'ready', updatedAt: 200, cells: [cell] });
+    { state: 'ready', updatedAt: 200, cells: [{ ...cell, entryReady: false }] });
+  service.cellEntryDetails = async () => ({ [cell.id]: { descriptor: { endpoint: 'hidden' } } });
+  assert.deepEqual(await service.cellsInfo('signed-token'),
+    { state: 'ready', updatedAt: 200, cells: [{ ...cell, entryReady: true }] });
   service.cellStatus = async () => ({ state: 'ready', updatedAt: 200,
     cells: [{ ...cell, cellKey: 'secret' }] });
   await assert.rejects(service.cellsInfo('signed-token'), /Invalid Main Cell status/);

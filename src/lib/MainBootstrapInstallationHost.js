@@ -34,7 +34,8 @@ const { validEndpointHost } = require('./CellAwgEndpointHost');
 const { StateStore } = require('./StateStore');
 const { addressInSubnet } = require('./AddressAllocator');
 const { allocateCellInvitationAddresses } = require('./CellInvitationAddressAllocator');
-const { assignedSettingsFromState } = require('./CellAssignedSettings');
+const { assignedSettingsFromState, assignmentFingerprint } = require('./CellAssignedSettings');
+const { validateCellSettings } = require('./CellSettingsSchema');
 
 const validName = name => typeof name === 'string' && /^[a-zA-Z0-9_.-]{1,15}$/.test(name);
 const validPort = port => Number.isSafeInteger(port) && port >= 1 && port <= 65535;
@@ -324,8 +325,16 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
     entryDescriptors: async () => {
       const records = (await bootstrapStore.read()).invitations.filter(record =>
         record.status === 'consumed' && record.phase === 'closed' && record.cellKey);
-      return Promise.all(records.map(async record => ({ id: record.id,
-        descriptor: await descriptorForCell(record.cellKey).read() })));
+      return Promise.all(records.map(async record => {
+        const [descriptor, published] = await Promise.all([
+          descriptorForCell(record.cellKey).read(), publisherForCell(record.cellKey).load(),
+        ]);
+        const confirmed = published?.confirmed
+          ? validateCellSettings(JSON.parse(published.confirmed.desired.payload)).clients : [];
+        return { id: record.id, descriptor,
+          confirmed: Object.fromEntries(confirmed.map(client =>
+            [client.id, assignmentFingerprint(client)])) };
+      }));
     },
     reconcileClientAssignments: () => locked(async () => {
       if (!userStateFile) return { skipped: 'no-panel-state' };

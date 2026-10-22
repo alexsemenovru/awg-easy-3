@@ -6,6 +6,7 @@ const test = require('node:test');
 const { generateOfficialProfile } = require('../lib/Awg3Config');
 const { ClientManager } = require('../lib/ClientManager');
 const { validateState } = require('../lib/StateStore');
+const { assignmentFromClient, assignmentFingerprint } = require('../lib/CellAssignedSettings');
 
 const profile = () => generateOfficialProfile({
   randomInt: (() => {
@@ -60,6 +61,31 @@ const fixture = () => {
   });
   return { applications, getState: () => state, manager };
 };
+
+test('new Cell client upgrades state and withholds its profile until Cell confirms the assignment', async () => {
+  const { manager, getState, applications } = fixture();
+  const cellId = 'a'.repeat(32);
+  const descriptor = { version: 1, endpointHost: 'cell.example.test', endpointPort: 51830,
+    serverPublicKey: Buffer.alloc(32, 4).toString('base64'), address4: '10.64.0.1',
+    ipv4Subnet: '10.64.0.0/24', profile: profile() };
+  manager.entryDescriptors = async () => ({ [cellId]: descriptor });
+  manager.keyManager.generatePeerKeys = async () => ({
+    privateKey: Buffer.alloc(32, 5).toString('base64'),
+    publicKey: Buffer.alloc(32, 6).toString('base64'),
+    presharedKey: Buffer.alloc(32, 7).toString('base64'),
+  });
+  const created = await manager.createClient({ name: 'Remote', entryCellId: cellId });
+  assert.equal(created.client.entryCellId, cellId);
+  assert.equal(created.client.address4, '10.64.0.2');
+  assert.equal(getState().version, 4);
+  assert.doesNotMatch(applications.at(-1).serverConfig, /10\.64\.0\.2/);
+  await assert.rejects(manager.getClientExport(created.client.id), error => error.code === 'CELL_PENDING');
+  manager.entryDetails = async () => ({ [cellId]: { confirmed: {
+    [created.client.id]: assignmentFingerprint(assignmentFromClient(created.client)),
+  } } });
+  assert.match((await manager.getClientExport(created.client.id)).nativeConfig,
+    /Endpoint = cell\.example\.test:51830/);
+});
 
 test('country policy updates preserve exported profiles and off removes only geo rules', async () => {
   const { manager, applications, getState } = fixture();
