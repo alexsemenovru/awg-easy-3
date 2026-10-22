@@ -24,6 +24,9 @@ if docker inspect awg-easy-3 >/dev/null 2>&1 \
   || docker inspect awg-easy-3-main-cell >/dev/null 2>&1; then
   die 'an AWG-Easy Main panel already exists on this host'
 fi
+if docker inspect awg-easy-3-cell >/dev/null 2>&1; then
+  die 'legacy Cell container exists; inspect and migrate it before installation'
+fi
 
 env_file="$script_dir/.env.cells-cell"
 cell_public_endpoint() {
@@ -45,7 +48,7 @@ cell_public_endpoint() {
 }
 if [ ! -e "$env_file" ]; then
   [ ! -e cell-data ] || die 'Cell state exists without an installation record; inspect it first'
-  if docker inspect awg-easy-3-cell >/dev/null 2>&1; then
+  if docker inspect network-relay >/dev/null 2>&1; then
     die 'Cell container exists without an installation record'
   fi
   [ "${AWG_IMAGE+x}" = x ] && [ -n "$AWG_IMAGE" ] \
@@ -55,6 +58,8 @@ if [ ! -e "$env_file" ]; then
     || die 'Cell image is not available locally; pull or load the tested image first'
   docker run --rm --entrypoint test "$AWG_IMAGE" -r /app/cell-cli.js >/dev/null 2>&1 \
     || die 'image does not contain the Cell service'
+  docker run --rm --entrypoint test "$AWG_IMAGE" -r /app/link-agent.js >/dev/null 2>&1 \
+    || die 'image does not contain the neutral Cell entrypoint'
   docker run --rm --entrypoint node "$AWG_IMAGE" -e \
     "if(typeof require('/app/lib/CellUserBootstrap').ensureCellUserBootstrap!=='function')process.exit(1)" >/dev/null 2>&1 \
     || die 'image does not contain automatic Cell user bootstrap'
@@ -151,7 +156,7 @@ info 'Starting the headless Cell; the invitation is never printed'
 compose up -d cell || die 'Cell service did not start; private state was preserved'
 attempt=0
 while [ "$attempt" -lt 120 ]; do
-  if docker inspect -f '{{.State.Running}}' awg-easy-3-cell 2>/dev/null | grep -qx true; then
+  if docker inspect -f '{{.State.Running}}' network-relay 2>/dev/null | grep -qx true; then
     status=$(compose exec -T cell node /app/cell-cli.js status 2>/dev/null || true)
     case "$status" in
       *'"registration":"registered"'*'"userConfigured":true'*)

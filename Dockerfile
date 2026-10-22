@@ -22,6 +22,7 @@ ARG AWG_TOOLS_COMMIT
 LABEL org.opencontainers.image.title="AWG-Easy 3" org.opencontainers.image.description="Easy web panel for AmneziaWG 3.x" org.opencontainers.image.source="https://github.com/alexsemenovru/awg-easy-3" org.opencontainers.image.licenses="CC-BY-NC-SA-4.0" org.opencontainers.image.awg-go-revision="$AWG_GO_COMMIT" org.opencontainers.image.awg-tools-revision="$AWG_TOOLS_COMMIT"
 RUN apk add --no-cache bash ca-certificates dumb-init flock iproute2 iptables iptables-legacy nftables openssl
 COPY --from=awg-go /out/amneziawg-go /usr/local/bin/amneziawg-go
+RUN ln -s /usr/local/bin/amneziawg-go /usr/local/bin/net-forward
 COPY --from=awg-tools /out/awg /usr/local/bin/awg
 COPY --from=awg-tools /out/awg-quick /usr/local/bin/awg-quick
 RUN ln -s /usr/local/bin/awg /usr/local/bin/wg && ln -s /usr/local/bin/awg-quick /usr/local/bin/wg-quick && printf 'awg-go=%s\nawg-tools=%s\n' "$AWG_GO_COMMIT" "$AWG_TOOLS_COMMIT" > /usr/local/share/awg-build-revisions
