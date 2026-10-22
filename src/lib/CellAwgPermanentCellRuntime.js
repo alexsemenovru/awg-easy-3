@@ -12,7 +12,7 @@ const { CellSettingsPoller } = require('./CellSettingsPoller');
 // exactly the same permanent-path gate that the join uses. The caller still
 // owns the cross-process installation lock and the temporary AWG lifecycle.
 function createPermanentCellRuntime({ stateDirectory, connectionStore, bootstrap,
-  temporaryInterfaceName, receiver, clientRuntime, runner,
+  temporaryInterfaceName, receiver, clientRuntime, userDescriptor, runner,
   sync = syncCellSettings } = {}) {
   if (!connectionStore || typeof connectionStore.read !== 'function'
     || !receiver || typeof receiver.restoreApplied !== 'function'
@@ -38,7 +38,8 @@ function createPermanentCellRuntime({ stateDirectory, connectionStore, bootstrap
     }
     return sync({ connectionStore, identityStore, receiver,
       host: connection.controllerPath.controllerAddress,
-      port: connection.controllerPath.controlPort, transport: 'tunnel' });
+      port: connection.controllerPath.controlPort, transport: 'tunnel',
+      ...(userDescriptor ? { userDescriptor } : {}) });
   };
   return Object.freeze({ deployment, gate, retirement,
     join: options => joinPermanentCell({ ...options, connectionStore, deployment, gate,

@@ -8,6 +8,7 @@ const { CellUserConfigStore } = require('./CellUserConfigStore');
 const { startCellService, syncCellOnce } = require('./CellService');
 const { readCellStatus } = require('./CellStatus');
 const { ensureCellUserBootstrap } = require('./CellUserBootstrap');
+const { validEndpointHost } = require('./CellAwgEndpointHost');
 
 const INTERFACE = /^[a-zA-Z0-9_.-]{1,15}$/;
 const PORT = /^\d{1,5}$/;
@@ -20,6 +21,7 @@ function configFromEnvironment(env) {
   const controlInterface = env.AWG_CELL_CONTROL_INTERFACE;
   const userInterface = env.AWG_CELL_USER_INTERFACE;
   const wanInterface = env.AWG_CELL_WAN_INTERFACE;
+  const endpointHost = env.AWG_CELL_ENDPOINT;
   const portText = env.AWG_CELL_USER_PORT;
   const userPort = PORT.test(portText || '') ? Number(portText) : NaN;
   if (typeof stateDirectory !== 'string' || !path.isAbsolute(stateDirectory)
@@ -28,11 +30,13 @@ function configFromEnvironment(env) {
     || [interfaceName, controlInterface, userInterface].some(name => !INTERFACE.test(name || ''))
     || (wanInterface !== undefined && (!INTERFACE.test(wanInterface)
       || [interfaceName, controlInterface, userInterface].includes(wanInterface)))
+    || (endpointHost !== undefined && !validEndpointHost(endpointHost))
     || new Set([interfaceName, controlInterface, userInterface]).size !== 3
     || !Number.isInteger(userPort) || userPort < 1 || userPort > 65535) {
     throw new Error('Explicit Cell state path, three distinct interfaces and user UDP port required');
   }
-  return { stateDirectory, invitationFile, wanInterface, interfaceName, runtimeDirectory: env.AWG_CELL_RUNTIME_DIR, resources: {
+  return { stateDirectory, invitationFile, wanInterface, endpointHost,
+    interfaceName, runtimeDirectory: env.AWG_CELL_RUNTIME_DIR, resources: {
     interfaceNames: [interfaceName, controlInterface, userInterface],
     udpPorts: [userPort], nftTables: [
       'awg_easy_3_bootstrap', 'awg_easy_3_bootstrap_guard',

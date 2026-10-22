@@ -3,7 +3,7 @@
 const net = require('node:net');
 const { verifyControlReply } = require('./CellControlProtocol');
 
-const REQUEST_LIMIT = 2048;
+const REQUEST_LIMIT = 2304;
 const RESPONSE_LIMIT = 2 * 1024 * 1024;
 
 // Binding to a tunnel address is mandatory; this module must never expose the

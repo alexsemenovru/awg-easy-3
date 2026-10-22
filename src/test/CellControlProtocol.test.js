@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const { identity } = require('../lib/CellRegistration');
 const { signControl, verifyControl, signControlReply, verifyControlReply } = require('../lib/CellControlProtocol');
 const { CellControlService } = require('../lib/CellControlService');
+const { generateOfficialProfile } = require('../lib/Awg3Config');
 const bytes = value => Buffer.from(JSON.stringify(value));
 
 test('control requests tolerate bounded skew but still reject expired timestamps', () => {
@@ -38,6 +39,35 @@ test('control requests are bound to identities, method and payload', () => {
     { issuedAt: 0 }, { command: 'anything' }]) {
     assert.throws(() => verifyControl(bytes({ ...request, ...patch }), controllerKey));
   }
+});
+
+test('Cell endpoint announcement is signed, bounded and cannot carry private keys', async () => {
+  const controller = identity();
+  const cell = identity();
+  const payload = { version: 1, endpointHost: 'cell.example.test', endpointPort: 51830,
+    serverPublicKey: Buffer.alloc(32, 3).toString('base64'), address4: '10.64.0.1',
+    ipv4Subnet: '10.64.0.0/24', profile: generateOfficialProfile() };
+  const signed = signControl({ controllerKey: controller.publicKey, action: 'announce', payload },
+    cell.privateKey);
+  assert.deepEqual(verifyControl(bytes(signed), controller.publicKey).payload, payload);
+  assert.throws(() => verifyControl(bytes({ ...signed, payload: '{}'}), controller.publicKey));
+  let accepted = 0;
+  const service = new CellControlService({ identityStore: { load: async () => controller },
+    bootstrapStore: { read: async () => ({ version: 2, invitations: [{ status: 'consumed',
+      phase: 'closed', cellKey: cell.publicKey, awgPublicKey: 'key', awgPresharedKey: 'psk' }] }) },
+    descriptorForCell: () => ({ update: async () => { accepted++; } }) });
+  const secret = signControl({ controllerKey: controller.publicKey, action: 'announce',
+    payload: { ...payload, privateKey: 'secret' } }, cell.privateKey);
+  assert.deepEqual(await service.handle(bytes(secret)), { ok: false, error: 'control_unavailable' });
+  assert.equal(accepted, 0);
+  const result = await service.handle(bytes(signed));
+  assert.equal(verifyControlReply(result, controller.publicKey, signed.requestId).announced, true);
+  assert.equal(accepted, 1);
+  const stranger = identity();
+  const unknown = signControl({ controllerKey: controller.publicKey, action: 'announce',
+    payload }, stranger.privateKey);
+  assert.deepEqual(await service.handle(bytes(unknown)), { ok: false, error: 'control_unavailable' });
+  assert.equal(accepted, 1);
 });
 
 test('a valid signature from an unenrolled cell cannot fetch settings', async () => {

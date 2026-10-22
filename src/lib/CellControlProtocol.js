@@ -7,8 +7,8 @@ function body(request) {
   const fields = ['version', 'controllerKey', 'cellKey', 'requestId', 'issuedAt', 'action', 'payload', 'signature'];
   if (!request || typeof request !== 'object' || Array.isArray(request)
     || Object.keys(request).some(key => !fields.includes(key)) || request.version !== 1
-    || !['poll', 'ack'].includes(request.action) || typeof request.payload !== 'string'
-    || Buffer.byteLength(request.payload) > 1024
+    || !['poll', 'ack', 'announce'].includes(request.action) || typeof request.payload !== 'string'
+    || Buffer.byteLength(request.payload) > 1536
     || !Number.isSafeInteger(request.issuedAt) || request.issuedAt < 0
     || !/^[a-f0-9]{32}$/.test(request.requestId)
     || ![request.cellKey, request.controllerKey].every(key => typeof key === 'string'
@@ -28,7 +28,7 @@ function signControl({ controllerKey, action, payload = null }, privateKey, now 
 }
 
 function verifyControl(bytes, controllerKey, now = Date.now()) {
-  if (!Buffer.isBuffer(bytes) || bytes.length > 2048) throw new Error('Control request too large');
+  if (!Buffer.isBuffer(bytes) || bytes.length > 2304) throw new Error('Control request too large');
   const request = JSON.parse(new TextDecoder('utf8', { fatal: true }).decode(bytes));
   const data = body(request);
   if (!Number.isSafeInteger(now) || request.controllerKey !== controllerKey || request.issuedAt - now > MAX_CLOCK_SKEW_MS
@@ -45,18 +45,18 @@ function verifyControl(bytes, controllerKey, now = Date.now()) {
 function replyBody(reply) {
   if (!reply || typeof reply !== 'object' || Array.isArray(reply)
     || reply.ok !== true || !/^[a-f0-9]{32}$/.test(reply.requestId)
-    || (Object.hasOwn(reply, 'settings') === Object.hasOwn(reply, 'applied'))
+    || ['settings', 'applied', 'announced'].filter(key => Object.hasOwn(reply, key)).length !== 1
     || (Object.hasOwn(reply, 'settings') && reply.settings !== null
       && (typeof reply.settings !== 'object' || Array.isArray(reply.settings)))
-    || (Object.hasOwn(reply, 'applied') && (!Number.isSafeInteger(reply.applied) || reply.applied < 1))) {
+    || (Object.hasOwn(reply, 'applied') && (!Number.isSafeInteger(reply.applied) || reply.applied < 1))
+    || (Object.hasOwn(reply, 'announced') && reply.announced !== true)) {
     throw new Error('Invalid control reply');
   }
-  const fields = Object.hasOwn(reply, 'settings')
-    ? ['ok', 'requestId', 'settings', 'signature'] : ['ok', 'requestId', 'applied', 'signature'];
+  const kind = ['settings', 'applied', 'announced'].find(key => Object.hasOwn(reply, key));
+  const fields = ['ok', 'requestId', kind, 'signature'];
   if (Object.keys(reply).some(key => !fields.includes(key))) throw new Error('Invalid control reply');
   return Buffer.from(JSON.stringify(['awg-easy-3/control-reply/v1', reply.requestId,
-    Object.hasOwn(reply, 'settings') ? 'settings' : 'applied',
-    Object.hasOwn(reply, 'settings') ? reply.settings : reply.applied]));
+    kind, reply[kind]]));
 }
 
 function signControlReply(reply, privateKey) {

@@ -4,6 +4,8 @@ const path = require('node:path');
 const { CellUserConfigStore } = require('./CellUserConfigStore');
 const { GeoIpUpdater } = require('./GeoIpUpdater');
 const { openRegisteredCellHost } = require('./CellRegisteredHost');
+const { AwgKeyManager } = require('./AwgKeyManager');
+const { validateCellUserDescriptor } = require('./CellUserDescriptor');
 
 // The service deliberately starts from a registered, persistent Cell state.
 // Missing GeoIP data cannot silently disable a signed country policy:
@@ -11,7 +13,8 @@ const { openRegisteredCellHost } = require('./CellRegisteredHost');
 async function openCellServiceHost({ config, bootstrapHost,
   openRegistered = openRegisteredCellHost,
   newStore = (...args) => new CellUserConfigStore(...args),
-  newGeoUpdater = options => new GeoIpUpdater(options) } = {}) {
+  newGeoUpdater = options => new GeoIpUpdater(options),
+  keyManager = new AwgKeyManager() } = {}) {
   if (!config || !bootstrapHost || typeof openRegistered !== 'function'
     || typeof newStore !== 'function' || typeof newGeoUpdater !== 'function') {
     throw new TypeError('Cell service dependencies required');
@@ -31,6 +34,13 @@ async function openCellServiceHost({ config, bootstrapHost,
     throw new Error('Registered Cell requires a distinct user AWG key');
   }
   let host;
+  const userDescriptor = config.endpointHost ? validateCellUserDescriptor({
+    version: 1, endpointHost: config.endpointHost, endpointPort: user.server.listenPort,
+    serverPublicKey: await keyManager.derivePublicKey(user.server.privateKey),
+    address4: user.server.address4, ipv4Subnet: user.server.ipv4Subnet,
+    ...(user.server.address6 ? { address6: user.server.address6,
+      ipv6Subnet: user.server.ipv6Subnet } : {}), profile: user.server.profile,
+  }) : undefined;
   const geo = newGeoUpdater({ directory: path.join(stateDirectory, 'geoip'),
     install: (snapshot, commit) => host.installGeoSnapshot(snapshot, commit) });
   await geo.load();
@@ -39,7 +49,8 @@ async function openCellServiceHost({ config, bootstrapHost,
     identityStore: bootstrapHost.identityStore,
     bootstrap: bootstrapHost.bootstrap,
     temporaryInterfaceName: interfaceName,
-    server: user.server, geoDatabase: async () => geo.current?.database || {} });
+    server: user.server, userDescriptor,
+    geoDatabase: async () => geo.current?.database || {} });
   // A missing cache may require a network download. Guard user traffic before
   // waiting for it, not only inside the later permanent-path recovery.
   await host.protectUserTraffic();

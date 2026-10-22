@@ -26,6 +26,7 @@ services:
       AWG_CELL_USER_INTERFACE: awgcellu0
       AWG_CELL_WAN_INTERFACE: ${AWG_CELL_WAN_INTERFACE:?Missing WAN interface}
       AWG_CELL_USER_PORT: ${AWG_CELL_USER_PORT:?Missing user UDP port}
+      AWG_CELL_ENDPOINT: ${AWG_CELL_ENDPOINT:?Missing public Cell endpoint}
     entrypoint:
       - /usr/bin/dumb-init
       - --

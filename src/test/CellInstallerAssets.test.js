@@ -21,6 +21,9 @@ test('standalone Cell installer pins its image and keeps the invitation out of e
   assert.doesNotMatch(script, /printf ['"]AWG_CELL_INVITATION=/);
   assert.match(compose, /AWG_CELL_INVITATION_FILE: \/cell-data\/invitation/);
   assert.match(compose, /AWG_CELL_WAN_INTERFACE: \$\{AWG_CELL_WAN_INTERFACE:\?/);
+  assert.match(compose, /AWG_CELL_ENDPOINT: \$\{AWG_CELL_ENDPOINT:\?/);
+  assert.match(script, /cell_endpoint=\$\(cell_public_endpoint\)/);
+  assert.match(script, /cannot detect a public Cell endpoint/);
   assert.match(compose, /network_mode: host/);
   assert.match(compose, /read_only: true/);
   assert.match(compose, /- no-new-privileges:true/);

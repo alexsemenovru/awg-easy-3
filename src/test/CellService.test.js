@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const test = require('node:test');
 const { startCellService, syncCellOnce } = require('../lib/CellService');
+const { generateOfficialProfile } = require('../lib/Awg3Config');
 
 const config = () => ({ stateDirectory: path.resolve('cell-state'),
   runtimeDirectory: path.resolve('cell-runtime'), interfaceName: 'awgboot0',
@@ -97,4 +98,26 @@ test('one-shot Cell sync restores boot, applies signed settings, and opens no po
     }) });
   assert.deepEqual(result, { status: 'applied', revision: 2 });
   assert.deepEqual(events, ['geo', 'guard', 'boot', 'sync']);
+});
+
+test('Cell service derives a public entry descriptor without exposing its private AWG key', async () => {
+  let supplied;
+  const profile = generateOfficialProfile();
+  await syncCellOnce({ config: { ...config(), endpointHost: '198.51.100.4' },
+    bootstrapHost: bootstrapHost(),
+    newStore: () => ({ read: async () => ({ server: { privateKey: 'cell-private',
+      listenPort: 51830, address4: '10.64.0.1', ipv4Subnet: '10.64.0.0/24', profile } }) }),
+    keyManager: { derivePublicKey: async privateKey => {
+      assert.equal(privateKey, 'cell-private');
+      return Buffer.alloc(32, 4).toString('base64');
+    } },
+    newGeoUpdater: () => ({ current: { database: {} }, load: async () => {} }),
+    openRegistered: async args => { supplied = args; return {
+      protectUserTraffic: async () => {}, recoverBoot: async () => ({ configured: true }),
+      syncSettings: async () => ({ status: 'no-settings' }),
+    }; },
+  });
+  assert.equal(supplied.userDescriptor.endpointHost, '198.51.100.4');
+  assert.equal(supplied.userDescriptor.serverPublicKey, Buffer.alloc(32, 4).toString('base64'));
+  assert.equal(JSON.stringify(supplied.userDescriptor).includes('cell-private'), false);
 });

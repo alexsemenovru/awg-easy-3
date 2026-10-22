@@ -27,6 +27,7 @@ const { listenAwgRegistrationOnTunnel } = require('./CellTunnelRegistrationTrans
 const { MainBootstrapConfigStore } = require('./MainBootstrapConfigStore');
 const { CellAwgPermanentRevisionStore } = require('./CellAwgPermanentRevisionStore');
 const { CellSettingsPublisher } = require('./CellSettingsPublisher');
+const { CellUserDescriptorStore } = require('./CellUserDescriptorStore');
 const { listenTunnelControlEndpoint } = require('./CellControlService');
 const { privateAddress } = require('./CellTunnelControlTransport');
 const { validEndpointHost } = require('./CellAwgEndpointHost');
@@ -134,6 +135,8 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
   const publisherForCell = cellKey => new CellSettingsPublisher(
     file(path.join('cell-settings', `${crypto.createHash('sha256').update(cellKey).digest('hex')}.json`)),
     identityStore, cellKey);
+  const descriptorForCell = cellKey => new CellUserDescriptorStore(
+    file(path.join('cell-descriptors', `${crypto.createHash('sha256').update(cellKey).digest('hex')}.json`)));
 
   async function registeredRecord(invitationId) {
     if (typeof invitationId !== 'string' || !/^[a-f0-9]{32}$/.test(invitationId)) {
@@ -313,6 +316,10 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
       const record = await registeredRecord(invitationId);
       return publisherForCell(record.cellKey).status();
     },
+    userDescriptor: async invitationId => {
+      const record = await registeredRecord(invitationId);
+      return descriptorForCell(record.cellKey).read();
+    },
     cells: async () => {
       await identityStore.load('controller');
       const records = (await bootstrapStore.read()).invitations;
@@ -342,7 +349,7 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
       }
       return listenTunnelControlEndpoint({ address: permanentControllerAddress,
         port: permanentControlPort, lifecycle: current.lifecycle,
-        identityStore, bootstrapStore, publisherForCell });
+        identityStore, bootstrapStore, publisherForCell, descriptorForCell });
     }),
     listen: async () => {
       const config = await verifiedConfig();

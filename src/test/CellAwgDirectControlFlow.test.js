@@ -15,6 +15,7 @@ const { listenAwgRegistrationOnTunnel, registerAwgOverTunnel } = require('../lib
 const { listenTunnelControlEndpoint, syncCellSettings } = require('../lib/CellControlService');
 const { CellSettingsPublisher } = require('../lib/CellSettingsPublisher');
 const { CellSettingsReceiver } = require('../lib/CellSettingsReceiver');
+const { CellUserDescriptorStore } = require('../lib/CellUserDescriptorStore');
 const { generateOfficialProfile } = require('../lib/Awg3Config');
 
 const key = () => crypto.randomBytes(32).toString('base64');
@@ -63,9 +64,10 @@ test('v2 AWG invitation, permanent identity and signed control form one fail-clo
 
     const publisher = new CellSettingsPublisher(path.join(directory, 'desired.json'),
       controllerIds, cellIdentity.publicKey);
+    const descriptorStore = new CellUserDescriptorStore(path.join(directory, 'descriptor.json'));
     const control = await listenTunnelControlEndpoint({ address: '127.0.0.1', port: 0,
       lifecycle: owned, identityStore: controllerIds, bootstrapStore,
-      publisherForCell: () => publisher });
+      publisherForCell: () => publisher, descriptorForCell: () => descriptorStore });
     t.after(() => close(control));
     let applications = 0;
     const receiver = new CellSettingsReceiver(path.join(directory, 'received.json'), {
@@ -86,5 +88,12 @@ test('v2 AWG invitation, permanent identity and signed control form one fail-clo
     await publisher.publish({ schema: 1, clients: [] });
     assert.deepEqual(await syncCellSettings(options), { status: 'applied', revision: 1 });
     assert.equal((await publisher.load()).ack.revision, 1);
+    assert.equal(applications, 1);
+    const userDescriptor = { version: 1, endpointHost: 'cell.example.test', endpointPort: 51830,
+      serverPublicKey: permanent.publicKey, address4: '10.64.0.1', ipv4Subnet: '10.64.0.0/24',
+      profile: generateOfficialProfile() };
+    assert.deepEqual(await syncCellSettings({ ...options, userDescriptor }),
+      { status: 'applied', revision: 1 });
+    assert.deepEqual(await descriptorStore.read(), userDescriptor);
     assert.equal(applications, 1);
   });

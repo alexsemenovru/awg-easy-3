@@ -26,6 +26,23 @@ if docker inspect awg-easy-3 >/dev/null 2>&1 \
 fi
 
 env_file="$script_dir/.env.cells-cell"
+cell_public_endpoint() {
+  candidate=${AWG_CELL_ENDPOINT:-}
+  if [ -z "$candidate" ]; then
+    candidate=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{
+      for (i=1; i<=NF; i++) if ($i=="src") { print $(i+1); exit }
+    }')
+    case "$candidate" in
+      ''|10.*|127.*|169.254.*|192.168.*|172.1[6-9].*|172.2[0-9].*|172.3[01].*)
+        die 'cannot detect a public Cell endpoint; set AWG_CELL_ENDPOINT to the VPS public IP or DNS name' ;;
+    esac
+  fi
+  case "$candidate" in
+    *[!A-Za-z0-9.:-]*|'') die 'unsafe Cell endpoint' ;;
+  esac
+  [ "${#candidate}" -le 253 ] || die 'Cell endpoint is too long'
+  printf '%s\n' "$candidate"
+}
 if [ ! -e "$env_file" ]; then
   [ ! -e cell-data ] || die 'Cell state exists without an installation record; inspect it first'
   if docker inspect awg-easy-3-cell >/dev/null 2>&1; then
@@ -60,6 +77,7 @@ if [ ! -e "$env_file" ]; then
   case "$wan_interface" in ''|*[!A-Za-z0-9_.-]*) die 'cannot detect a safe WAN interface' ;; esac
   [ "${#wan_interface}" -le 15 ] || die 'WAN interface name is too long'
   case "$wan_interface" in lo|awgcellb0|awgcellc0|awgcellu0) die 'WAN interface is not suitable for Cell traffic' ;; esac
+  cell_endpoint=$(cell_public_endpoint)
   user_port=51830
   while [ "$user_port" -le 60000 ]; do
     sockets=$(ss -H -lun) || die 'cannot inspect UDP listeners'
@@ -74,6 +92,7 @@ if [ ! -e "$env_file" ]; then
     printf 'AWG_IMAGE=%s\n' "$image"
     printf 'AWG_CELL_WAN_INTERFACE=%s\n' "$wan_interface"
     printf 'AWG_CELL_USER_PORT=%s\n' "$user_port"
+    printf 'AWG_CELL_ENDPOINT=%s\n' "$cell_endpoint"
   } > "$temporary"
   ln "$temporary" "$env_file" || die 'Cell installation record was created concurrently'
   rm -f -- "$temporary"
@@ -85,6 +104,16 @@ else
     && [ "$(stat -c %h "$env_file")" = 1 ] \
     || die 'Cell installation record must be root-owned, private and unlinked'
   [ -d cell-data ] || die 'Cell state directory is missing'
+  if ! grep -q '^AWG_CELL_ENDPOINT=' "$env_file"; then
+    cell_endpoint=$(cell_public_endpoint)
+    temporary=$(mktemp "$script_dir/.env.cells-cell.XXXXXX") \
+      || die 'cannot update Cell installation record'
+    trap 'rm -f -- "$temporary"' EXIT HUP INT TERM
+    cat "$env_file" > "$temporary"
+    printf 'AWG_CELL_ENDPOINT=%s\n' "$cell_endpoint" >> "$temporary"
+    mv -f -- "$temporary" "$env_file"
+    trap - EXIT HUP INT TERM
+  fi
 fi
 
 if [ ! -e cell-data/connection.json ] && [ ! -e cell-data/invitation ]; then
@@ -113,7 +142,7 @@ if [ ! -e cell-data/connection.json ] && [ ! -e cell-data/invitation ]; then
   trap - EXIT HUP INT TERM
 fi
 
-unset AWG_IMAGE AWG_CELL_WAN_INTERFACE AWG_CELL_USER_PORT
+unset AWG_IMAGE AWG_CELL_WAN_INTERFACE AWG_CELL_USER_PORT AWG_CELL_ENDPOINT
 compose() { docker compose --env-file "$env_file" -f docker-compose.cells-cell.yml "$@"; }
 compose config --quiet || die 'Cell compose configuration is invalid'
 awg_cells_install_rp_filter cell awgcellb0 awgcellc0 awgcellu0 \
