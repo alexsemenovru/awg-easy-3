@@ -18,7 +18,7 @@ const pngSize = (filePath) => {
 test('ships a self-contained UI with every required control', () => {
   const html = fs.readFileSync(path.join(www, 'index.html'), 'utf8');
   for (const id of [
-    'login-form', 'clients', 'show-create', 'client-group',
+    'login-form', 'clients', 'show-create', 'client-group', 'client-entry',
     'profile-dialog', 'show-profile-link', 'download-config', 'password-form', 'delete-dialog',
   ]) {
     assert.match(html, new RegExp(`id="${id}"`));
