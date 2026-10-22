@@ -196,6 +196,11 @@
     node.dataset.clientId = client.id;
     node.querySelector('.client-name').textContent = client.name;
     node.querySelector('.client-address').textContent = [client.address4, client.address6].filter(Boolean).join(' · ');
+    const entryLabel = node.querySelector('.client-entry-label');
+    if (client.entryCellId) {
+      entryLabel.classList.remove('hidden');
+      entryLabel.textContent = t('cellOption', { id: client.entryCellId.slice(0, 8) });
+    }
     const status = node.querySelector('.status');
     // Group and traffic permission are independent, including when both IP families are off.
     status.textContent = client.networkGroup === 'home' ? 'Home' : 'Guest';
@@ -295,6 +300,16 @@
     localStorage.setItem('awg-easy-language', languageSelect.value);
     for (const option of $('#client-entry').options) {
       if (option.value) option.textContent = t('cellOption', { id: option.value.slice(0, 8) });
+    }
+    for (const client of clients.filter(item => item.entryCellId)) {
+      const card = clientsNode.querySelector(`[data-client-id="${CSS.escape(client.id)}"]`);
+      if (!card) continue;
+      card.querySelector('.client-entry-label').textContent = t('cellOption', { id: client.entryCellId.slice(0, 8) });
+      if (!client.entryReady) {
+        const button = card.querySelector('.show-profile');
+        button.title = t('cellProfilePending');
+        button.setAttribute('aria-label', t('cellProfilePending'));
+      }
     }
     lastDiagnostics.forEach(paintDiagnostics);
     geoStatus?.translate();
