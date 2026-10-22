@@ -86,3 +86,24 @@ test('refuses a state with no enabled home client', () => {
   input.clients[0].enabled = false;
   assert.throws(() => buildAwgArtifacts(input), /enabled home/);
 });
+
+test('Cell entry is absent from Main peers and firewall but exports its Cell endpoint', () => {
+  const input = fixture();
+  const cellId = 'a'.repeat(32);
+  input.clients[1] = { ...input.clients[1], entryCellId: cellId, address4: '10.64.0.2' };
+  const descriptor = { version: 1, endpointHost: 'cell.example.com', endpointPort: 51830,
+    serverPublicKey: Buffer.alloc(32, 4).toString('base64'),
+    address4: '10.64.0.1', ipv4Subnet: '10.64.0.0/24',
+    profile: generateOfficialProfile() };
+  const artifacts = buildAwgArtifacts({ ...input, entryDescriptors: { [cellId]: descriptor } });
+  assert.match(artifacts.serverConfig, /# Admin phone/);
+  assert.doesNotMatch(artifacts.serverConfig, /# Guest phone/);
+  assert.doesNotMatch(artifacts.nftables, /10\.64\.0\.2/);
+  assert.match(artifacts.clientArtifacts.guest.nativeConfig, /Endpoint = cell\.example\.com:51830/);
+  assert.match(artifacts.clientArtifacts.guest.nativeConfig,
+    new RegExp(`PublicKey = ${descriptor.serverPublicKey.replace(/[+]/g, '\\+')}`));
+  assert.throws(() => buildAwgArtifacts(input), /Cell user descriptor/);
+  assert.throws(() => buildAwgArtifacts({ ...input, entryDescriptors: {
+    [cellId]: { ...descriptor, address4: '10.65.0.1', ipv4Subnet: '10.65.0.0/24' },
+  } }), /does not belong/);
+});

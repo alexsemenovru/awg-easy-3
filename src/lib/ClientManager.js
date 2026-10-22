@@ -21,6 +21,7 @@ class ClientManager {
     idGenerator = crypto.randomUUID,
     onStateChanged = () => {},
     geoDatabase = () => ({}),
+    entryDescriptors = async () => ({}),
     serializeOperation,
   } = {}) {
     if (!store || typeof store.load !== 'function' || typeof store.save !== 'function') {
@@ -41,6 +42,7 @@ class ClientManager {
     this.idGenerator = idGenerator;
     this.onStateChanged = onStateChanged;
     this.geoDatabase = geoDatabase;
+    this.entryDescriptors = entryDescriptors;
     this.queue = Promise.resolve();
     this.serializeOperation = serializeOperation;
   }
@@ -58,19 +60,22 @@ class ClientManager {
     return state;
   }
 
-  build(state) {
+  build(state, descriptors = {}) {
     return this.artifactBuilder({
       server: state.server,
       clients: state.clients,
       geoDatabase: this.geoDatabase(),
+      entryDescriptors: descriptors,
     });
   }
 
   installGeoSnapshot(snapshot, commit) {
     return this.serialize(async () => {
       const state = await this.requireState();
-      const previous = this.build(state);
-      const next = this.artifactBuilder({ server: state.server, clients: state.clients, geoDatabase: snapshot.database });
+      const descriptors = await this.entryDescriptors();
+      const previous = this.build(state, descriptors);
+      const next = this.artifactBuilder({ server: state.server, clients: state.clients,
+        geoDatabase: snapshot.database, entryDescriptors: descriptors });
       const apply = artifacts => this.applier.apply({
         serverConfig: artifacts.serverConfig, nftables: artifacts.nftables,
         interfaceName: state.server.interfaceName, interfaceActive: true,
@@ -90,8 +95,9 @@ class ClientManager {
 
   async applyState(previousState, inputState) {
     const nextState = validateState(inputState);
-    const previousArtifacts = this.build(previousState);
-    const nextArtifacts = this.build(nextState);
+    const descriptors = await this.entryDescriptors();
+    const previousArtifacts = this.build(previousState, descriptors);
+    const nextArtifacts = this.build(nextState, descriptors);
     const applyOptions = {
       serverConfig: nextArtifacts.serverConfig,
       nftables: nextArtifacts.nftables,
@@ -209,7 +215,7 @@ class ClientManager {
   async getClientExport(clientId) {
     const state = await this.requireState();
     if (!state.clients.some((client) => client.id === clientId)) throw new TypeError(`Unknown client: ${clientId}`);
-    return this.build(state).clientArtifacts[clientId];
+    return this.build(state, await this.entryDescriptors()).clientArtifacts[clientId];
   }
 }
 

@@ -34,6 +34,7 @@ const { validEndpointHost } = require('./CellAwgEndpointHost');
 const { StateStore } = require('./StateStore');
 const { addressInSubnet } = require('./AddressAllocator');
 const { allocateCellInvitationAddresses } = require('./CellInvitationAddressAllocator');
+const { assignedSettingsFromState } = require('./CellAssignedSettings');
 
 const validName = name => typeof name === 'string' && /^[a-zA-Z0-9_.-]{1,15}$/.test(name);
 const validPort = port => Number.isSafeInteger(port) && port >= 1 && port <= 65535;
@@ -320,6 +321,31 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
       const record = await registeredRecord(invitationId);
       return descriptorForCell(record.cellKey).read();
     },
+    entryDescriptors: async () => {
+      const records = (await bootstrapStore.read()).invitations.filter(record =>
+        record.status === 'consumed' && record.phase === 'closed' && record.cellKey);
+      return Promise.all(records.map(async record => ({ id: record.id,
+        descriptor: await descriptorForCell(record.cellKey).read() })));
+    },
+    reconcileClientAssignments: () => locked(async () => {
+      if (!userStateFile) return { skipped: 'no-panel-state' };
+      const state = await new StateStore(userStateFile).load();
+      if (!state || state.version !== 4) return { skipped: 'no-cell-assignments' };
+      const records = (await bootstrapStore.read()).invitations.filter(record =>
+        record.status === 'consumed' && record.phase === 'closed' && record.cellKey);
+      const inventory = await Promise.all(records.map(async record => ({ id: record.id,
+        descriptor: await descriptorForCell(record.cellKey).read() })));
+      const desired = assignedSettingsFromState(state, inventory);
+      let published = 0;
+      for (const record of records) {
+        const publisher = publisherForCell(record.cellKey);
+        const previous = await publisher.load();
+        if (previous?.desired.payload === JSON.stringify(desired[record.id])) continue;
+        await publisher.publish(desired[record.id]);
+        published++;
+      }
+      return { published };
+    }),
     cells: async () => {
       await identityStore.load('controller');
       const records = (await bootstrapStore.read()).invitations;

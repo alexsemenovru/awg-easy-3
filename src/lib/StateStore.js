@@ -12,6 +12,7 @@ const { normalizeGeoPolicy } = require('./GeoIpPolicy');
 const STATE_VERSION = 1;
 const GEO_STATE_VERSION = 2;
 const AUTH_STATE_VERSION = 3;
+const CELL_STATE_VERSION = 4;
 
 const requiredString = (value, field) => {
   if (typeof value !== 'string' || value.trim() === '' || /[\r\n]/.test(value)) {
@@ -46,8 +47,8 @@ const validateState = (input) => {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     throw new TypeError('State must be a JSON object');
   }
-  if (![STATE_VERSION, GEO_STATE_VERSION, AUTH_STATE_VERSION].includes(input.version)) {
-    throw new Error(`Unsupported state version: ${input.version ?? 'missing'}; expected 1, 2 or 3`);
+  if (![STATE_VERSION, GEO_STATE_VERSION, AUTH_STATE_VERSION, CELL_STATE_VERSION].includes(input.version)) {
+    throw new Error(`Unsupported state version: ${input.version ?? 'missing'}; expected 1, 2, 3 or 4`);
   }
   if (!input.server || typeof input.server !== 'object' || Array.isArray(input.server)) {
     throw new TypeError('server must be an object');
@@ -107,7 +108,7 @@ const validateState = (input) => {
   const mode = input.auth.mode ?? 'password';
   if (!['password', 'password_totp', 'totp'].includes(mode)) throw new TypeError('Invalid authentication mode');
   if (mode !== 'password' || input.auth.totpSecret !== undefined || input.auth.pendingTotp !== undefined) {
-    if (input.version !== AUTH_STATE_VERSION) throw new TypeError('TOTP requires state version 3');
+    if (input.version < AUTH_STATE_VERSION) throw new TypeError('TOTP requires state version 3 or later');
   }
   if (mode !== 'password' && !input.auth.totpSecret) throw new TypeError('TOTP mode requires a secret');
   if (input.auth.totpSecret !== undefined) {
@@ -131,13 +132,19 @@ const validateState = (input) => {
       throw new TypeError(`clients[${index}] must be an object`);
     }
     const policy = normalizeClientPolicy(inputClient);
-    if (inputClient.address6 && !server.address6) {
+    const entryCellId = inputClient.entryCellId;
+    if (entryCellId !== undefined && (input.version !== CELL_STATE_VERSION
+      || typeof entryCellId !== 'string' || !/^[a-f0-9]{32}$/.test(entryCellId))) {
+      throw new TypeError('Cell entry requires state version 4 and a valid Cell identifier');
+    }
+    if (inputClient.address6 && !server.address6 && !entryCellId) {
       throw new TypeError('Client IPv6 address requires server IPv6 support');
     }
     return {
       ...inputClient,
       ...(inputClient.geoPolicy === undefined ? {} : { geoPolicy: normalizeGeoPolicy(inputClient.geoPolicy) }),
       ...policy,
+      ...(entryCellId ? { entryCellId } : {}),
       id: requiredString(inputClient.id, `clients[${index}].id`),
       name: requiredString(inputClient.name, `clients[${index}].name`),
       address4: requiredString(inputClient.address4, `clients[${index}].address4`),
@@ -146,7 +153,8 @@ const validateState = (input) => {
       publicKey: requiredString(inputClient.publicKey, `clients[${index}].publicKey`),
       presharedKey: optionalString(inputClient.presharedKey, `clients[${index}].presharedKey`),
       ...clientTraffic(inputClient, {
-        ipv6Available: Boolean(server.address6 && server.ipv6Subnet && inputClient.address6),
+        ipv6Available: Boolean(inputClient.address6 && (entryCellId
+          || server.address6 && server.ipv6Subnet)),
       }),
     };
   });
@@ -158,7 +166,8 @@ const validateState = (input) => {
 
   // Keep the format upgrade sticky: older panels ignore geoPolicy but reject v2.
   // Merely updating without enabling GeoIP retains the legacy format.
-  const version = input.version === AUTH_STATE_VERSION ? AUTH_STATE_VERSION : input.version === GEO_STATE_VERSION
+  const version = input.version === CELL_STATE_VERSION ? CELL_STATE_VERSION
+    : input.version === AUTH_STATE_VERSION ? AUTH_STATE_VERSION : input.version === GEO_STATE_VERSION
     || clients.some(client => client.geoPolicy && client.geoPolicy.mode !== 'off')
     ? GEO_STATE_VERSION : STATE_VERSION;
   return deepFreeze({ version, auth, server, clients });
@@ -225,6 +234,7 @@ class StateStore {
 
 module.exports = {
   AUTH_STATE_VERSION,
+  CELL_STATE_VERSION,
   STATE_VERSION,
   StateStore,
   validateState,

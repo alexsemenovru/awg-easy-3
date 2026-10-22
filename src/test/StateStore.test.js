@@ -74,8 +74,24 @@ test('atomically saves and loads state without losing secrets', async (t) => {
 
 test('rejects unsupported versions instead of attempting migration', () => {
   const state = fixture();
-  state.version = 4;
+  state.version = 5;
   assert.throws(() => validateState(state), /Unsupported state version/);
+});
+
+test('Cell entry is version-gated and keeps a remote IPv6 address independent of Main IPv6', () => {
+  const state = fixture();
+  state.clients.push({ ...state.clients[0], id: 'remote', name: 'Remote phone',
+    networkGroup: 'guest', entryCellId: 'a'.repeat(32),
+    address4: '10.64.0.2', address6: 'fd64::2',
+    privateKey: 'remote-private', publicKey: 'remote-public',
+    ipv4Enabled: true, ipv6Enabled: true });
+  assert.throws(() => validateState(state), /Cell entry requires state version 4/);
+  state.version = 4;
+  const saved = validateState(state);
+  assert.equal(saved.version, 4);
+  assert.equal(saved.clients[1].entryCellId, 'a'.repeat(32));
+  assert.equal(saved.clients[1].ipv6Enabled, true);
+  assert.equal(validateState({ ...saved, clients: saved.clients.slice(0, 1) }).version, 4);
 });
 
 test('rejects TOTP configuration in formats an old panel could read', () => {

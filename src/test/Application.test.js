@@ -100,6 +100,31 @@ test('GeoIP restart uses cached database without network and keeps exported prof
   await application.stop();
 });
 
+test('a Cell-entry profile remains exportable after Main restart without installing its peer locally', async () => {
+  const { application } = fixture();
+  const id = 'a'.repeat(32);
+  const original = stateFixture();
+  application.store.load = async () => validateState({ ...original, version: 4,
+    clients: [...original.clients, { id: 'remote', name: 'Remote', networkGroup: 'guest',
+      entryCellId: id, enabled: true, address4: '10.64.0.2',
+      privateKey: 'remote-private', publicKey: 'remote-public' }] });
+  const descriptor = { version: 1, endpointHost: 'cell.example.test', endpointPort: 51830,
+    serverPublicKey: Buffer.alloc(32, 4).toString('base64'),
+    address4: '10.64.0.1', ipv4Subnet: '10.64.0.0/24', profile: generateOfficialProfile() };
+  application.entryDescriptors = async () => ({ [id]: descriptor });
+  const applied = [];
+  application.applier.apply = async value => applied.push(value);
+  await application.start();
+  const first = await application.exportClient('remote');
+  assert.match(first.vpnLink, /^vpn:\/\//);
+  await application.stop();
+  await application.start();
+  assert.equal((await application.exportClient('remote')).vpnLink, first.vpnLink);
+  assert.equal(applied.length, 2);
+  for (const value of applied) assert.doesNotMatch(value.serverConfig, /remote-public/);
+  await application.stop();
+});
+
 test('GeoIP missing database recovery failure never applies unrestricted rules', async () => {
   const { application, calls } = fixture();
   application.store.load = async () => geoState();

@@ -41,8 +41,8 @@ const stateFixture = () => ({
   }],
 });
 
-const managerFixture = () => {
-  let state = stateFixture();
+const managerFixture = (initialState = stateFixture()) => {
+  let state = initialState;
   let now = 1_800_000_000_000;
   let randomByte = 29;
   const manager = new PasswordManager({
@@ -141,4 +141,14 @@ test('TOTP activation and SSH reset invalidate all prior browser sessions', asyn
   const afterSetup = await sessions.create();
   await manager.resetPassword();
   assert.equal(await sessions.verify(afterSetup), false);
+});
+
+test('TOTP and password changes never downgrade a Cell-capable state', async () => {
+  const state = stateFixture();
+  state.version = 4;
+  const { manager, getState } = managerFixture(state);
+  await manager.beginTotp({ password: 'old-password' });
+  assert.equal(getState().version, 4);
+  await manager.resetPassword();
+  assert.equal(getState().version, 4);
 });

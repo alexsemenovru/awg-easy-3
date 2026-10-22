@@ -98,7 +98,7 @@ class PasswordManager {
       const state = await this.prove(await this.requireState(), proof);
       if (state.auth.totpSecret) throw new Error('Disable existing codes before setting up new ones');
       const secret = generateSecret(this.randomBytes);
-      await this.store.save({ ...state, version: AUTH_STATE_VERSION,
+      await this.store.save({ ...state, version: Math.max(state.version, AUTH_STATE_VERSION),
         auth: { ...state.auth, pendingTotp: { secret, createdAt: this.clock() } } });
       return { secret, uri: provisioningUri(secret) };
     });
@@ -114,7 +114,7 @@ class PasswordManager {
       }
       const step = matchingStep(pending.secret, code, this.clock());
       if (step === null) throw new Error('Invalid credentials');
-      await this.store.save({ ...state, version: AUTH_STATE_VERSION, auth: {
+      await this.store.save({ ...state, version: Math.max(state.version, AUTH_STATE_VERSION), auth: {
         passwordHash: state.auth.passwordHash,
         sessionSecret: this.randomBytes(48).toString('base64url'),
         mode: 'password_totp', totpSecret: pending.secret, lastTotpStep: step,
@@ -136,7 +136,7 @@ class PasswordManager {
       if (targetMode !== 'password') Object.assign(auth, {
         mode: targetMode, totpSecret: state.auth.totpSecret, lastTotpStep: state.auth.lastTotpStep,
       });
-      await this.store.save({ ...state, version: AUTH_STATE_VERSION, auth });
+      await this.store.save({ ...state, version: Math.max(state.version, AUTH_STATE_VERSION), auth });
     });
   }
 

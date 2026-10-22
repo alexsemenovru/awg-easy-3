@@ -169,13 +169,16 @@ test('Main serve publishes bounded Cell status before reporting ready', async ()
     recoverPermanentBoot: async () => ({ configured: false }),
     listen: async () => ({ close: async () => order.push('closed') }),
     cells: async () => [{ id: 'a'.repeat(32), status: 'pending', phase: 'ready', createdAt: 1 }],
+    entryDescriptors: async () => [],
   }),
+  newEntrySnapshot: () => ({ write: async entries => { order.push('entry-snapshot');
+    assert.deepEqual(entries, []); } }),
   newStatusSnapshot: () => ({ write: async records => { order.push('snapshot');
     assert.equal(records.length, 1); } }) });
-  assert.deepEqual(order, ['snapshot', 'ready']);
+  assert.deepEqual(order, ['entry-snapshot', 'snapshot', 'ready']);
   assert.match(printed, /"status":"serving"/);
   await service.close();
-  assert.deepEqual(order, ['snapshot', 'ready', 'closed']);
+  assert.deepEqual(order, ['entry-snapshot', 'snapshot', 'ready', 'closed']);
 });
 
 test('Main serve initializes only a verified pristine host and never retries failed recovery', async () => {
@@ -222,6 +225,7 @@ test('Main serve reconciles registered Cell automatically and opens control only
     },
     cells: async () => [{ id: 'a'.repeat(32), status: 'consumed', phase: 'ready' }],
     join: async () => { calls.push('join'); ready = true; return { status: 'ready' }; },
+    reconcileClientAssignments: async () => ({ skipped: 'no-cell-assignments' }),
   };
   const service = await runMainBootstrapCli({ args: ['serve'], env: environment(),
     output: { write() {} }, openHost: async () => host });
@@ -255,6 +259,7 @@ test('Main serve seeds joined Cell settings during reconciliation', async () => 
     cells: async () => [{ id, status: 'consumed', phase: 'closed', settings: {
       desiredRevision: null, confirmedRevision: null, awaitingAck: false } }],
     ensureInitialSettings: async value => { seeded.push(value); },
+    reconcileClientAssignments: async () => ({ skipped: 'no-cell-assignments' }),
   };
   const service = await runMainBootstrapCli({ args: ['serve'], env: environment(),
     output: { write() {} }, openHost: async () => host });

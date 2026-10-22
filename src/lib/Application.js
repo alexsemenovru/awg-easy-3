@@ -17,6 +17,7 @@ const { RuntimeApplier } = require('./RuntimeApplier');
 const { SessionManager } = require('./SessionManager');
 const { StateStore } = require('./StateStore');
 const { MainCellStatusSnapshot } = require('./MainCellStatusSnapshot');
+const { MainCellEntrySnapshot } = require('./MainCellEntrySnapshot');
 const { requestInvitation } = require('./MainCellInvitationSocket');
 
 class Application {
@@ -46,6 +47,9 @@ class Application {
     this.store = new StateStore(path.join(this.dataDirectory, 'state.json'));
     this.mainCellStatus = mainCellStatusFile
       ? new MainCellStatusSnapshot(mainCellStatusFile) : null;
+    this.mainCellEntries = mainCellStatusFile
+      ? new MainCellEntrySnapshot(path.join(path.dirname(mainCellStatusFile), 'entries.json')) : null;
+    this.entryDescriptors = () => this.mainCellEntries ? this.mainCellEntries.read() : Promise.resolve({});
     this.mainCellInvitationSocket = mainCellStatusFile
       ? path.join(path.dirname(mainCellStatusFile), 'control.sock') : null;
     this.applier = new RuntimeApplier({ runtimeDirectory: this.runtimeDirectory, runner });
@@ -116,7 +120,7 @@ class Application {
       await this.geo.refresh();
     }
     const artifacts = buildAwgArtifacts({ server: state.server, clients: state.clients,
-      geoDatabase: this.geo.current?.database ?? {} });
+      geoDatabase: this.geo.current?.database ?? {}, entryDescriptors: await this.entryDescriptors() });
     await this.applier.apply({
       serverConfig: artifacts.serverConfig,
       nftables: artifacts.nftables,
@@ -139,6 +143,7 @@ class Application {
         store: this.store,
         applier: this.applier,
         geoDatabase: () => this.geo.current?.database ?? {},
+        entryDescriptors: this.entryDescriptors,
         onStateChanged: (nextState) => this.discovery.refresh(nextState),
         serializeOperation,
       });
@@ -202,7 +207,8 @@ class Application {
     if (!client) throw new Error(`Unknown client: ${query}`);
     // Exporting keys/routes does not need a country database or firewall build.
     const artifacts = buildAwgArtifacts({ server: state.server,
-      clients: state.clients.map(client => ({ ...client, geoPolicy: undefined })) });
+      clients: state.clients.map(client => ({ ...client, geoPolicy: undefined })),
+      entryDescriptors: await this.entryDescriptors() });
     return Object.freeze({ clientName: client.name, vpnLink: artifacts.clientArtifacts[client.id].vpnLink });
   }
 

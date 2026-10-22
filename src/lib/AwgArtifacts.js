@@ -6,13 +6,15 @@ const { buildClientRoutes } = require('./ClientRoutes');
 const { buildDnsPolicy } = require('./DnsPolicy');
 const { renderNftablesPolicy } = require('./NftablesPolicy');
 const { clientTraffic } = require('./ClientTraffic');
+const { validateCellUserDescriptor } = require('./CellUserDescriptor');
+const { addressInSubnet } = require('./AddressAllocator');
 
 const peerAddresses = (client, serverHasIPv6) => [
   `${client.address4}/32`,
   ...(serverHasIPv6 && client.address6 ? [`${client.address6}/128`] : []),
 ];
 
-const buildAwgArtifacts = ({ server, clients, geoDatabase = {} }) => {
+const buildAwgArtifacts = ({ server, clients, geoDatabase = {}, entryDescriptors = {} }) => {
   if (!server || typeof server !== 'object' || Array.isArray(server)) {
     throw new TypeError('server must be an object');
   }
@@ -20,7 +22,7 @@ const buildAwgArtifacts = ({ server, clients, geoDatabase = {} }) => {
     throw new TypeError('clients must be a non-empty array');
   }
 
-  const enabledClients = clients.filter((client) => clientTraffic(client).enabled);
+  const enabledClients = clients.filter((client) => !client.entryCellId && clientTraffic(client).enabled);
   const activeHomes = enabledClients.filter((client) => client.networkGroup === 'home');
   if (activeHomes.length === 0) throw new Error('At least one enabled home client is required');
 
@@ -68,33 +70,46 @@ const buildAwgArtifacts = ({ server, clients, geoDatabase = {} }) => {
   });
 
   const clientArtifacts = Object.fromEntries(clients.map((client) => {
-    const routes = buildClientRoutes({ serverHasIPv6 });
-    const dnsPolicy = buildDnsPolicy({ serverHasIPv6 });
-    const addresses = peerAddresses(client, serverHasIPv6);
+    const entry = client.entryCellId
+      ? validateCellUserDescriptor(entryDescriptors[client.entryCellId]) : null;
+    if (entry && (!addressInSubnet(client.address4, entry.ipv4Subnet)
+      || client.address4 === entry.address4
+      || client.address6 && (!entry.address6
+        || !addressInSubnet(client.address6, entry.ipv6Subnet)
+        || client.address6 === entry.address6))) {
+      throw new TypeError('Client address does not belong to its Cell entry');
+    }
+    const target = entry || { endpointHost: server.endpointHost,
+      endpointPort: server.endpointPort ?? server.listenPort,
+      serverPublicKey: server.publicKey, profile: server.profile };
+    const entryHasIPv6 = entry ? Boolean(entry.address6) : serverHasIPv6;
+    const routes = buildClientRoutes({ serverHasIPv6: entryHasIPv6 });
+    const dnsPolicy = buildDnsPolicy({ serverHasIPv6: entryHasIPv6 });
+    const addresses = peerAddresses(client, entryHasIPv6);
     const nativeConfig = renderClientConfig({
       privateKey: client.privateKey,
       addresses,
       dnsPolicy,
       mtu: client.mtu ?? 1280,
-      profile: server.profile,
-      serverPublicKey: server.publicKey,
+      profile: target.profile,
+      serverPublicKey: target.serverPublicKey,
       presharedKey: client.presharedKey,
       allowedIps: routes.allowedIps,
       persistentKeepalive: client.persistentKeepalive ?? '25-35',
-      endpointHost: server.endpointHost,
-      endpointPort: server.endpointPort ?? server.listenPort,
+      endpointHost: target.endpointHost,
+      endpointPort: target.endpointPort,
     });
     const vpnLink = createVpnLink({
       description: client.name,
-      hostName: server.endpointHost,
-      port: server.endpointPort ?? server.listenPort,
+      hostName: target.endpointHost,
+      port: target.endpointPort,
       dns: dnsPolicy.amneziaDns,
-      profile: server.profile,
+      profile: target.profile,
       client: {
         addresses,
         privateKey: client.privateKey,
         publicKey: client.publicKey,
-        serverPublicKey: server.publicKey,
+        serverPublicKey: target.serverPublicKey,
         presharedKey: client.presharedKey,
         allowedIps: routes.allowedIps,
         persistentKeepalive: client.persistentKeepalive ?? '25-35',

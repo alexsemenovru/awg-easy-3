@@ -4,10 +4,13 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const test = require('node:test');
 const { openMainBootstrapInstallationHost } = require('../lib/MainBootstrapInstallationHost');
 const { generateOfficialProfile } = require('../lib/Awg3Config');
 const { StateStore } = require('../lib/StateStore');
+const { CellUserDescriptorStore } = require('../lib/CellUserDescriptorStore');
+const { CellSettingsPublisher } = require('../lib/CellSettingsPublisher');
 
 const resources = () => ({ interfaceNames: ['awgmainb0', 'awgmainc0'],
   udpPorts: [53081, 53084], userInterfaceNames: ['awg0'], userUdpPorts: [51820],
@@ -152,4 +155,52 @@ test('Main publishes one empty signed revision for a newly joined Cell', async t
   assert.deepEqual(await host.ensureInitialSettings(id), { created: false });
   assert.deepEqual(await host.settingsStatus(id), { desiredRevision: 1,
     confirmedRevision: null, awaitingAck: true });
+});
+
+test('Main reconciles persisted client assignments into idempotent signed Cell revisions', async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-main-assignments-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const userStateFile = path.join(directory, 'state.json');
+  const id = 'c'.repeat(32);
+  const cellKey = Buffer.alloc(32, 12).toString('base64url');
+  const key = byte => Buffer.alloc(32, byte).toString('base64');
+  const state = { version: 4, auth: { passwordHash: 'hash', sessionSecret: 'secret' },
+    server: { interfaceName: 'awg0', wanInterface: 'eth0', privateKey: key(1),
+      publicKey: key(2), address4: '10.8.0.1', ipv4Subnet: '10.8.0.0/24',
+      listenPort: 51820, panelPort: 51821, endpointHost: 'main.example.test',
+      profile: generateOfficialProfile() },
+    clients: [
+      { id: 'home', name: 'Owner', networkGroup: 'home', enabled: true,
+        address4: '10.8.0.2', privateKey: key(3), publicKey: key(4) },
+      { id: 'remote', name: 'Friend', networkGroup: 'guest', enabled: true,
+        entryCellId: id, address4: '10.64.0.2', privateKey: key(5), publicKey: key(6) },
+    ] };
+  const store = new StateStore(userStateFile);
+  await store.save(state);
+  const host = await openMainBootstrapInstallationHost({ ...options(), stateDirectory: directory,
+    userStateFile, prepareStateDirectory: async () => {},
+    withLock: async ({ work }) => work() });
+  await host.identityStore.create('controller');
+  host.bootstrapStore.read = async () => ({ invitations: [{ id, status: 'consumed',
+    phase: 'closed', cellKey, awgPublicKey: key(7) }] });
+  await assert.rejects(host.reconcileClientAssignments(), /not announced/);
+  const suffix = crypto.createHash('sha256').update(cellKey).digest('hex');
+  const descriptorStore = new CellUserDescriptorStore(
+    path.join(directory, 'cell-descriptors', `${suffix}.json`));
+  await descriptorStore.update({ version: 1, endpointHost: 'cell.example.test',
+    endpointPort: 51830, serverPublicKey: key(8), address4: '10.64.0.1',
+    ipv4Subnet: '10.64.0.0/24', profile: generateOfficialProfile() });
+  assert.deepEqual(await host.reconcileClientAssignments(), { published: 1 });
+  assert.deepEqual(await host.reconcileClientAssignments(), { published: 0 });
+  const publisher = new CellSettingsPublisher(path.join(directory, 'cell-settings', `${suffix}.json`),
+    host.identityStore, cellKey);
+  let desired = (await publisher.load()).desired;
+  assert.equal(desired.revision, 1);
+  assert.equal(JSON.parse(desired.payload).clients[0].publicKey, key(6));
+  assert.equal(desired.payload.includes(key(5)), false);
+  await store.save({ ...state, clients: [state.clients[0]] });
+  assert.deepEqual(await host.reconcileClientAssignments(), { published: 1 });
+  desired = (await publisher.load()).desired;
+  assert.equal(desired.revision, 2);
+  assert.deepEqual(JSON.parse(desired.payload), { schema: 1, clients: [] });
 });

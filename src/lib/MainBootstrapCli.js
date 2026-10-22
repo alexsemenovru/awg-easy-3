@@ -3,6 +3,7 @@
 const path = require('node:path');
 const { openMainBootstrapInstallationHost } = require('./MainBootstrapInstallationHost');
 const { MainCellStatusSnapshot } = require('./MainCellStatusSnapshot');
+const { MainCellEntrySnapshot } = require('./MainCellEntrySnapshot');
 const { listenInvitationSocket } = require('./MainCellInvitationSocket');
 
 const NAME = /^[a-zA-Z0-9_.-]{1,15}$/;
@@ -75,7 +76,8 @@ async function readSettings(input) {
 
 async function runMainBootstrapCli({ args, env, input, output,
   openHost = openMainBootstrapInstallationHost,
-  newStatusSnapshot = file => new MainCellStatusSnapshot(file) } = {}) {
+  newStatusSnapshot = file => new MainCellStatusSnapshot(file),
+  newEntrySnapshot = file => new MainCellEntrySnapshot(file) } = {}) {
   if (!Array.isArray(args) || !output || typeof output.write !== 'function'
     || !['init', 'resume', 'issue', 'issue-auto', 'join', 'serve', 'listen', 'control-listen', 'cells',
       'publish', 'settings-status'].includes(args[0])
@@ -145,6 +147,7 @@ async function runMainBootstrapCli({ args, env, input, output,
             await host.ensureInitialSettings(cell.id);
           }
         }
+        await host.reconcileClientAssignments();
         if (!control) {
           try {
             const current = await host.recoverPermanentBoot();
@@ -162,7 +165,9 @@ async function runMainBootstrapCli({ args, env, input, output,
       reconcileTimer.unref();
       if (config.statusFile) {
         const snapshot = newStatusSnapshot(config.statusFile);
+        const entrySnapshot = newEntrySnapshot(path.join(path.dirname(config.statusFile), 'entries.json'));
         const refresh = () => statusRefresh = statusRefresh.catch(() => {}).then(async () => {
+          await entrySnapshot.write(await host.entryDescriptors());
           await snapshot.write(await host.cells());
         });
         await refresh();
