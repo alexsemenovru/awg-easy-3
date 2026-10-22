@@ -151,6 +151,19 @@ test('creating a Cell-entry client waits for confirmation instead of opening an 
   assert.equal(f.card(2).querySelector('.show-profile').disabled, true);
 });
 
+test('a confirmed Cell assignment re-enables profile access on refresh', async () => {
+  const f = await setup();
+  const remote = { id: 'cell-client', name: 'Cell client', address4: '10.9.0.2',
+    networkGroup: 'guest', enabled: true, ipv4Enabled: true, ipv6Enabled: false,
+    ipv6Available: false, entryCellId: 'a'.repeat(32) };
+  await f.setRows([{ ...remote, entryReady: false }]);
+  assert.equal(f.card().querySelector('.show-profile').disabled, true);
+  await f.setRows([{ ...remote, entryReady: true }]);
+  const button = f.card().querySelector('.show-profile');
+  assert.equal(button.disabled, false);
+  assert.equal(typeof button.handlers.click, 'function');
+});
+
 test('wrong panel password shows a translated visible error', async () => {
   const f = await setup();
   f.failLogin();
