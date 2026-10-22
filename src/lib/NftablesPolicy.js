@@ -164,6 +164,7 @@ ${headlessCell ? `    iifname ${quote(awg)} drop comment "headless cell has no c
     jump client_permissions
     iifname ${quote(awg)} oifname ${quote(awg)} ip saddr @home4 ip daddr @home4 accept comment "home peer traffic"${ipv6HomeForwardRule}
     iifname ${quote(awg)} oifname ${quote(awg)} drop comment "isolate guest peers"
+${headlessCell ? `    iifname ${quote(awg)} oifname ${quote(wan)} ip daddr 10.8.0.0/24 drop comment "main panel subnet must not fall back to WAN"\n` : ''}
 ${geo.rules ? `${geo.rules}\n` : ''}    iifname ${quote(awg)} oifname ${quote(wan)} ip saddr ${subnet4} accept comment "AWG IPv4 to WAN"
     iifname ${quote(wan)} oifname ${quote(awg)} ip daddr ${subnet4} ct state established,related accept comment "return IPv4 traffic"${ipv6ForwardRules}
   }

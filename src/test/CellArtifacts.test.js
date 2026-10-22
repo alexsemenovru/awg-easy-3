@@ -17,6 +17,9 @@ test('cell compiler supports empty and guest-only cells without weakening panel 
   const input = fixture();
   const built = buildCellArtifacts(input);
   assert.match(built.nftables, /headless cell has no client-facing services/);
+  assert.match(built.nftables, /main panel subnet must not fall back to WAN/);
+  assert.ok(built.nftables.indexOf('main panel subnet must not fall back to WAN')
+    < built.nftables.indexOf('AWG IPv4 to WAN'));
   assert.doesNotMatch(built.nftables, /home peers may access the panel/);
   assert.match(built.serverConfig, /AllowedIPs = 10\.8\.0\.2\/32, fd42::2\/128/);
   assert.throws(() => renderNftablesPolicy({ home4: [], guest4: [] }), /home peer/);
