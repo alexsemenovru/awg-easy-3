@@ -41,9 +41,13 @@ const empty = () => ({ version: 1, phase: 'empty', spec: null, blankHash: null }
 // durable guard and coordinates routes/nft/config changes. No fallback backend,
 // no WAN/global sysctl modification, no guard release, no same-name adoption.
 class CellAwgLifecycle {
-  constructor({ journalPath, activateGuard, runner = runProcess }) {
+  constructor({ journalPath, activateGuard, runner = runProcess,
+    userspaceCommand = process.env.WG_QUICK_USERSPACE_IMPLEMENTATION === 'net-forward'
+      ? 'net-forward' : 'amneziawg-go' }) {
     if (typeof journalPath !== 'string' || !journalPath || typeof activateGuard !== 'function') throw new TypeError('AWG lifecycle journal and guard required');
+    if (!['amneziawg-go', 'net-forward'].includes(userspaceCommand)) throw new TypeError('Unsupported AWG userspace executable');
     this.file = path.resolve(journalPath); this.activateGuard = activateGuard; this.runner = runner;
+    this.userspaceCommand = userspaceCommand;
   }
   exclusive(work) {
     const task = (queues.get(this.file) || Promise.resolve()).catch(() => {}).then(work);
@@ -138,7 +142,7 @@ class CellAwgLifecycle {
     if (!link) {
       // Intent was persisted before daemon invocation. A crash before alias
       // assignment leaves an unproven device: recovery must refuse it.
-      await this.run('amneziawg-go', [name]);
+      await this.run(this.userspaceCommand, [name]);
       link = await this.link(name);
       if (!link || link.ifalias || link.linkinfo?.info_kind !== 'tun'
         || link.linkinfo?.info_data?.type !== 'tun' || !Array.isArray(link.flags)

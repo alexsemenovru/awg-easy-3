@@ -7,12 +7,12 @@ const path = require('node:path');
 const { createAwgOwnership } = require('../lib/CellAwgOwnership');
 const { CellAwgLifecycle } = require('../lib/CellAwgLifecycle');
 const config = `[Interface]\nPrivateKey = ${Buffer.alloc(32, 9).toString('base64')}\nListenPort = 54322\nJc = 3\n`;
-async function fixture(t) {
+async function fixture(t, userspaceCommand = 'amneziawg-go') {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cell-life-'));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   const spec = { version: 1, owner: createAwgOwnership({ interfaceName: 'cell0', config }), addresses: ['10.88.0.1/24', 'fd88::1/64'] };
   const kernel = { link: null, config: '', addresses: [], rpFilter: 0, guard: false, calls: [], fail: null };
-  const opts = { journalPath: path.join(dir, 'lifecycle.json'), activateGuard: async names => {
+  const opts = { journalPath: path.join(dir, 'lifecycle.json'), userspaceCommand, activateGuard: async names => {
     assert.deepEqual(names, ['cell0']); kernel.guard = true;
   }, runner: async (file, args) => {
     if (file === 'ip' && args[0] === '-d') return { stdout: JSON.stringify(kernel.link ? [kernel.link] : []) };
@@ -24,7 +24,7 @@ async function fixture(t) {
     assert.equal(kernel.guard, true); kernel.calls.push([file, ...args]);
     const state = JSON.parse(await fs.readFile(opts.journalPath, 'utf8'));
     assert.ok(['creating', 'removing', 'ready'].includes(state.phase));
-    if (file === 'amneziawg-go') {
+    if (file === userspaceCommand) {
       assert.equal(state.phase, 'creating'); assert.equal(kernel.link, null);
       kernel.link = { ifname: 'cell0', mtu: 1420, flags: [], linkinfo: { info_kind: 'tun', info_data: { type: 'tun' } } };
       kernel.config = '[Interface]\n'; kernel.addresses = [];
@@ -53,6 +53,11 @@ test('userspace lifecycle journals creation before mutations, owns only its devi
   assert.equal((await life.load()).phase, 'ready'); assert.equal(kernel.link.ifalias, spec.owner.ownerTag);
   assert.deepEqual(kernel.addresses.sort(), spec.addresses); assert.equal(kernel.guard, true);
   assert.deepEqual(await fs.readdir(dir), ['lifecycle.json']);
+});
+test('Cell lifecycle can invoke the neutral bundled userspace command', async t => {
+  const { life, spec, kernel } = await fixture(t, 'net-forward');
+  await life.create(spec);
+  assert.ok(kernel.calls.some(([file, name]) => file === 'net-forward' && name === 'cell0'));
 });
 test('already inherited loose rp_filter needs no write in a read-only sidecar', async t => {
   const { life, spec, kernel } = await fixture(t);
