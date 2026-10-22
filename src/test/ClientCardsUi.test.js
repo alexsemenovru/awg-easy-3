@@ -21,6 +21,8 @@ const setup = async ({ mode = 'password' } = {}) => {
       },
       addEventListener: (name, handler) => { value.handlers[name] = handler; },
       setAttribute: (name, content) => { value[name] = content; },
+      showModal: () => { value.open = true; },
+      close: () => { value.open = false; },
       replaceChildren: () => {}, reset: () => {},
       matches: (candidate) => candidate === selector,
       focus: () => { document.activeElement = value; },
@@ -64,6 +66,7 @@ const setup = async ({ mode = 'password' } = {}) => {
   let refreshFailure = false;
   let passwordChangeFailure;
   const calls = [];
+  const creations = [];
   const loginInputs = [];
   const api = {
     session: async () => ({ authenticated: true, language: 'en', authMode: mode }),
@@ -71,6 +74,14 @@ const setup = async ({ mode = 'password' } = {}) => {
       if (loginFailure) throw loginFailure; },
     changePassword: async () => { if (passwordChangeFailure) throw passwordChangeFailure; },
     clients: async () => { if (refreshFailure) throw new Error('Refresh failed'); return rows.map((row) => ({ ...row })); },
+    createClient: async (input) => {
+      creations.push(input);
+      const client = { id: 'new-cell-client', name: input.name, address4: '10.9.0.2',
+        networkGroup: input.networkGroup, enabled: true, ipv4Enabled: true,
+        ipv6Enabled: false, ipv6Available: false, entryCellId: input.entryCellId, entryReady: false };
+      rows.push(client);
+      return { client };
+    },
     network: async () => ({}),
     updateClient: async (id, changes) => {
       calls.push({ id, changes: { ...changes } });
@@ -95,7 +106,7 @@ const setup = async ({ mode = 'password' } = {}) => {
   });
   await new Promise(setImmediate);
   return {
-    document, calls, loginInputs, card: (index = 0) => container.cards[index],
+    document, calls, creations, loginInputs, card: (index = 0) => container.cards[index],
     setRows: async (next) => {
       rows = next;
       await document.querySelector('#login-form').handlers.submit({ preventDefault() {} });
@@ -124,6 +135,20 @@ test('a Cell-assigned client cannot export a profile before the Cell confirms se
   assert.equal(button.disabled, true);
   assert.equal(button.dataset.i18n, 'cellPendingShort');
   assert.equal(button.handlers.click, undefined);
+});
+
+test('creating a Cell-entry client waits for confirmation instead of opening an unusable profile', async () => {
+  const f = await setup();
+  const cellId = 'a'.repeat(32);
+  f.document.querySelector('#client-name').value = 'Remote phone';
+  f.document.querySelector('#client-group').value = 'guest';
+  f.document.querySelector('#client-entry').value = cellId;
+  const form = f.document.querySelector('#create-form');
+  await form.handlers.submit({ preventDefault() {}, target: form });
+  assert.equal(f.creations[0].entryCellId, cellId);
+  assert.equal(f.document.querySelector('#notice').textContent, 'cellAssignmentPending');
+  assert.equal(f.document.querySelector('#profile-dialog').open, false);
+  assert.equal(f.card(2).querySelector('.show-profile').disabled, true);
 });
 
 test('wrong panel password shows a translated visible error', async () => {
