@@ -138,23 +138,26 @@ test('Cell sync pins a signed offer and stages a separate guarded AWG plan', asy
     controllerAddress4: '10.252.0.1', cellAddress4: '10.252.0.2',
     controllerPublicKey: key(2), controllerClientSubnet4: '10.8.0.0/24',
     cellClientSubnet4: '10.88.0.0/24', profile: generateOfficialProfile() } };
-  let staged;
+  let staged, stageCount = 0;
   await syncCellOnce({ config: { ...config(), stateDirectory: root },
     bootstrapHost: bootstrapHost(),
     newStore: () => ({ read: async () => ({ server }) }),
     newDataIdentity: () => ({ ensure: async () => ({ privateKey: key(5), publicKey: key(6) }) }),
     newDataDeployment: options => ({ ...options, store: { read: async () => null } }),
-    stageData: async ({ expected }) => { staged = expected; return { guarded: true }; },
+    stageData: async ({ expected }) => { staged = expected; stageCount++;
+      return { guarded: true }; },
     newGeoUpdater: () => ({ current: { database: {} }, load: async () => {} }),
     openRegistered: async supplied => ({
       protectUserTraffic: async () => {},
       recoverBoot: async () => ({ configured: true }),
       syncSettings: async () => { await supplied.receiveDataOffer(offer);
+        await supplied.receiveDataOffer(offer);
         return { status: 'no-settings' }; },
     }),
   });
   assert.equal(staged.plan.spec.owner.interfaceName, 'awgdata0');
   assert.equal(staged.guardTable, 'awg_easy_3_data_guard_cell');
+  assert.equal(stageCount, 1);
   assert.equal(JSON.parse(await fs.readFile(path.join(root, 'received-data-offer.json'),
     'utf8')).descriptor.controllerAddress4, '10.252.0.1');
 });

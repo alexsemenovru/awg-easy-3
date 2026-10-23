@@ -287,6 +287,6 @@ test('Main reserves a data offer after both Cell announcements without activatin
   const service = await runMainBootstrapCli({ args: ['serve'],
     env: { ...environment(), AWG_MAIN_USER_STATE_FILE: path.resolve('data/state.json') },
     output: { write() {} }, openHost: async () => host });
-  await service.reconcile(); await service.close();
-  assert.deepEqual(calls, [id, `stage:${id}`]);
+  await service.reconcile(); await service.reconcile(); await service.close();
+  assert.deepEqual(calls, [id, `stage:${id}`, id]);
 });

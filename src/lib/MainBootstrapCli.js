@@ -129,6 +129,7 @@ async function runMainBootstrapCli({ args, env, input, output,
     let statusTimer;
     let invitationListener;
     let reconcileTimer;
+    const stagedData = new Set();
     let statusRefresh = Promise.resolve();
     let reconciliation = Promise.resolve();
     try {
@@ -154,7 +155,10 @@ async function runMainBootstrapCli({ args, env, input, output,
             // Reserve the signed offer, then stage its own AWG interface with
             // an active durable guard. This never authorizes Home traffic.
             await host.prepareDataOffer(cell.id);
-            if (typeof host.stageDataLink === 'function') await host.stageDataLink(cell.id);
+            if (typeof host.stageDataLink === 'function' && !stagedData.has(cell.id)) {
+              await host.stageDataLink(cell.id);
+              stagedData.add(cell.id);
+            }
           }
         }
         await host.reconcileClientAssignments();

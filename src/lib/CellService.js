@@ -58,7 +58,9 @@ async function openCellServiceHost({ config, bootstrapHost,
     stateDirectory: path.join(stateDirectory, 'data-link'),
     policyTable: 'awg_easy_3_data_cell',
     guardTable: 'awg_easy_3_data_guard_cell', retainGuard: true });
+  let stagedInProcess = false;
   const stageOffer = async offer => {
+    if (stagedInProcess) return { created: false, staged: true };
     const saved = await dataDeployment.store.read();
     let resolvedEndpointHost;
     if (saved) {
@@ -79,7 +81,9 @@ async function openCellServiceHost({ config, bootstrapHost,
     }
     const expected = cellDataLinkPlan({ offer, privateKey: dataIdentity.privateKey,
       resolvedEndpointHost });
-    return stageData({ deployment: dataDeployment, expected });
+    const result = await stageData({ deployment: dataDeployment, expected });
+    stagedInProcess = true;
+    return result;
   };
   let host;
   const userDescriptor = config.endpointHost ? validateCellUserDescriptor({
