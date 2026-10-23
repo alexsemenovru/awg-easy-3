@@ -7,7 +7,7 @@ function body(request) {
   const fields = ['version', 'controllerKey', 'cellKey', 'requestId', 'issuedAt', 'action', 'payload', 'signature'];
   if (!request || typeof request !== 'object' || Array.isArray(request)
     || Object.keys(request).some(key => !fields.includes(key)) || request.version !== 1
-    || !['poll', 'ack', 'announce', 'announce-data'].includes(request.action) || typeof request.payload !== 'string'
+    || !['poll', 'ack', 'announce', 'announce-data', 'offer-data'].includes(request.action) || typeof request.payload !== 'string'
     || Buffer.byteLength(request.payload) > 1536
     || !Number.isSafeInteger(request.issuedAt) || request.issuedAt < 0
     || !/^[a-f0-9]{32}$/.test(request.requestId)
@@ -38,21 +38,26 @@ function verifyControl(bytes, controllerKey, now = Date.now()) {
   const key = crypto.createPublicKey({ format: 'jwk', key: { kty: 'OKP', crv: 'Ed25519', x: request.cellKey } });
   if (!crypto.verify(null, data, key, Buffer.from(request.signature, 'base64url'))) throw new Error('Invalid control signature');
   const payload = JSON.parse(request.payload);
-  if (request.action === 'poll' && payload !== null) throw new Error('Invalid poll');
+  if (['poll', 'offer-data'].includes(request.action) && payload !== null) throw new Error('Invalid control poll');
   return { ...request, payload };
 }
 
 function replyBody(reply) {
   if (!reply || typeof reply !== 'object' || Array.isArray(reply)
     || reply.ok !== true || !/^[a-f0-9]{32}$/.test(reply.requestId)
-    || ['settings', 'applied', 'announced'].filter(key => Object.hasOwn(reply, key)).length !== 1
+    || ['settings', 'applied', 'announced', 'offer'].filter(key => Object.hasOwn(reply, key)).length !== 1
     || (Object.hasOwn(reply, 'settings') && reply.settings !== null
       && (typeof reply.settings !== 'object' || Array.isArray(reply.settings)))
     || (Object.hasOwn(reply, 'applied') && (!Number.isSafeInteger(reply.applied) || reply.applied < 1))
     || (Object.hasOwn(reply, 'announced') && reply.announced !== true)) {
     throw new Error('Invalid control reply');
   }
-  const kind = ['settings', 'applied', 'announced'].find(key => Object.hasOwn(reply, key));
+  if (Object.hasOwn(reply, 'offer') && reply.offer !== null
+    && (typeof reply.offer !== 'object' || Array.isArray(reply.offer)
+      || Buffer.byteLength(JSON.stringify(reply.offer)) > 8192)) {
+    throw new Error('Invalid control offer envelope');
+  }
+  const kind = ['settings', 'applied', 'announced', 'offer'].find(key => Object.hasOwn(reply, key));
   const fields = ['ok', 'requestId', kind, 'signature'];
   if (Object.keys(reply).some(key => !fields.includes(key))) throw new Error('Invalid control reply');
   return Buffer.from(JSON.stringify(['awg-easy-3/control-reply/v1', reply.requestId,

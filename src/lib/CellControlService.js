@@ -7,11 +7,12 @@ const { verifySettings } = require('./CellSettings');
 const { acknowledgeApplied } = require('./CellSettingsAck');
 const { validateCellUserDescriptor } = require('./CellUserDescriptor');
 const { validateDataKeyAnnouncement } = require('./CellDataKeyStore');
+const { validatePublicDataOffer } = require('./CellDataOfferStore');
 const PROTOCOL = 'awg-easy-3-control/1';
 
 class CellControlService {
   constructor({ identityStore, enrollmentStore, bootstrapStore, publisherForCell, descriptorForCell,
-    dataKeyForCell,
+    dataKeyForCell, dataOfferForCell,
     monotonicNow = () => performance.now() }) {
     if (enrollmentStore && bootstrapStore) {
       throw new TypeError('Control service cannot mix legacy and AWG cell enrollment');
@@ -22,6 +23,7 @@ class CellControlService {
     this.publisherForCell = publisherForCell;
     this.descriptorForCell = descriptorForCell;
     this.dataKeyForCell = dataKeyForCell;
+    this.dataOfferForCell = dataOfferForCell;
     this.inFlight = 0;
     this.monotonicNow = monotonicNow;
     this.tokens = 16;
@@ -67,6 +69,16 @@ class CellControlService {
         return signControlReply({ ok: true, requestId: request.requestId,
           announced: true }, controller.privateKey);
       }
+      if (request.action === 'offer-data') {
+        if (!this.bootstrapStore || !this.dataKeyForCell || !this.dataOfferForCell) {
+          throw new Error('Cell data offers unavailable');
+        }
+        const key = await this.dataKeyForCell(request.cellKey).read();
+        const offer = key ? await this.dataOfferForCell(request.cellKey)
+          .publicOffer(key.publicKey) : null;
+        return signControlReply({ ok: true, requestId: request.requestId,
+          offer }, controller.privateKey);
+      }
       const publisher = this.publisherForCell(request.cellKey);
       if (request.action === 'ack') {
         const result = await publisher.acknowledge(request.payload);
@@ -91,14 +103,14 @@ async function prepareControlEndpoint({ identityStore, certificateStore, enrollm
 // Never accept a merely private host address: prove it belongs to our ready,
 // unchanged inter-server AWG device immediately before opening the listener.
 async function listenTunnelControlEndpoint({ address, port, identityStore, bootstrapStore,
-  lifecycle, publisherForCell, descriptorForCell, dataKeyForCell }) {
+  lifecycle, publisherForCell, descriptorForCell, dataKeyForCell, dataOfferForCell }) {
   if (!bootstrapStore || typeof bootstrapStore.read !== 'function') {
     throw new TypeError('AWG bootstrap store required for tunnel control');
   }
   await requireOwnedTunnelAddress({ lifecycle, address });
   return listenControlOnTunnel({ address, port,
     handler: new CellControlService({ identityStore, bootstrapStore, publisherForCell,
-      descriptorForCell, dataKeyForCell }) });
+      descriptorForCell, dataKeyForCell, dataOfferForCell }) });
 }
 
 // One explicit sync, not a daemon. Control address supplied locally until installer
@@ -151,5 +163,21 @@ async function syncCellSettings({ connectionStore, identityStore, receiver, host
   return { status: 'applied', revision: ack.revision };
 }
 
+// Read-only signed offer fetch. The caller must still verify the offer against
+// its own announced key and provision it under the data-path traffic guard.
+async function fetchCellDataOffer({ connectionStore, identityStore, host, port }) {
+  const connection = await connectionStore.read();
+  if (connection?.version !== 2 || connection.status !== 'registered') {
+    throw new Error('Registered AWG Cell connection required');
+  }
+  const identity = await identityStore.load('cell');
+  if (identity.publicKey !== connection.cellKey) throw new Error('Cell identity changed');
+  const request = signControl({ controllerKey: connection.controllerKey,
+    action: 'offer-data' }, identity.privateKey);
+  const reply = await exchangeOverTunnel({ address: host, port, request,
+    controllerKey: connection.controllerKey });
+  return reply.offer === null ? null : validatePublicDataOffer(reply.offer);
+}
+
 module.exports = { CellControlService, prepareControlEndpoint,
-  listenTunnelControlEndpoint, syncCellSettings };
+  listenTunnelControlEndpoint, syncCellSettings, fetchCellDataOffer };

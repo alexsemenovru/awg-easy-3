@@ -10,6 +10,7 @@ const { openMainBootstrapInstallationHost } = require('../lib/MainBootstrapInsta
 const { generateOfficialProfile } = require('../lib/Awg3Config');
 const { StateStore } = require('../lib/StateStore');
 const { CellUserDescriptorStore } = require('../lib/CellUserDescriptorStore');
+const { CellDataKeyStore } = require('../lib/CellDataKeyStore');
 const { CellSettingsPublisher } = require('../lib/CellSettingsPublisher');
 
 const resources = () => ({ interfaceNames: ['awgmainb0', 'awgmainc0'],
@@ -203,4 +204,58 @@ test('Main reconciles persisted client assignments into idempotent signed Cell r
   desired = (await publisher.load()).desired;
   assert.equal(desired.revision, 2);
   assert.deepEqual(JSON.parse(desired.payload), { schema: 1, clients: [] });
+});
+
+test('Main prepares one immutable Cell data offer from pinned announcements and a free host slot', async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-main-data-offer-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const userStateFile = path.join(directory, 'state.json');
+  const key = byte => Buffer.alloc(32, byte).toString('base64');
+  const cellKey = Buffer.alloc(32, 21).toString('base64url');
+  const id = 'd'.repeat(32);
+  await new StateStore(userStateFile).save({ version: 4,
+    auth: { passwordHash: 'hash', sessionSecret: 'secret' },
+    server: { interfaceName: 'awg0', wanInterface: 'eth0', privateKey: key(1),
+      publicKey: key(2), address4: '10.8.0.1', ipv4Subnet: '10.8.0.0/24',
+      listenPort: 51820, panelPort: 51821, endpointHost: 'main.example.test',
+      profile: generateOfficialProfile() },
+    clients: [{ id: 'home', name: 'Owner', networkGroup: 'home', enabled: true,
+      address4: '10.8.0.2', privateKey: key(3), publicKey: key(4) }] });
+  const reservations = [];
+  const host = await openMainBootstrapInstallationHost({ ...options(),
+    stateDirectory: directory, userStateFile,
+    keyManager: { generateKeyPair: async () => ({ privateKey: key(30), publicKey: key(31) }),
+      derivePublicKey: async value => value === key(30) ? key(31) : key(99),
+      generatePeerKeys: async () => ({ privateKey: key(30), publicKey: key(31),
+        presharedKey: key(32) }) },
+    prepareStateDirectory: async () => {}, withLock: async ({ work }) => work(),
+    preflight: async input => { reservations.push(input); return { free: true }; } });
+  host.bootstrapStore.read = async () => ({ invitations: [{ id, status: 'consumed',
+    phase: 'closed', cellKey, awgPublicKey: key(20), cellAddress: '10.90.8.2',
+    permanentDescriptor: { cellAddress: '10.91.8.2' } }] });
+  const suffix = crypto.createHash('sha256').update(cellKey).digest('hex');
+  await new CellUserDescriptorStore(path.join(directory, 'cell-descriptors', `${suffix}.json`))
+    .update({ version: 1, endpointHost: 'cell.example.test', endpointPort: 51830,
+      serverPublicKey: key(22), address4: '10.64.0.1', ipv4Subnet: '10.64.0.0/24',
+      profile: generateOfficialProfile() });
+  await new CellDataKeyStore(path.join(directory, 'cell-data-keys', `${suffix}.json`))
+    .reserve({ version: 1, publicKey: key(23) });
+  assert.equal(await host.dataPublicKey(id), key(23));
+  const first = await host.prepareDataOffer(id);
+  assert.equal(first.created, true);
+  assert.equal(first.offer.descriptor.endpointPort, 53000);
+  assert.equal(first.offer.descriptor.cellAddress4, '10.252.0.2');
+  assert.equal(first.offer.descriptor.cellClientSubnet4, '10.64.0.0/24');
+  assert.ok(!JSON.stringify(first.offer).includes(key(30)));
+  assert.equal(reservations.length, 1);
+  assert.deepEqual(reservations[0].interfaceNames, ['awgd0']);
+  const again = await host.prepareDataOffer(id);
+  assert.equal(again.created, false);
+  assert.deepEqual(again.offer, first.offer);
+  assert.equal(reservations.length, 1);
+  await new CellUserDescriptorStore(path.join(directory, 'cell-descriptors', `${suffix}.json`))
+    .update({ version: 1, endpointHost: 'cell.example.test', endpointPort: 51830,
+      serverPublicKey: key(22), address4: '10.65.0.1', ipv4Subnet: '10.65.0.0/24',
+      profile: generateOfficialProfile() });
+  await assert.rejects(host.prepareDataOffer(id), /differs from current/);
 });

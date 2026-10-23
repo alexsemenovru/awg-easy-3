@@ -17,6 +17,8 @@ const { CellSettingsPublisher } = require('../lib/CellSettingsPublisher');
 const { CellSettingsReceiver } = require('../lib/CellSettingsReceiver');
 const { CellUserDescriptorStore } = require('../lib/CellUserDescriptorStore');
 const { CellDataKeyStore } = require('../lib/CellDataKeyStore');
+const { CellDataOfferStore } = require('../lib/CellDataOfferStore');
+const { fetchCellDataOffer } = require('../lib/CellControlService');
 const { generateOfficialProfile } = require('../lib/Awg3Config');
 
 const key = () => crypto.randomBytes(32).toString('base64');
@@ -67,10 +69,13 @@ test('v2 AWG invitation, permanent identity and signed control form one fail-clo
       controllerIds, cellIdentity.publicKey);
     const descriptorStore = new CellUserDescriptorStore(path.join(directory, 'descriptor.json'));
     const dataKeyStore = new CellDataKeyStore(path.join(directory, 'data-key.json'));
+    const dataMainKey = key(), dataMainPublic = key();
+    const dataOfferStore = new CellDataOfferStore(path.join(directory, 'data-offer.json'),
+      { derivePublicKey: async value => value === dataMainKey ? dataMainPublic : key() });
     const control = await listenTunnelControlEndpoint({ address: '127.0.0.1', port: 0,
       lifecycle: owned, identityStore: controllerIds, bootstrapStore,
       publisherForCell: () => publisher, descriptorForCell: () => descriptorStore,
-      dataKeyForCell: () => dataKeyStore });
+      dataKeyForCell: () => dataKeyStore, dataOfferForCell: () => dataOfferStore });
     t.after(() => close(control));
     let applications = 0;
     const receiver = new CellSettingsReceiver(path.join(directory, 'received.json'), {
@@ -102,6 +107,20 @@ test('v2 AWG invitation, permanent identity and signed control form one fail-clo
     assert.deepEqual(await syncCellSettings({ ...options, dataPublicKey }),
       { status: 'applied', revision: 1 });
     assert.deepEqual(await dataKeyStore.read(), { version: 1, publicKey: dataPublicKey });
+    assert.equal(await fetchCellDataOffer({ connectionStore: connection, identityStore: cellIds,
+      host: '127.0.0.1', port: control.address().port }), null);
+    const dataOffer = { version: 1, controllerPrivateKey: dataMainKey,
+      cellPublicKey: dataPublicKey, presharedKey: key(),
+      descriptor: { version: 1, endpointHost: 'main.example.test', endpointPort: 53000,
+        controllerAddress4: '10.250.0.1', cellAddress4: '10.250.0.2',
+        controllerPublicKey: dataMainPublic, controllerClientSubnet4: '10.8.0.0/24',
+        cellClientSubnet4: '10.64.0.0/24', profile: generateOfficialProfile() } };
+    await dataOfferStore.create(dataOffer);
+    const fetched = await fetchCellDataOffer({ connectionStore: connection, identityStore: cellIds,
+      host: '127.0.0.1', port: control.address().port });
+    assert.equal(fetched.descriptor.controllerPublicKey, dataMainPublic);
+    assert.equal(fetched.presharedKey, dataOffer.presharedKey);
+    assert.ok(!JSON.stringify(fetched).includes(dataMainKey));
     await assert.rejects(syncCellSettings({ ...options, dataPublicKey: key() }),
       /Control reply rejected/);
     assert.deepEqual(await dataKeyStore.read(), { version: 1, publicKey: dataPublicKey });

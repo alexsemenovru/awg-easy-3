@@ -29,6 +29,8 @@ const { CellAwgPermanentRevisionStore } = require('./CellAwgPermanentRevisionSto
 const { CellSettingsPublisher } = require('./CellSettingsPublisher');
 const { CellUserDescriptorStore } = require('./CellUserDescriptorStore');
 const { CellDataKeyStore } = require('./CellDataKeyStore');
+const { CellDataOfferStore } = require('./CellDataOfferStore');
+const { allocateCellDataLink } = require('./CellDataLinkAllocator');
 const { listenTunnelControlEndpoint } = require('./CellControlService');
 const { privateAddress } = require('./CellTunnelControlTransport');
 const { validEndpointHost } = require('./CellAwgEndpointHost');
@@ -142,6 +144,9 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
     file(path.join('cell-descriptors', `${crypto.createHash('sha256').update(cellKey).digest('hex')}.json`)));
   const dataKeyForCell = cellKey => new CellDataKeyStore(
     file(path.join('cell-data-keys', `${crypto.createHash('sha256').update(cellKey).digest('hex')}.json`)));
+  const dataOfferForCell = cellKey => new CellDataOfferStore(
+    file(path.join('cell-data-offers', `${crypto.createHash('sha256').update(cellKey).digest('hex')}.json`)),
+    keyManager);
 
   async function registeredRecord(invitationId) {
     if (typeof invitationId !== 'string' || !/^[a-f0-9]{32}$/.test(invitationId)) {
@@ -329,6 +334,84 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
       const record = await registeredRecord(invitationId);
       return (await dataKeyForCell(record.cellKey).read())?.publicKey ?? null;
     },
+    prepareDataOffer: (invitationId, { pool4 = '10.252.0.0/23',
+      pool6 = 'fd91::/112', portStart = 53000 } = {}) => locked(async () => {
+      const record = await registeredRecord(invitationId);
+      if (!userStateFile) throw new Error('Persisted Main panel state required for data link');
+      const pinned = await dataKeyForCell(record.cellKey).read();
+      const cell = await descriptorForCell(record.cellKey).read();
+      if (!pinned || !cell) throw new Error('Cell data key and user endpoint must be announced');
+      const state = await new StateStore(userStateFile).load();
+      if (!state) throw new Error('Persisted Main panel state required for data link');
+      const dualStack = Boolean(state.server.address6 && state.server.ipv6Subnet
+        && cell.address6 && cell.ipv6Subnet);
+      const offerStore = dataOfferForCell(record.cellKey);
+      const existing = await offerStore.publicOffer(pinned.publicKey);
+      if (existing) {
+        const descriptor = existing.descriptor;
+        if (descriptor.endpointHost !== endpointHost
+          || descriptor.controllerClientSubnet4 !== state.server.ipv4Subnet
+          || descriptor.cellClientSubnet4 !== cell.ipv4Subnet
+          || (descriptor.controllerClientSubnet6 ?? null)
+            !== (dualStack ? state.server.ipv6Subnet : null)
+          || (descriptor.cellClientSubnet6 ?? null)
+            !== (dualStack ? cell.ipv6Subnet : null)) {
+          throw new Error('Stored Cell data offer differs from current panel or Cell subnet');
+        }
+        return { created: false, offer: existing };
+      }
+      const invitations = (await bootstrapStore.read()).invitations;
+      const usedSlots = [];
+      for (const other of invitations) {
+        if (!other.cellKey) continue;
+        const saved = await dataOfferForCell(other.cellKey).read();
+        if (!saved) continue;
+        const slot = saved.descriptor.endpointPort - portStart;
+        if (!Number.isSafeInteger(slot) || slot < 0 || slot >= 127) {
+          throw new Error('Existing Cell data offer uses a different port allocation');
+        }
+        usedSlots.push(slot);
+      }
+      const allocation = allocateCellDataLink({ usedSlots, pool4,
+        ...(dualStack ? { pool6 } : {}), portStart,
+        unavailablePorts: [...resources.udpPorts, ...resources.userUdpPorts] });
+      const allUserSubnets = [state.server.ipv4Subnet];
+      for (const other of invitations) {
+        if (!other.cellKey) continue;
+        const descriptor = await descriptorForCell(other.cellKey).read();
+        if (descriptor) allUserSubnets.push(descriptor.ipv4Subnet);
+      }
+      const reservedAddresses = new Set([controllerAddress, permanentControllerAddress,
+        ...invitations.flatMap(item => [item.cellAddress,
+          item.permanentDescriptor?.cellAddress].filter(Boolean))]);
+      if ([allocation.controllerAddress4, allocation.cellAddress4].some(address =>
+        reservedAddresses.has(address) || allUserSubnets.some(subnet => addressInSubnet(address, subnet)))) {
+        throw new Error('Data link pool overlaps an existing AWG address or client subnet');
+      }
+      await preflight({ interfaceNames: [allocation.controllerInterfaceName],
+        udpPorts: [allocation.endpointPort], nftTables: [`awg_easy_3_data_guard_${allocation.slot}`],
+        runner });
+      if (typeof keyManager.generatePeerKeys !== 'function') {
+        throw new Error('AWG data link key generator unavailable');
+      }
+      const keys = await keyManager.generatePeerKeys();
+      const descriptor = { version: 1, endpointHost,
+        endpointPort: allocation.endpointPort,
+        controllerAddress4: allocation.controllerAddress4,
+        cellAddress4: allocation.cellAddress4,
+        controllerPublicKey: keys.publicKey,
+        controllerClientSubnet4: state.server.ipv4Subnet,
+        cellClientSubnet4: cell.ipv4Subnet,
+        ...(dualStack ? { controllerAddress6: allocation.controllerAddress6,
+          cellAddress6: allocation.cellAddress6,
+          controllerClientSubnet6: state.server.ipv6Subnet,
+          cellClientSubnet6: cell.ipv6Subnet } : {}),
+        profile: generateOfficialProfile() };
+      await offerStore.create({ version: 1, descriptor,
+        controllerPrivateKey: keys.privateKey, cellPublicKey: pinned.publicKey,
+        presharedKey: keys.presharedKey });
+      return { created: true, offer: await offerStore.publicOffer(pinned.publicKey) };
+    }),
     entryDescriptors: async () => {
       const records = (await bootstrapStore.read()).invitations.filter(record =>
         record.status === 'consumed' && record.phase === 'closed' && record.cellKey);
@@ -392,7 +475,7 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
       return listenTunnelControlEndpoint({ address: permanentControllerAddress,
         port: permanentControlPort, lifecycle: current.lifecycle,
         identityStore, bootstrapStore, publisherForCell, descriptorForCell,
-        dataKeyForCell });
+        dataKeyForCell, dataOfferForCell });
     }),
     listen: async () => {
       const config = await verifiedConfig();
