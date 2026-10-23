@@ -59,3 +59,11 @@ test('unknown links and exit Cells cannot be inferred from client state', () => 
   assert.throws(() => productCellTopology({ ...input,
     exits: { phone: 'b'.repeat(32) } }), /exit Cell/);
 });
+
+test('overlapping registered Cell subnets cannot produce a routing topology', () => {
+  const input = fixture();
+  input.cells.push({ id: 'b'.repeat(32), descriptor: {
+    ...input.cells[0].descriptor, address4: '10.88.0.129',
+    ipv4Subnet: '10.88.0.128/25' } });
+  assert.throws(() => productCellTopology(input), /overlap/);
+});

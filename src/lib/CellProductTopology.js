@@ -4,6 +4,7 @@ const { validateState, CELL_STATE_VERSION } = require('./StateStore');
 const { validateCellUserDescriptor } = require('./CellUserDescriptor');
 const { assignmentFromClient } = require('./CellAssignedSettings');
 const { planCellTopology } = require('./CellTopology');
+const { assertDistinctClientSubnets } = require('./CellSubnetIsolation');
 
 // Construct the routing view from persisted panel state. Only explicitly
 // verified data links appear here; a working control AWG channel is NOT a
@@ -20,6 +21,10 @@ function productCellTopology({ state: input, cells, readyLinks = [], exits = {} 
       || descriptors.has(row.id)) throw new TypeError('Invalid registered Cell identity');
     descriptors.set(row.id, validateCellUserDescriptor(row.descriptor));
   }
+  assertDistinctClientSubnets([state.server.ipv4Subnet,
+    ...[...descriptors.values()].map(value => value.ipv4Subnet)]);
+  assertDistinctClientSubnets([state.server.ipv6Subnet,
+    ...[...descriptors.values()].map(value => value.ipv6Subnet)].filter(Boolean));
   const nodes = [{ id: 'main', role: 'controller', ipv4: true,
     ipv6: Boolean(state.server.address6 && state.server.ipv6Subnet) },
   ...[...descriptors].map(([id, descriptor]) => ({ id, role: 'cell', ipv4: true,

@@ -40,6 +40,7 @@ const { StateStore } = require('./StateStore');
 const { addressInSubnet } = require('./AddressAllocator');
 const { allocateCellInvitationAddresses } = require('./CellInvitationAddressAllocator');
 const { assignedSettingsFromState, assignmentFingerprint } = require('./CellAssignedSettings');
+const { assertDistinctClientSubnets } = require('./CellSubnetIsolation');
 const { validateCellSettings } = require('./CellSettingsSchema');
 
 const validName = name => typeof name === 'string' && /^[a-zA-Z0-9_.-]{1,15}$/.test(name);
@@ -350,6 +351,19 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
       if (!state) throw new Error('Persisted Main panel state required for data link');
       const dualStack = Boolean(state.server.address6 && state.server.ipv6Subnet
         && cell.address6 && cell.ipv6Subnet);
+      const invitations = (await bootstrapStore.read()).invitations;
+      const allUserSubnets = [state.server.ipv4Subnet];
+      const allUserSubnets6 = [state.server.ipv6Subnet].filter(Boolean);
+      for (const other of invitations) {
+        if (!other.cellKey) continue;
+        const descriptor = await descriptorForCell(other.cellKey).read();
+        if (descriptor) {
+          allUserSubnets.push(descriptor.ipv4Subnet);
+          if (descriptor.ipv6Subnet) allUserSubnets6.push(descriptor.ipv6Subnet);
+        }
+      }
+      assertDistinctClientSubnets(allUserSubnets);
+      assertDistinctClientSubnets(allUserSubnets6);
       const offerStore = dataOfferForCell(record.cellKey);
       const existing = await offerStore.publicOffer(pinned.publicKey);
       if (existing) {
@@ -365,7 +379,6 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
         }
         return { created: false, offer: existing };
       }
-      const invitations = (await bootstrapStore.read()).invitations;
       const usedSlots = [];
       for (const other of invitations) {
         if (!other.cellKey) continue;
@@ -380,18 +393,16 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
       const allocation = allocateCellDataLink({ usedSlots, pool4,
         ...(dualStack ? { pool6 } : {}), portStart,
         unavailablePorts: [...resources.udpPorts, ...resources.userUdpPorts] });
-      const allUserSubnets = [state.server.ipv4Subnet];
-      for (const other of invitations) {
-        if (!other.cellKey) continue;
-        const descriptor = await descriptorForCell(other.cellKey).read();
-        if (descriptor) allUserSubnets.push(descriptor.ipv4Subnet);
-      }
       const reservedAddresses = new Set([controllerAddress, permanentControllerAddress,
         ...invitations.flatMap(item => [item.cellAddress,
           item.permanentDescriptor?.cellAddress].filter(Boolean))]);
       if ([allocation.controllerAddress4, allocation.cellAddress4].some(address =>
         reservedAddresses.has(address) || allUserSubnets.some(subnet => addressInSubnet(address, subnet)))) {
         throw new Error('Data link pool overlaps an existing AWG address or client subnet');
+      }
+      if (dualStack && [allocation.controllerAddress6, allocation.cellAddress6]
+        .some(address => allUserSubnets6.some(subnet => addressInSubnet(address, subnet)))) {
+        throw new Error('IPv6 data link pool overlaps a client subnet');
       }
       await preflight({ interfaceNames: [allocation.controllerInterfaceName],
         udpPorts: [allocation.endpointPort], nftTables: [`awg_easy_3_data_guard_${allocation.slot}`],

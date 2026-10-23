@@ -108,6 +108,14 @@ class CellRoutingCoordinator {
     if (routes.add.length || routes.remove.length) return false;
     return !(await this.policy.plan([desired.nftSnapshot], desired.nftSnapshot)).changed;
   }
+  async verifyOperational(value) {
+    const desired = specification(value), saved = await this.load();
+    if (saved.pending || !saved.committed || !equal(saved.committed, desired)) return false;
+    const guard = await this.guard.load();
+    if (guard.pending || !Array.isArray(guard.interfaces) || guard.interfaces.length
+      || await this.guard.current() !== null) return false;
+    return this.verify(desired);
+  }
   async restore(saved) {
     await this.checkChildren(saved);
     await this.routes.recover(); await this.policy.recover();

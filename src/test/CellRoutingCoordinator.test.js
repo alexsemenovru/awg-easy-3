@@ -14,6 +14,7 @@ async function fixture(t) {
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   const guard = { interfaces: [], pending: null, active: false, failRelease: false,
     async load() { return { interfaces: [...this.interfaces], pending: this.pending }; },
+    async current() { return this.active ? { nftables: [] } : null; },
     async recover() { return { guarded: this.active }; },
     async protect(names) { this.interfaces = [...names]; this.active = true; },
     async release(verify) {
@@ -68,6 +69,9 @@ test('retained routing guard releases only after committed readback remains vali
   policy.state.committed = spec(0).nftSnapshot;
   assert.deepEqual(await coordinator.releaseCommitted(), { guarded: false });
   assert.equal(guard.active, false);
+  assert.equal(await coordinator.verifyOperational(spec(0)), true);
+  guard.active = true; guard.interfaces = ['clients', 'transit'];
+  assert.equal(await coordinator.verifyOperational(spec(0)), false);
 });
 test('route failure after new policy restores both old components, guard retained', async t => {
   const { coordinator, guard, routes, policy } = await fixture(t);
