@@ -6,6 +6,7 @@ const { GeoIpUpdater } = require('./GeoIpUpdater');
 const { openRegisteredCellHost } = require('./CellRegisteredHost');
 const { AwgKeyManager } = require('./AwgKeyManager');
 const { validateCellUserDescriptor } = require('./CellUserDescriptor');
+const { CellDataIdentityStore } = require('./CellDataIdentityStore');
 
 // The service deliberately starts from a registered, persistent Cell state.
 // Missing GeoIP data cannot silently disable a signed country policy:
@@ -14,6 +15,7 @@ async function openCellServiceHost({ config, bootstrapHost,
   openRegistered = openRegisteredCellHost,
   newStore = (...args) => new CellUserConfigStore(...args),
   newGeoUpdater = options => new GeoIpUpdater(options),
+  newDataIdentity = (filePath, manager) => new CellDataIdentityStore(filePath, manager),
   keyManager = new AwgKeyManager() } = {}) {
   if (!config || !bootstrapHost || typeof openRegistered !== 'function'
     || typeof newStore !== 'function' || typeof newGeoUpdater !== 'function') {
@@ -33,6 +35,12 @@ async function openCellServiceHost({ config, bootstrapHost,
     || user.server.privateKey === connection.permanent?.privateKey) {
     throw new Error('Registered Cell requires a distinct user AWG key');
   }
+  const dataIdentity = await newDataIdentity(path.join(stateDirectory, 'data-identity.json'),
+    keyManager).ensure();
+  if (dataIdentity.privateKey === user.server.privateKey
+    || dataIdentity.privateKey === connection.permanent?.privateKey) {
+    throw new Error('Cell data link requires an independent AWG key');
+  }
   let host;
   const userDescriptor = config.endpointHost ? validateCellUserDescriptor({
     version: 1, endpointHost: config.endpointHost, endpointPort: user.server.listenPort,
@@ -50,6 +58,7 @@ async function openCellServiceHost({ config, bootstrapHost,
     bootstrap: bootstrapHost.bootstrap,
     temporaryInterfaceName: interfaceName,
     server: user.server, userDescriptor,
+    dataPublicKey: dataIdentity.publicKey,
     geoDatabase: async () => geo.current?.database || {} });
   // A missing cache may require a network download. Guard user traffic before
   // waiting for it, not only inside the later permanent-path recovery.

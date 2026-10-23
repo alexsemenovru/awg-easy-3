@@ -70,6 +70,28 @@ test('Cell endpoint announcement is signed, bounded and cannot carry private key
   assert.equal(accepted, 1);
 });
 
+test('only the enrolled Cell may pin its separate data-link public key', async () => {
+  const controller = identity(), cell = identity();
+  const fixed = [];
+  const service = new CellControlService({ identityStore: { load: async () => controller },
+    bootstrapStore: { read: async () => ({ version: 2, invitations: [{ status: 'consumed',
+      phase: 'closed', cellKey: cell.publicKey, awgPublicKey: 'key', awgPresharedKey: 'psk' }] }) },
+    dataKeyForCell: () => ({ reserve: async value => { fixed.push(value); } }) });
+  const payload = { version: 1, publicKey: Buffer.alloc(32, 8).toString('base64') };
+  const request = signControl({ controllerKey: controller.publicKey,
+    action: 'announce-data', payload }, cell.privateKey);
+  const reply = await service.handle(bytes(request));
+  assert.equal(verifyControlReply(reply, controller.publicKey, request.requestId).announced, true);
+  assert.deepEqual(fixed, [payload]);
+  const secret = signControl({ controllerKey: controller.publicKey,
+    action: 'announce-data', payload: { ...payload, privateKey: 'secret' } }, cell.privateKey);
+  assert.deepEqual(await service.handle(bytes(secret)), { ok: false, error: 'control_unavailable' });
+  const outsider = signControl({ controllerKey: controller.publicKey,
+    action: 'announce-data', payload }, identity().privateKey);
+  assert.deepEqual(await service.handle(bytes(outsider)), { ok: false, error: 'control_unavailable' });
+  assert.equal(fixed.length, 1);
+});
+
 test('a valid signature from an unenrolled cell cannot fetch settings', async () => {
   const controller = identity();
   let accessed = false;

@@ -7,7 +7,7 @@ function body(request) {
   const fields = ['version', 'controllerKey', 'cellKey', 'requestId', 'issuedAt', 'action', 'payload', 'signature'];
   if (!request || typeof request !== 'object' || Array.isArray(request)
     || Object.keys(request).some(key => !fields.includes(key)) || request.version !== 1
-    || !['poll', 'ack', 'announce'].includes(request.action) || typeof request.payload !== 'string'
+    || !['poll', 'ack', 'announce', 'announce-data'].includes(request.action) || typeof request.payload !== 'string'
     || Buffer.byteLength(request.payload) > 1536
     || !Number.isSafeInteger(request.issuedAt) || request.issuedAt < 0
     || !/^[a-f0-9]{32}$/.test(request.requestId)

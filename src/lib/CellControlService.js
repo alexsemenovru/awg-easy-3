@@ -6,10 +6,12 @@ const { exchangeOverTunnel, listenControlOnTunnel } = require('./CellTunnelContr
 const { verifySettings } = require('./CellSettings');
 const { acknowledgeApplied } = require('./CellSettingsAck');
 const { validateCellUserDescriptor } = require('./CellUserDescriptor');
+const { validateDataKeyAnnouncement } = require('./CellDataKeyStore');
 const PROTOCOL = 'awg-easy-3-control/1';
 
 class CellControlService {
   constructor({ identityStore, enrollmentStore, bootstrapStore, publisherForCell, descriptorForCell,
+    dataKeyForCell,
     monotonicNow = () => performance.now() }) {
     if (enrollmentStore && bootstrapStore) {
       throw new TypeError('Control service cannot mix legacy and AWG cell enrollment');
@@ -19,6 +21,7 @@ class CellControlService {
     this.bootstrapStore = bootstrapStore;
     this.publisherForCell = publisherForCell;
     this.descriptorForCell = descriptorForCell;
+    this.dataKeyForCell = dataKeyForCell;
     this.inFlight = 0;
     this.monotonicNow = monotonicNow;
     this.tokens = 16;
@@ -55,6 +58,15 @@ class CellControlService {
         return signControlReply({ ok: true, requestId: request.requestId,
           announced: true }, controller.privateKey);
       }
+      if (request.action === 'announce-data') {
+        if (!this.bootstrapStore || !this.dataKeyForCell) {
+          throw new Error('Cell data key announcements unavailable');
+        }
+        await this.dataKeyForCell(request.cellKey).reserve(
+          validateDataKeyAnnouncement(request.payload));
+        return signControlReply({ ok: true, requestId: request.requestId,
+          announced: true }, controller.privateKey);
+      }
       const publisher = this.publisherForCell(request.cellKey);
       if (request.action === 'ack') {
         const result = await publisher.acknowledge(request.payload);
@@ -79,20 +91,20 @@ async function prepareControlEndpoint({ identityStore, certificateStore, enrollm
 // Never accept a merely private host address: prove it belongs to our ready,
 // unchanged inter-server AWG device immediately before opening the listener.
 async function listenTunnelControlEndpoint({ address, port, identityStore, bootstrapStore,
-  lifecycle, publisherForCell, descriptorForCell }) {
+  lifecycle, publisherForCell, descriptorForCell, dataKeyForCell }) {
   if (!bootstrapStore || typeof bootstrapStore.read !== 'function') {
     throw new TypeError('AWG bootstrap store required for tunnel control');
   }
   await requireOwnedTunnelAddress({ lifecycle, address });
   return listenControlOnTunnel({ address, port,
     handler: new CellControlService({ identityStore, bootstrapStore, publisherForCell,
-      descriptorForCell }) });
+      descriptorForCell, dataKeyForCell }) });
 }
 
 // One explicit sync, not a daemon. Control address supplied locally until installer
 // assigns the service port; the key must remain the registered controller's key.
 async function syncCellSettings({ connectionStore, identityStore, receiver, host, port,
-  transport = 'tls', userDescriptor }) {
+  transport = 'tls', userDescriptor, dataPublicKey }) {
   const connection = await connectionStore.read();
   if (connection?.status !== 'registered') throw new Error('Cell is not registered');
   if (connection.version !== 1 && connection.version !== 2) {
@@ -122,6 +134,12 @@ async function syncCellSettings({ connectionStore, identityStore, receiver, host
     if (transport !== 'tunnel') throw new Error('Cell descriptor requires AWG control');
     const announced = await exchange('announce', validateCellUserDescriptor(userDescriptor));
     if (announced.announced !== true) throw new Error('Cell descriptor acknowledgement mismatch');
+  }
+  if (dataPublicKey !== undefined) {
+    if (transport !== 'tunnel') throw new Error('Cell data key requires AWG control');
+    const announced = await exchange('announce-data', validateDataKeyAnnouncement({
+      version: 1, publicKey: dataPublicKey }));
+    if (announced.announced !== true) throw new Error('Cell data key acknowledgement mismatch');
   }
   const reply = await exchange('poll');
   if (reply.settings === null) return { status: 'no-settings' };

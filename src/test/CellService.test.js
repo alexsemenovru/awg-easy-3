@@ -11,13 +11,15 @@ const config = () => ({ stateDirectory: path.resolve('cell-state'),
   resources: { interfaceNames: ['awgboot0', 'awgctl0', 'awguser0'], udpPorts: [51830] } });
 const bootstrapHost = () => ({ connectionStore: { read: async () => ({ status: 'registered',
   permanent: { privateKey: 'control-key' } }) }, identityStore: {}, bootstrap: {} });
+const newDataIdentity = () => ({ ensure: async () => ({ privateKey: 'data-private',
+  publicKey: Buffer.alloc(32, 12).toString('base64') }) });
 
 test('Cell service restores signed state before polling and closes poller only', async () => {
   const order = [];
   let args;
   let complete;
   const running = new Promise(resolve => { complete = resolve; });
-  const service = await startCellService({ config: config(),
+  const service = await startCellService({ config: config(), newDataIdentity,
     bootstrapHost: bootstrapHost(),
     newStore: (filename, reserved) => {
       assert.equal(filename, path.join(config().stateDirectory, 'user-config.json'));
@@ -45,18 +47,18 @@ test('Cell service restores signed state before polling and closes poller only',
 
 test('Cell service refuses missing user config and incomplete permanent path', async () => {
   let registered = false;
-  await assert.rejects(startCellService({ config: config(), bootstrapHost: bootstrapHost(),
+  await assert.rejects(startCellService({ config: config(), bootstrapHost: bootstrapHost(), newDataIdentity,
     newStore: () => ({ read: async () => null }),
     openRegistered: async () => { registered = true; } }), /not installed/);
   assert.equal(registered, false);
-  await assert.rejects(startCellService({ config: config(), bootstrapHost: bootstrapHost(),
+  await assert.rejects(startCellService({ config: config(), bootstrapHost: bootstrapHost(), newDataIdentity,
     newStore: () => ({ read: async () => ({ server: {} }) }),
     newGeoUpdater: () => ({ current: null, load: async () => null, refresh: async () => null }),
     openRegistered: async () => ({ protectUserTraffic: async () => {},
       requiresGeoDatabase: async () => true,
       recoverBoot: async () => ({ configured: false }) }),
   }), /not configured/);
-  await assert.rejects(startCellService({ config: config(), bootstrapHost: bootstrapHost(),
+  await assert.rejects(startCellService({ config: config(), bootstrapHost: bootstrapHost(), newDataIdentity,
     newStore: () => ({ read: async () => ({ server: { privateKey: 'control-key' } }) }),
     openRegistered: async () => { registered = true; },
   }), /distinct user AWG key/);
@@ -68,7 +70,7 @@ test('Cell service refreshes absent GeoIP cache before restoring signed filter',
     load: async () => { order.push('load'); },
     refresh: async () => { order.push('refresh'); geo.current = { database: { RU: {} } }; },
     start: () => { order.push('start'); }, stop: async () => { order.push('stop'); } };
-  const service = await startCellService({ config: config(), bootstrapHost: bootstrapHost(),
+  const service = await startCellService({ config: config(), bootstrapHost: bootstrapHost(), newDataIdentity,
     newStore: () => ({ read: async () => ({ server: {} }) }),
     newGeoUpdater: () => geo,
     openRegistered: async () => ({
@@ -87,7 +89,7 @@ test('Cell service refreshes absent GeoIP cache before restoring signed filter',
 
 test('one-shot Cell sync restores boot, applies signed settings, and opens no poller', async () => {
   const events = [];
-  const result = await syncCellOnce({ config: config(), bootstrapHost: bootstrapHost(),
+  const result = await syncCellOnce({ config: config(), bootstrapHost: bootstrapHost(), newDataIdentity,
     newStore: () => ({ read: async () => ({ server: {} }) }),
     newGeoUpdater: () => ({ current: { database: {} }, load: async () => events.push('geo') }),
     openRegistered: async () => ({
@@ -103,7 +105,7 @@ test('one-shot Cell sync restores boot, applies signed settings, and opens no po
 test('Cell service derives a public entry descriptor without exposing its private AWG key', async () => {
   let supplied;
   const profile = generateOfficialProfile();
-  await syncCellOnce({ config: { ...config(), endpointHost: '198.51.100.4' },
+  await syncCellOnce({ config: { ...config(), endpointHost: '198.51.100.4' }, newDataIdentity,
     bootstrapHost: bootstrapHost(),
     newStore: () => ({ read: async () => ({ server: { privateKey: 'cell-private',
       listenPort: 51830, address4: '10.64.0.1', ipv4Subnet: '10.64.0.0/24', profile } }) }),
@@ -119,5 +121,6 @@ test('Cell service derives a public entry descriptor without exposing its privat
   });
   assert.equal(supplied.userDescriptor.endpointHost, '198.51.100.4');
   assert.equal(supplied.userDescriptor.serverPublicKey, Buffer.alloc(32, 4).toString('base64'));
+  assert.equal(supplied.dataPublicKey, Buffer.alloc(32, 12).toString('base64'));
   assert.equal(JSON.stringify(supplied.userDescriptor).includes('cell-private'), false);
 });

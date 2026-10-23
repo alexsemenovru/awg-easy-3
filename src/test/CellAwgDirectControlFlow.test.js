@@ -16,6 +16,7 @@ const { listenTunnelControlEndpoint, syncCellSettings } = require('../lib/CellCo
 const { CellSettingsPublisher } = require('../lib/CellSettingsPublisher');
 const { CellSettingsReceiver } = require('../lib/CellSettingsReceiver');
 const { CellUserDescriptorStore } = require('../lib/CellUserDescriptorStore');
+const { CellDataKeyStore } = require('../lib/CellDataKeyStore');
 const { generateOfficialProfile } = require('../lib/Awg3Config');
 
 const key = () => crypto.randomBytes(32).toString('base64');
@@ -65,9 +66,11 @@ test('v2 AWG invitation, permanent identity and signed control form one fail-clo
     const publisher = new CellSettingsPublisher(path.join(directory, 'desired.json'),
       controllerIds, cellIdentity.publicKey);
     const descriptorStore = new CellUserDescriptorStore(path.join(directory, 'descriptor.json'));
+    const dataKeyStore = new CellDataKeyStore(path.join(directory, 'data-key.json'));
     const control = await listenTunnelControlEndpoint({ address: '127.0.0.1', port: 0,
       lifecycle: owned, identityStore: controllerIds, bootstrapStore,
-      publisherForCell: () => publisher, descriptorForCell: () => descriptorStore });
+      publisherForCell: () => publisher, descriptorForCell: () => descriptorStore,
+      dataKeyForCell: () => dataKeyStore });
     t.after(() => close(control));
     let applications = 0;
     const receiver = new CellSettingsReceiver(path.join(directory, 'received.json'), {
@@ -95,5 +98,12 @@ test('v2 AWG invitation, permanent identity and signed control form one fail-clo
     assert.deepEqual(await syncCellSettings({ ...options, userDescriptor }),
       { status: 'applied', revision: 1 });
     assert.deepEqual(await descriptorStore.read(), userDescriptor);
+    const dataPublicKey = key();
+    assert.deepEqual(await syncCellSettings({ ...options, dataPublicKey }),
+      { status: 'applied', revision: 1 });
+    assert.deepEqual(await dataKeyStore.read(), { version: 1, publicKey: dataPublicKey });
+    await assert.rejects(syncCellSettings({ ...options, dataPublicKey: key() }),
+      /Control reply rejected/);
+    assert.deepEqual(await dataKeyStore.read(), { version: 1, publicKey: dataPublicKey });
     assert.equal(applications, 1);
   });

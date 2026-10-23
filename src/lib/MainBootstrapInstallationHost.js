@@ -28,6 +28,7 @@ const { MainBootstrapConfigStore } = require('./MainBootstrapConfigStore');
 const { CellAwgPermanentRevisionStore } = require('./CellAwgPermanentRevisionStore');
 const { CellSettingsPublisher } = require('./CellSettingsPublisher');
 const { CellUserDescriptorStore } = require('./CellUserDescriptorStore');
+const { CellDataKeyStore } = require('./CellDataKeyStore');
 const { listenTunnelControlEndpoint } = require('./CellControlService');
 const { privateAddress } = require('./CellTunnelControlTransport');
 const { validEndpointHost } = require('./CellAwgEndpointHost');
@@ -139,6 +140,8 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
     identityStore, cellKey);
   const descriptorForCell = cellKey => new CellUserDescriptorStore(
     file(path.join('cell-descriptors', `${crypto.createHash('sha256').update(cellKey).digest('hex')}.json`)));
+  const dataKeyForCell = cellKey => new CellDataKeyStore(
+    file(path.join('cell-data-keys', `${crypto.createHash('sha256').update(cellKey).digest('hex')}.json`)));
 
   async function registeredRecord(invitationId) {
     if (typeof invitationId !== 'string' || !/^[a-f0-9]{32}$/.test(invitationId)) {
@@ -322,6 +325,10 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
       const record = await registeredRecord(invitationId);
       return descriptorForCell(record.cellKey).read();
     },
+    dataPublicKey: async invitationId => {
+      const record = await registeredRecord(invitationId);
+      return (await dataKeyForCell(record.cellKey).read())?.publicKey ?? null;
+    },
     entryDescriptors: async () => {
       const records = (await bootstrapStore.read()).invitations.filter(record =>
         record.status === 'consumed' && record.phase === 'closed' && record.cellKey);
@@ -384,7 +391,8 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
       }
       return listenTunnelControlEndpoint({ address: permanentControllerAddress,
         port: permanentControlPort, lifecycle: current.lifecycle,
-        identityStore, bootstrapStore, publisherForCell, descriptorForCell });
+        identityStore, bootstrapStore, publisherForCell, descriptorForCell,
+        dataKeyForCell });
     }),
     listen: async () => {
       const config = await verifiedConfig();
