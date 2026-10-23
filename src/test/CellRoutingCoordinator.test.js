@@ -54,6 +54,21 @@ test('parent AWG transaction can retain protection after routing commitment', as
   assert.equal(guard.active, true); assert.equal(await coordinator.verify(spec(0)), true);
   assert.throws(() => coordinator.apply(spec(1), { retainGuard: 'yes' }), /retention/);
 });
+test('retained routing guard releases only after committed readback remains valid', async t => {
+  const { coordinator, guard, verification, policy } = await fixture(t);
+  await assert.rejects(coordinator.releaseCommitted(), /No committed/);
+  await coordinator.apply(spec(0), { retainGuard: true });
+  verification.valid = false;
+  await assert.rejects(coordinator.releaseCommitted(), /not verified/);
+  assert.equal(guard.active, true);
+  verification.valid = true;
+  policy.state.committed = spec(1).nftSnapshot;
+  await assert.rejects(coordinator.releaseCommitted(), /disagrees/);
+  assert.equal(guard.active, true);
+  policy.state.committed = spec(0).nftSnapshot;
+  assert.deepEqual(await coordinator.releaseCommitted(), { guarded: false });
+  assert.equal(guard.active, false);
+});
 test('route failure after new policy restores both old components, guard retained', async t => {
   const { coordinator, guard, routes, policy } = await fixture(t);
   await coordinator.apply(spec(0)); routes.fail = true;

@@ -8,7 +8,7 @@ const { createAwgOwnership } = require('../lib/CellAwgOwnership');
 const { CellAwgPermanentPath } = require('../lib/CellAwgPermanentPath');
 
 const key = () => crypto.randomBytes(32).toString('base64');
-function fixture() {
+function fixture({ retainGuard = false } = {}) {
   const name = 'awgperm8';
   const config = `[Interface]\nPrivateKey = ${key()}\nListenPort = 53084\n`
     + `${renderInterfaceFields(generateOfficialProfile())}\n[Peer]\nPublicKey = ${key()}\n`
@@ -69,7 +69,8 @@ function fixture() {
     current: async () => structuredClone(currentPolicy),
   };
   const path = new CellAwgPermanentPath({ lifecycle, awg: awgTransaction,
-    routes: routeTransaction, firewall: nftTransaction, guard, spec, policy, routeCommands });
+    routes: routeTransaction, firewall: nftTransaction, guard, spec, policy, routeCommands,
+    retainGuard });
   return { path, events, spec, get guarded() { return guarded; },
     setFailPolicy: value => { failPolicy = value; }, setUp: value => { up = value; },
     setAwg: value => { awg = value; }, setLife: value => { life = value; },
@@ -102,6 +103,26 @@ test('failed permanent policy retains guard and recovery resumes without replaci
   assert.equal(f.guarded, false);
   assert.equal(f.events.filter(event => event === 'life-create').length, 1);
   assert.equal(f.events.filter(event => event === 'awg-init').length, 1);
+});
+
+test('data path stays guarded across recovery until a separate routing verifier passes', async () => {
+  const f = fixture({ retainGuard: true });
+  assert.deepEqual(await f.path.initialize(), { ready: true, guarded: true });
+  assert.equal(f.guarded, true);
+  assert.equal(await f.path.verifyOperational(), false);
+  assert.deepEqual(await f.path.recover(), { ready: true, guarded: true });
+  assert.equal(f.guarded, true);
+  await assert.rejects(f.path.releaseAfterRouting(async () => false), /Runtime not verified|Readback failed/);
+  assert.equal(f.guarded, true);
+  assert.deepEqual(await f.path.releaseAfterRouting(async () => true),
+    { ready: true, guarded: false });
+  assert.equal(await f.path.verifyOperational(), true);
+  assert.equal(f.events.filter(event => event === 'guard-release').length, 1);
+});
+
+test('non-data path cannot release guard through routing override', async () => {
+  const f = fixture();
+  await assert.rejects(f.path.releaseAfterRouting(async () => true), /Guarded data path/);
 });
 
 test('foreign permanent ownership and failed readback never release guard', async () => {

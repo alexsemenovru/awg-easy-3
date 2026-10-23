@@ -4,7 +4,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { runProcess } = require('./ProcessRunner');
 const { runNftBatch } = require('./NftBatchRunner');
-const { routingGuardSnapshot, nftFingerprint, planNftReplacement } = require('./CellNftOwnership');
+const { routingGuardSnapshot, nftFingerprint, planNftReplacement, dataTable } = require('./CellNftOwnership');
 const DEFAULT_TABLE = 'awg_easy_3_routing_guard';
 const queues = new Map();
 const snapshot = (names, table) => names.length ? routingGuardSnapshot(names, table) : null;
@@ -38,8 +38,9 @@ function validate(value) {
 class CellRoutingGuard {
   constructor({ journalPath, runner = runProcess, table = DEFAULT_TABLE }) {
     if (typeof journalPath !== 'string' || !journalPath
-      || !['awg_easy_3_routing_guard', 'awg_easy_3_bootstrap_guard',
-        'awg_easy_3_control_guard', 'awg_easy_3_cell_guard'].includes(table)) {
+      || !(['awg_easy_3_routing_guard', 'awg_easy_3_bootstrap_guard',
+        'awg_easy_3_control_guard', 'awg_easy_3_cell_guard'].includes(table)
+        || dataTable(table, true))) {
       throw new TypeError('Guard journal and owned table required');
     }
     this.file = path.resolve(journalPath); this.runner = runner; this.table = table;

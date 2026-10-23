@@ -10,20 +10,21 @@ const same = (left, right) => JSON.stringify(left) === JSON.stringify(right);
 // installation-wide process lock and supplies a trusted, persisted plan.
 // This component does not attest a handshake or retire a temporary invitation.
 class CellAwgPermanentPath {
-  constructor({ lifecycle, awg, routes, firewall, guard, spec, policy, routeCommands }) {
+  constructor({ lifecycle, awg, routes, firewall, guard, spec, policy, routeCommands,
+    retainGuard = false }) {
     if (!lifecycle || !['load', 'create', 'recover', 'verify'].every(name => typeof lifecycle[name] === 'function')
       || !awg || !['load', 'initialize', 'recover', 'inspect'].every(name => typeof awg[name] === 'function')
       || !routes || !['load', 'apply', 'recover', 'inventory'].every(name => typeof routes[name] === 'function')
       || !firewall || !['load', 'apply', 'recover', 'current', 'equal', 'normalize'].every(name => typeof firewall[name] === 'function')
       || !guard || !['load', 'current', 'recover', 'protect', 'release'].every(name => typeof guard[name] === 'function')
-      || !Array.isArray(routeCommands) || !policy) {
+      || !Array.isArray(routeCommands) || !policy || typeof retainGuard !== 'boolean') {
       throw new TypeError('Permanent AWG path dependencies required');
     }
     this.spec = specification(spec);
     if (!this.spec.owner.config || !this.spec.owner.interfaceName) {
       throw new TypeError('Permanent AWG identity required');
     }
-    Object.assign(this, { lifecycle, awg, routes, firewall, guard,
+    Object.assign(this, { lifecycle, awg, routes, firewall, guard, retainGuard,
       policy: firewall.normalize(policy), routeCommands: manifest(routeCommands).map(item => item.command) });
     this.interfaceName = this.spec.owner.interfaceName;
   }
@@ -92,8 +93,19 @@ class CellAwgPermanentPath {
       await this.firewall.apply(this.policy);
     }
     if (!await this.verifyOwned()) throw new Error('Permanent AWG path readback failed');
-    await this.guard.release(() => this.verifyOwned());
-    return { ready: true };
+    if (!this.retainGuard) await this.guard.release(() => this.verifyOwned());
+    return { ready: true, ...(this.retainGuard ? { guarded: true } : {}) };
+  }
+
+  // Data links must remain fail-closed until their separate user-routing
+  // transaction has committed and verified. Never infer this from AWG alone.
+  async releaseAfterRouting(verifyRouting) {
+    if (!this.retainGuard || typeof verifyRouting !== 'function') {
+      throw new TypeError('Guarded data path and routing verifier required');
+    }
+    await this.guard.release(async () => await this.verifyOwned()
+      && await verifyRouting() === true);
+    return { ready: true, guarded: false };
   }
 
   async assertFresh() {

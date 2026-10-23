@@ -146,6 +146,18 @@ class CellRoutingCoordinator {
       return { applied: true, guarded: retainGuard };
     });
   }
+  releaseCommitted() {
+    return this.exclusive(async () => {
+      const saved = await this.load();
+      if (saved.pending || !saved.committed) {
+        throw new Error('No committed routing specification to release');
+      }
+      await this.protect(saved.committed.interfaces);
+      await this.checkChildren(saved);
+      await this.guard.release(() => this.verify(saved.committed));
+      return { guarded: false };
+    });
+  }
   recover() {
     return this.exclusive(async () => {
       const saved = await this.load(), desired = saved.pending?.desired || saved.committed;

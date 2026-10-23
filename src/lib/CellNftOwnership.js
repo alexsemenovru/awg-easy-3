@@ -3,6 +3,12 @@ const crypto = require('node:crypto');
 const TABLES = new Set(['awg_easy_3', 'awg_easy_3_routes', 'awg_easy_3_routing_guard',
   'awg_easy_3_bootstrap', 'awg_easy_3_bootstrap_guard',
   'awg_easy_3_control', 'awg_easy_3_control_guard', 'awg_easy_3_cell_guard']);
+function dataTable(table, guard = false) {
+  const match = typeof table === 'string'
+    && table.match(new RegExp(`^awg_easy_3_data_${guard ? 'guard_' : ''}(cell|(?:0|[1-9][0-9]{0,2}))$`));
+  return Boolean(match && (match[1] === 'cell' || Number(match[1]) <= 126));
+}
+const ownedTable = table => TABLES.has(table) || dataTable(table) || dataTable(table, true);
 const plain = value => value && typeof value === 'object' && !Array.isArray(value);
 const stable = value => {
   if (Array.isArray(value)) return value.map(stable);
@@ -10,7 +16,7 @@ const stable = value => {
   return Object.fromEntries(Object.keys(value).sort().map(key => [key, stable(value[key])]));
 };
 function normalizeNftSnapshot(snapshot, table) {
-  if (!TABLES.has(table) || !plain(snapshot) || Object.keys(snapshot).join(',') !== 'nftables'
+  if (!ownedTable(table) || !plain(snapshot) || Object.keys(snapshot).join(',') !== 'nftables'
     || !Array.isArray(snapshot.nftables) || snapshot.nftables.length > 50000) throw new TypeError('Invalid cell nft snapshot');
   const objects = []; let tables = 0;
   for (const item of snapshot.nftables) {
@@ -56,7 +62,7 @@ function nftFingerprint(snapshot, table) {
   return crypto.createHash('sha256').update(JSON.stringify(canonicalNftSnapshot(snapshot, table))).digest('hex');
 }
 function planNftReplacement({ table, current, owned, desired }) {
-  if (!TABLES.has(table)) throw new TypeError('Not a cell routing table');
+  if (!ownedTable(table)) throw new TypeError('Not a cell routing table');
   const normalize = value => value === null ? null : normalizeNftSnapshot(value, table);
   const actual = normalize(current), previous = normalize(owned), next = normalize(desired);
   const same = (a, b) => a === null || b === null ? a === b
@@ -74,8 +80,9 @@ function routingGuardSnapshot(interfaces, table = 'awg_easy_3_routing_guard') {
   if (!Array.isArray(interfaces) || interfaces.length < 1 || interfaces.length > 256
     || interfaces.some(name => typeof name !== 'string' || !/^[a-zA-Z0-9_.-]{1,15}$/.test(name))
     || new Set(interfaces).size !== interfaces.length
-    || !['awg_easy_3_routing_guard', 'awg_easy_3_bootstrap_guard',
-      'awg_easy_3_control_guard', 'awg_easy_3_cell_guard'].includes(table)) {
+    || !(['awg_easy_3_routing_guard', 'awg_easy_3_bootstrap_guard',
+      'awg_easy_3_control_guard', 'awg_easy_3_cell_guard'].includes(table)
+      || dataTable(table, true))) {
     throw new TypeError('Invalid routing guard interfaces');
   }
   const nftables = [{ table: { family: 'inet', name: table } }];
@@ -90,4 +97,5 @@ function routingGuardSnapshot(interfaces, table = 'awg_easy_3_routing_guard') {
   // of rules inside each chain; the actual nft batch remains interleaved.
   return normalizeNftSnapshot({ nftables }, table);
 }
-module.exports = { normalizeNftSnapshot, nftFingerprint, planNftReplacement, routingGuardSnapshot };
+module.exports = { normalizeNftSnapshot, nftFingerprint, planNftReplacement,
+  routingGuardSnapshot, dataTable };

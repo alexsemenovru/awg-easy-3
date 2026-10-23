@@ -4,18 +4,23 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { specification } = require('./CellAwgLifecycle');
-const { normalizeNftSnapshot } = require('./CellNftOwnership');
 const { manifest } = require('./CellRouteOwnership');
+const { normalizeNftSnapshot, dataTable } = require('./CellNftOwnership');
 
 const TABLE = 'awg_easy_3_control';
 const LIMIT = 1024 * 1024;
 
-function validatePermanentPlan(value) {
+function validatePermanentPlan(value, { policyTable = TABLE } = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)
     || Object.keys(value).sort().join(',') !== 'policy,routeCommands,spec,version'
     || value.version !== 1) throw new TypeError('Invalid permanent AWG plan');
   const spec = specification(value.spec);
-  const policy = normalizeNftSnapshot(value.policy, TABLE);
+  // Only the fixed control table or one bounded, per-link data table may be
+  // persisted here; the caller's store pins which one it owns.
+  if (policyTable !== TABLE && !dataTable(policyTable)) {
+    throw new TypeError('Invalid permanent AWG policy table');
+  }
+  const policy = normalizeNftSnapshot(value.policy, policyTable);
   const routes = manifest(value.routeCommands);
   const routeCommands = routes.map(item => item.command);
   if (routes.some(item => item.record.kind !== 'route' || item.record.type !== 'unicast'
@@ -30,9 +35,10 @@ function validatePermanentPlan(value) {
 }
 
 class CellAwgPermanentPlanStore {
-  constructor(filePath) {
+  constructor(filePath, { policyTable = TABLE } = {}) {
     if (typeof filePath !== 'string' || !filePath) throw new TypeError('Permanent plan path required');
     this.filePath = path.resolve(filePath);
+    this.policyTable = policyTable;
   }
 
   async directory() {
@@ -60,7 +66,7 @@ class CellAwgPermanentPlanStore {
       if (error.code === 'ENOENT') return null;
       throw error;
     }
-    try { return validatePermanentPlan(JSON.parse(raw)); }
+    try { return validatePermanentPlan(JSON.parse(raw), { policyTable: this.policyTable }); }
     catch { throw new Error('Unreadable permanent AWG plan; automatic replacement disabled'); }
   }
 
@@ -68,7 +74,8 @@ class CellAwgPermanentPlanStore {
     if (!plan || (Object.hasOwn(plan, 'version') && plan.version !== 1)) {
       throw new TypeError('Unsupported permanent AWG plan version');
     }
-    const normalized = validatePermanentPlan({ ...plan, version: 1 });
+    const normalized = validatePermanentPlan({ ...plan, version: 1 },
+      { policyTable: this.policyTable });
     const directory = await this.directory();
     const temporary = path.join(directory, `.permanent-plan-${crypto.randomUUID()}.tmp`);
     try {
