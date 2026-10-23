@@ -52,3 +52,18 @@ test('Main readiness checks pinned controller identity and its own data address'
   assert.equal(await verifiedCellDataLink({ ...input,
     keyManager: { derivePublicKey: async () => Buffer.alloc(32, 9).toString('base64') } }), null);
 });
+
+test('equivalent expanded IPv6 descriptor matches canonical owned interface address', async () => {
+  const dual = { ...descriptor, controllerAddress6: 'fd91::1',
+    cellAddress6: 'fd91:0:0:0:0:0:0:2',
+    controllerClientSubnet6: 'fd46::/64', cellClientSubnet6: 'fd88::/64' };
+  const input = { cellId: 'b'.repeat(32), descriptor: dual, role: 'cell',
+    routingSpec: { ...routingSpec, interfaces: ['awg0', 'awgdata0'] },
+    dataPath: { interfaceName: 'awgdata0', spec: {
+      addresses: ['10.252.0.2/32', 'fd91::2/128'],
+      owner: { config: `[Interface]\nPrivateKey = ${Buffer.alloc(32, 5).toString('base64')}\n[Peer]\nPublicKey = ${key}\n` },
+    }, verifyOperational: async () => true },
+    routing: { verifyOperational: async () => true },
+    verifyHandshake: async () => true };
+  assert.equal((await verifiedCellDataLink(input)).ipv6, true);
+});

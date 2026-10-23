@@ -4,6 +4,8 @@ const { validateDataLinkDescriptor } = require('./CellDataLinkConfig');
 const { specification } = require('./CellRoutingCoordinator');
 const { normalizeAwgConfig } = require('./CellAwgSnapshot');
 const { AwgKeyManager } = require('./AwgKeyManager');
+const { formatIPv6 } = require('./AddressAllocator');
+const { ipNumber } = require('./GeoIpAddress');
 
 // A signed offer, an AWG interface, and even a fresh handshake are each
 // insufficient to advertise a usable client path. Both durable guards must
@@ -26,7 +28,8 @@ async function verifiedCellDataLink({ cellId, descriptor, role, dataPath, routin
   const expectedName = role === 'main' ? `awgd${link.slot}` : 'awgdata0';
   const local4 = role === 'main' ? link.controllerAddress4 : link.cellAddress4;
   const local6 = role === 'main' ? link.controllerAddress6 : link.cellAddress6;
-  const addresses = [`${local4}/32`, ...(local6 ? [`${local6}/128`] : [])].sort();
+  const addresses = [`${local4}/32`, ...(local6
+    ? [`${formatIPv6(ipNumber(local6))}/128`] : [])].sort();
   if (link.slot === undefined || dataPath.interfaceName !== expectedName
     || !dataPath.spec?.owner?.config
     || JSON.stringify(dataPath.spec.addresses) !== JSON.stringify(addresses)) return null;
