@@ -267,3 +267,24 @@ test('Main serve seeds joined Cell settings during reconciliation', async () => 
   await service.close();
   assert.deepEqual(seeded, [id]);
 });
+
+test('Main reserves a data offer after both Cell announcements without activating traffic', async () => {
+  const id = 'c'.repeat(32), calls = [];
+  const host = {
+    isPristine: async () => false,
+    resume: async () => ({ ready: true }),
+    recoverPermanentBoot: async () => ({ configured: false }),
+    listen: async () => ({ close: async () => {} }),
+    cells: async () => [{ id, status: 'consumed', phase: 'closed',
+      settings: { desiredRevision: 1 } }],
+    dataPublicKey: async () => 'announced-key',
+    userDescriptor: async () => ({ version: 1 }),
+    prepareDataOffer: async value => { calls.push(value); return { created: true }; },
+    reconcileClientAssignments: async () => ({}),
+  };
+  const service = await runMainBootstrapCli({ args: ['serve'],
+    env: { ...environment(), AWG_MAIN_USER_STATE_FILE: path.resolve('data/state.json') },
+    output: { write() {} }, openHost: async () => host });
+  await service.reconcile(); await service.close();
+  assert.deepEqual(calls, [id]);
+});

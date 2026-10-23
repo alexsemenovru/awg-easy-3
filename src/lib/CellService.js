@@ -7,6 +7,7 @@ const { openRegisteredCellHost } = require('./CellRegisteredHost');
 const { AwgKeyManager } = require('./AwgKeyManager');
 const { validateCellUserDescriptor } = require('./CellUserDescriptor');
 const { CellDataIdentityStore } = require('./CellDataIdentityStore');
+const { CellReceivedDataOfferStore } = require('./CellReceivedDataOfferStore');
 
 // The service deliberately starts from a registered, persistent Cell state.
 // Missing GeoIP data cannot silently disable a signed country policy:
@@ -41,6 +42,9 @@ async function openCellServiceHost({ config, bootstrapHost,
     || dataIdentity.privateKey === connection.permanent?.privateKey) {
     throw new Error('Cell data link requires an independent AWG key');
   }
+  const receivedDataOffer = new CellReceivedDataOfferStore(
+    path.join(stateDirectory, 'received-data-offer.json'), user.server);
+  await receivedDataOffer.read();
   let host;
   const userDescriptor = config.endpointHost ? validateCellUserDescriptor({
     version: 1, endpointHost: config.endpointHost, endpointPort: user.server.listenPort,
@@ -59,6 +63,7 @@ async function openCellServiceHost({ config, bootstrapHost,
     temporaryInterfaceName: interfaceName,
     server: user.server, userDescriptor,
     dataPublicKey: dataIdentity.publicKey,
+    receiveDataOffer: offer => receivedDataOffer.reserve(offer),
     geoDatabase: async () => geo.current?.database || {} });
   // A missing cache may require a network download. Guard user traffic before
   // waiting for it, not only inside the later permanent-path recovery.

@@ -146,6 +146,15 @@ async function runMainBootstrapCli({ args, env, input, output,
             && cell.settings?.desiredRevision === null) {
             await host.ensureInitialSettings(cell.id);
           }
+          if (config.userStateFile && cell.status === 'consumed'
+            && cell.phase === 'closed' && typeof host.dataPublicKey === 'function'
+            && typeof host.userDescriptor === 'function'
+            && typeof host.prepareDataOffer === 'function'
+            && await host.dataPublicKey(cell.id) && await host.userDescriptor(cell.id)) {
+            // Idempotent reservation only. A signed offer does not activate
+            // routing or authorize Home traffic before verified data startup.
+            await host.prepareDataOffer(cell.id);
+          }
         }
         await host.reconcileClientAssignments();
         if (!control) {

@@ -13,7 +13,7 @@ const { buildCellArtifacts } = require('./CellArtifacts');
 // before opening this host and never exposes its internal lock to the UI.
 async function openRegisteredCellHost({ stateDirectory, runtimeDirectory,
   connectionStore, identityStore, bootstrap, temporaryInterfaceName,
-  server, userDescriptor, dataPublicKey, geoDatabase, runner,
+  server, userDescriptor, dataPublicKey, receiveDataOffer, geoDatabase, runner,
   openSettings = openCellSettingsRuntime,
   openPermanent = createPermanentCellRuntime,
   withLock = withCellInstallationLock } = {}) {
@@ -34,7 +34,7 @@ async function openRegisteredCellHost({ stateDirectory, runtimeDirectory,
   const permanent = openPermanent({ stateDirectory: path.join(stateDirectory, 'permanent'),
     connectionStore, bootstrap, temporaryInterfaceName,
     receiver: settings.receiver, clientRuntime: settings.adapter, userDescriptor,
-    dataPublicKey,
+    dataPublicKey, receiveDataOffer,
     ...(runner ? { runner } : {}) });
   if (!permanent || !['recoverBoot', 'join', 'syncSettings']
     .every(name => typeof permanent[name] === 'function')) {

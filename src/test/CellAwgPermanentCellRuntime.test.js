@@ -77,3 +77,25 @@ test('cell settings sync uses only the registered permanent AWG address after pa
   assert.equal(calls.length, 2);
   assert.equal(poller.status.state, 'stopped');
 });
+
+test('Cell accepts a signed data offer only after the permanent AWG sync succeeds', async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-cell-data-sync-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const connectionStore = { read: async () => ({ status: 'registered', controllerPath: {
+    controllerAddress: '10.91.8.1', controlPort: 53083 } }) };
+  const calls = [], identityStore = {};
+  const runtime = createPermanentCellRuntime({ stateDirectory: directory,
+    connectionStore, bootstrap: bootstrap(), temporaryInterfaceName: 'awgjoin8',
+    receiver: { restoreApplied: async () => ({}) },
+    clientRuntime: { prepareBoot: async () => {} },
+    dataPublicKey: Buffer.alloc(32, 7).toString('base64'),
+    sync: async () => { calls.push('settings'); return { status: 'no-settings' }; },
+    fetchDataOffer: async options => { assert.equal(options.host, '10.91.8.1');
+      calls.push('fetch'); return { signed: true }; },
+    receiveDataOffer: async offer => { assert.deepEqual(offer, { signed: true });
+      calls.push('reserve'); },
+  });
+  runtime.gate.verifyCell = async () => true;
+  await runtime.syncSettings({ identityStore });
+  assert.deepEqual(calls, ['settings', 'fetch', 'reserve']);
+});
