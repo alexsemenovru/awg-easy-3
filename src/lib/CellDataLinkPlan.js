@@ -39,6 +39,9 @@ async function controllerDataLinkPlan({ storedOffer, slot,
     throw new TypeError('Stored Main data offer required');
   }
   const descriptor = validateDataLinkDescriptor(storedOffer.descriptor);
+  if (descriptor.slot !== undefined && descriptor.slot !== slot) {
+    throw new Error('Data offer slot differs from owned Main interface');
+  }
   validateKey(storedOffer.cellPublicKey, 'cellDataPublicKey');
   const rendered = await renderDataControllerConfig({ privateKey: storedOffer.controllerPrivateKey,
     descriptor, cellPublicKey: storedOffer.cellPublicKey,

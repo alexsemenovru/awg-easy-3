@@ -31,6 +31,8 @@ const { CellUserDescriptorStore } = require('./CellUserDescriptorStore');
 const { CellDataKeyStore } = require('./CellDataKeyStore');
 const { CellDataOfferStore } = require('./CellDataOfferStore');
 const { allocateCellDataLink } = require('./CellDataLinkAllocator');
+const { controllerDataLinkPlan } = require('./CellDataLinkPlan');
+const { stageCellDataPlan } = require('./CellDataStage');
 const { listenTunnelControlEndpoint } = require('./CellControlService');
 const { privateAddress } = require('./CellTunnelControlTransport');
 const { validEndpointHost } = require('./CellAwgEndpointHost');
@@ -51,6 +53,8 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
   permanentEndpointPort, permanentControllerAddress, permanentControlPort,
   resources, runner = runProcess,
   keyManager = new AwgKeyManager({ runner }), preflight = assertFreeCellHostResources,
+  newDataDeployment = options => new CellAwgPermanentDeployment(options),
+  stageData = stageCellDataPlan,
   withLock = withCellInstallationLock,
   prepareStateDirectory = prepareCellInstallationStateDirectory } = {}) {
   if (typeof stateDirectory !== 'string' || !path.isAbsolute(stateDirectory)
@@ -78,6 +82,7 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
       'awg_easy_3_control', 'awg_easy_3_control_guard']
       .every(name => resources.nftTables.includes(name))
     || typeof runner !== 'function' || typeof preflight !== 'function'
+    || typeof newDataDeployment !== 'function' || typeof stageData !== 'function'
     || typeof withLock !== 'function' || typeof prepareStateDirectory !== 'function') {
     throw new TypeError('Complete Main bootstrap installation reservation required');
   }
@@ -396,6 +401,7 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
       }
       const keys = await keyManager.generatePeerKeys();
       const descriptor = { version: 1, endpointHost,
+        slot: allocation.slot,
         endpointPort: allocation.endpointPort,
         controllerAddress4: allocation.controllerAddress4,
         cellAddress4: allocation.cellAddress4,
@@ -411,6 +417,21 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
         controllerPrivateKey: keys.privateKey, cellPublicKey: pinned.publicKey,
         presharedKey: keys.presharedKey });
       return { created: true, offer: await offerStore.publicOffer(pinned.publicKey) };
+    }),
+    stageDataLink: invitationId => locked(async () => {
+      const record = await registeredRecord(invitationId);
+      const storedOffer = await dataOfferForCell(record.cellKey).read();
+      if (!storedOffer || !Number.isSafeInteger(storedOffer.descriptor.slot)) {
+        throw new Error('Allocated Cell data offer required before staging');
+      }
+      const expected = await controllerDataLinkPlan({ storedOffer,
+        slot: storedOffer.descriptor.slot, keyManager });
+      const directory = file(path.join('data-links',
+        crypto.createHash('sha256').update(record.cellKey).digest('hex')));
+      const dataDeployment = newDataDeployment({ stateDirectory: directory,
+        runner, policyTable: expected.policyTable,
+        guardTable: expected.guardTable, retainGuard: true });
+      return stageData({ deployment: dataDeployment, expected });
     }),
     entryDescriptors: async () => {
       const records = (await bootstrapStore.read()).invitations.filter(record =>

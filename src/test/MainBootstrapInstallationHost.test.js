@@ -221,7 +221,7 @@ test('Main prepares one immutable Cell data offer from pinned announcements and 
       profile: generateOfficialProfile() },
     clients: [{ id: 'home', name: 'Owner', networkGroup: 'home', enabled: true,
       address4: '10.8.0.2', privateKey: key(3), publicKey: key(4) }] });
-  const reservations = [];
+  const reservations = [], staged = [];
   const host = await openMainBootstrapInstallationHost({ ...options(),
     stateDirectory: directory, userStateFile,
     keyManager: { generateKeyPair: async () => ({ privateKey: key(30), publicKey: key(31) }),
@@ -229,7 +229,9 @@ test('Main prepares one immutable Cell data offer from pinned announcements and 
       generatePeerKeys: async () => ({ privateKey: key(30), publicKey: key(31),
         presharedKey: key(32) }) },
     prepareStateDirectory: async () => {}, withLock: async ({ work }) => work(),
-    preflight: async input => { reservations.push(input); return { free: true }; } });
+    preflight: async input => { reservations.push(input); return { free: true }; },
+    newDataDeployment: input => input,
+    stageData: async input => { staged.push(input); return { ready: true, guarded: true }; } });
   host.bootstrapStore.read = async () => ({ invitations: [{ id, status: 'consumed',
     phase: 'closed', cellKey, awgPublicKey: key(20), cellAddress: '10.90.8.2',
     permanentDescriptor: { cellAddress: '10.91.8.2' } }] });
@@ -244,10 +246,14 @@ test('Main prepares one immutable Cell data offer from pinned announcements and 
   const first = await host.prepareDataOffer(id);
   assert.equal(first.created, true);
   assert.equal(first.offer.descriptor.endpointPort, 53000);
+  assert.equal(first.offer.descriptor.slot, 0);
   assert.equal(first.offer.descriptor.cellAddress4, '10.252.0.2');
   assert.equal(first.offer.descriptor.cellClientSubnet4, '10.64.0.0/24');
   assert.ok(!JSON.stringify(first.offer).includes(key(30)));
   assert.equal(reservations.length, 1);
+  assert.deepEqual(await host.stageDataLink(id), { ready: true, guarded: true });
+  assert.equal(staged[0].expected.plan.spec.owner.interfaceName, 'awgd0');
+  assert.equal(staged[0].deployment.policyTable, 'awg_easy_3_data_0');
   assert.deepEqual(reservations[0].interfaceNames, ['awgd0']);
   const again = await host.prepareDataOffer(id);
   assert.equal(again.created, false);

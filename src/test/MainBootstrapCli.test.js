@@ -280,11 +280,13 @@ test('Main reserves a data offer after both Cell announcements without activatin
     dataPublicKey: async () => 'announced-key',
     userDescriptor: async () => ({ version: 1 }),
     prepareDataOffer: async value => { calls.push(value); return { created: true }; },
+    stageDataLink: async value => { calls.push(`stage:${value}`);
+      return { ready: true, guarded: true }; },
     reconcileClientAssignments: async () => ({}),
   };
   const service = await runMainBootstrapCli({ args: ['serve'],
     env: { ...environment(), AWG_MAIN_USER_STATE_FILE: path.resolve('data/state.json') },
     output: { write() {} }, openHost: async () => host });
   await service.reconcile(); await service.close();
-  assert.deepEqual(calls, [id]);
+  assert.deepEqual(calls, [id, `stage:${id}`]);
 });

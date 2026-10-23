@@ -8,10 +8,9 @@ const { validatePublicDataOffer } = require('./CellDataOfferStore');
 function validateForCell(offer, server) {
   const value = validatePublicDataOffer(offer);
   if (!server || value.descriptor.cellClientSubnet4 !== server.ipv4Subnet
-    || Boolean(value.descriptor.cellAddress6)
-      !== Boolean(server.address6 && server.ipv6Subnet)
     || value.descriptor.cellAddress6
-      && value.descriptor.cellClientSubnet6 !== server.ipv6Subnet) {
+      && (!server.address6 || !server.ipv6Subnet
+        || value.descriptor.cellClientSubnet6 !== server.ipv6Subnet)) {
     throw new Error('Data offer does not match this Cell user tunnel');
   }
   return value;

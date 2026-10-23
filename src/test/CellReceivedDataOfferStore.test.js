@@ -41,3 +41,11 @@ test('Cell rejects an offer for another user subnet and unsafe local journal', a
   await fs.chmod(file, 0o644);
   if (process.platform !== 'win32') await assert.rejects(store.read(), /Unsafe/);
 });
+
+test('IPv6-capable Cell may accept an IPv4-only link when Main lacks IPv6', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cell-received-data-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const store = new CellReceivedDataOfferStore(path.join(root, 'offer.json'), {
+    ...server, address6: 'fd88::1', ipv6Subnet: 'fd88::/64' });
+  assert.equal(await store.reserve(offer()), true);
+});

@@ -2,6 +2,8 @@
 
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const fs = require('node:fs/promises');
+const os = require('node:os');
 const test = require('node:test');
 const { startCellService, syncCellOnce } = require('../lib/CellService');
 const { generateOfficialProfile } = require('../lib/Awg3Config');
@@ -123,4 +125,36 @@ test('Cell service derives a public entry descriptor without exposing its privat
   assert.equal(supplied.userDescriptor.serverPublicKey, Buffer.alloc(32, 4).toString('base64'));
   assert.equal(supplied.dataPublicKey, Buffer.alloc(32, 12).toString('base64'));
   assert.equal(JSON.stringify(supplied.userDescriptor).includes('cell-private'), false);
+});
+
+test('Cell sync pins a signed offer and stages a separate guarded AWG plan', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cell-service-data-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const key = n => Buffer.alloc(32, n).toString('base64');
+  const server = { privateKey: key(4), ipv4Subnet: '10.88.0.0/24',
+    interfaceName: 'awguser0', listenPort: 51830 };
+  const offer = { version: 1, presharedKey: key(3), descriptor: {
+    version: 1, slot: 0, endpointHost: '198.51.100.4', endpointPort: 53000,
+    controllerAddress4: '10.252.0.1', cellAddress4: '10.252.0.2',
+    controllerPublicKey: key(2), controllerClientSubnet4: '10.8.0.0/24',
+    cellClientSubnet4: '10.88.0.0/24', profile: generateOfficialProfile() } };
+  let staged;
+  await syncCellOnce({ config: { ...config(), stateDirectory: root },
+    bootstrapHost: bootstrapHost(),
+    newStore: () => ({ read: async () => ({ server }) }),
+    newDataIdentity: () => ({ ensure: async () => ({ privateKey: key(5), publicKey: key(6) }) }),
+    newDataDeployment: options => ({ ...options, store: { read: async () => null } }),
+    stageData: async ({ expected }) => { staged = expected; return { guarded: true }; },
+    newGeoUpdater: () => ({ current: { database: {} }, load: async () => {} }),
+    openRegistered: async supplied => ({
+      protectUserTraffic: async () => {},
+      recoverBoot: async () => ({ configured: true }),
+      syncSettings: async () => { await supplied.receiveDataOffer(offer);
+        return { status: 'no-settings' }; },
+    }),
+  });
+  assert.equal(staged.plan.spec.owner.interfaceName, 'awgdata0');
+  assert.equal(staged.guardTable, 'awg_easy_3_data_guard_cell');
+  assert.equal(JSON.parse(await fs.readFile(path.join(root, 'received-data-offer.json'),
+    'utf8')).descriptor.controllerAddress4, '10.252.0.1');
 });

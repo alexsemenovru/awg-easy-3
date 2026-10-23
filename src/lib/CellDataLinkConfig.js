@@ -37,21 +37,24 @@ function validateDataLinkDescriptor(value) {
     'cellAddress4', 'controllerPublicKey', 'controllerClientSubnet4',
     'cellClientSubnet4', 'profile'];
   const optional = ['controllerAddress6', 'cellAddress6', 'controllerClientSubnet6',
-    'cellClientSubnet6'];
+    'cellClientSubnet6', 'slot'];
   if (!value || typeof value !== 'object' || Array.isArray(value)
     || required.some(key => !Object.hasOwn(value, key))
     || Object.keys(value).some(key => !required.includes(key) && !optional.includes(key))
     || value.version !== 1 || !validEndpointHost(value.endpointHost)
     || !Number.isSafeInteger(value.endpointPort) || value.endpointPort < 1
     || value.endpointPort > 65535 || !host(value.controllerAddress4)
+    || (value.slot !== undefined && (!Number.isSafeInteger(value.slot)
+      || value.slot < 0 || value.slot > 126))
     || !host(value.cellAddress4) || net.isIP(value.controllerAddress4) !== 4
     || net.isIP(value.cellAddress4) !== 4
     || value.controllerAddress4 === value.cellAddress4) {
     throw new TypeError('Invalid data link descriptor');
   }
   validateKey(value.controllerPublicKey, 'dataControllerPublicKey');
-  const has6 = optional.some(key => Object.hasOwn(value, key));
-  if (has6 && optional.some(key => !Object.hasOwn(value, key))) {
+  const ipv6Fields = optional.filter(key => key !== 'slot');
+  const has6 = ipv6Fields.some(key => Object.hasOwn(value, key));
+  if (has6 && ipv6Fields.some(key => !Object.hasOwn(value, key))) {
     throw new TypeError('Incomplete IPv6 data link descriptor');
   }
   if (has6 && (!host(value.controllerAddress6) || !host(value.cellAddress6)

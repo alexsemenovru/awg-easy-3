@@ -151,9 +151,10 @@ async function runMainBootstrapCli({ args, env, input, output,
             && typeof host.userDescriptor === 'function'
             && typeof host.prepareDataOffer === 'function'
             && await host.dataPublicKey(cell.id) && await host.userDescriptor(cell.id)) {
-            // Idempotent reservation only. A signed offer does not activate
-            // routing or authorize Home traffic before verified data startup.
+            // Reserve the signed offer, then stage its own AWG interface with
+            // an active durable guard. This never authorizes Home traffic.
             await host.prepareDataOffer(cell.id);
+            if (typeof host.stageDataLink === 'function') await host.stageDataLink(cell.id);
           }
         }
         await host.reconcileClientAssignments();
