@@ -5,7 +5,8 @@ const assert = require('node:assert/strict');
 const { CellDataActivation } = require('../lib/CellDataActivation');
 const { routingPolicySnapshot } = require('../lib/CellNftPolicyJson');
 
-function fixture({ phase = 'empty', probe = true, failRouting = false } = {}) {
+function fixture({ phase = 'empty', probe = true, failRouting = false,
+  failFinalRelease = false } = {}) {
   const events = [];
   let dataGuard = false, routingGuard = false;
   const dataPath = {
@@ -30,6 +31,7 @@ function fixture({ phase = 'empty', probe = true, failRouting = false } = {}) {
     verify: async () => !failRouting,
     releaseCommitted: async () => {
       assert.equal(dataGuard, false); assert.equal(routingGuard, true);
+      if (failFinalRelease) throw new Error('routing guard release failed');
       routingGuard = false; events.push('routing-release');
     },
   };
@@ -68,4 +70,13 @@ test('routing specification must include this dedicated data interface', async (
   const f = fixture();
   await assert.rejects(f.activation.activate({ ...f.spec, interfaces: ['awgclient'] }), /omits/);
   assert.deepEqual(f.events, []);
+});
+
+test('failed final release keeps the routing guard active', async () => {
+  const f = fixture({ failFinalRelease: true });
+  await assert.rejects(f.activation.activate(f.spec), /routing guard release failed/);
+  assert.equal(f.dataGuard, false);
+  assert.equal(f.routingGuard, true);
+  assert.ok(f.events.includes('data-release'));
+  assert.ok(!f.events.includes('routing-release'));
 });
