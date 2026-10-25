@@ -162,6 +162,12 @@ async function runMainBootstrapCli({ args, env, input, output,
           }
         }
         await host.reconcileClientAssignments();
+        if (typeof host.reconcileRoutingViews === 'function') {
+          await host.reconcileRoutingViews();
+        }
+        if (typeof host.activateDataRouting === 'function') {
+          await host.activateDataRouting();
+        }
         if (!control) {
           try {
             const current = await host.recoverPermanentBoot();

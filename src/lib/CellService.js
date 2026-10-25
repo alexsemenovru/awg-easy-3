@@ -14,6 +14,13 @@ const { CellAwgPermanentDeployment } = require('./CellAwgPermanentDeployment');
 const { cellDataLinkPlan } = require('./CellDataLinkPlan');
 const { stageCellDataPlan } = require('./CellDataStage');
 const { normalizeAwgConfig } = require('./CellAwgSnapshot');
+const { CellRoutingInbox } = require('./CellRoutingInbox');
+const { CellRoutingCoordinator } = require('./CellRoutingCoordinator');
+const { CellDataActivation } = require('./CellDataActivation');
+const { compileCellRouting } = require('./CellRoutingPolicy');
+const { verifyCellDataHandshake } = require('./CellDataHandshake');
+const { addressInSubnet } = require('./AddressAllocator');
+const { runProcess } = require('./ProcessRunner');
 
 // The service deliberately starts from a registered, persistent Cell state.
 // Missing GeoIP data cannot silently disable a signed country policy:
@@ -25,10 +32,17 @@ async function openCellServiceHost({ config, bootstrapHost,
   newDataIdentity = (filePath, manager) => new CellDataIdentityStore(filePath, manager),
   newDataDeployment = options => new CellAwgPermanentDeployment(options),
   stageData = stageCellDataPlan,
-  keyManager = new AwgKeyManager() } = {}) {
+  newRoutingCoordinator = options => new CellRoutingCoordinator(options),
+  newDataActivation = options => new CellDataActivation(options),
+  compileRouting = compileCellRouting,
+  probeData = verifyCellDataHandshake,
+  keyManager = new AwgKeyManager(), runner = runProcess } = {}) {
   if (!config || !bootstrapHost || typeof openRegistered !== 'function'
     || typeof newStore !== 'function' || typeof newGeoUpdater !== 'function'
-    || typeof newDataDeployment !== 'function' || typeof stageData !== 'function') {
+    || typeof newDataDeployment !== 'function' || typeof stageData !== 'function'
+    || typeof newRoutingCoordinator !== 'function' || typeof newDataActivation !== 'function'
+    || typeof compileRouting !== 'function' || typeof probeData !== 'function'
+    || typeof runner !== 'function') {
     throw new TypeError('Cell service dependencies required');
   }
   const { stateDirectory, runtimeDirectory, interfaceName, resources } = config;
@@ -57,7 +71,7 @@ async function openCellServiceHost({ config, bootstrapHost,
   const dataDeployment = newDataDeployment({
     stateDirectory: path.join(stateDirectory, 'data-link'),
     policyTable: 'awg_easy_3_data_cell',
-    guardTable: 'awg_easy_3_data_guard_cell', retainGuard: true });
+    guardTable: 'awg_easy_3_data_guard_cell', retainGuard: true, runner });
   let stagedInProcess = false;
   const stageOffer = async offer => {
     if (stagedInProcess) return { created: false, staged: true };
@@ -86,6 +100,51 @@ async function openCellServiceHost({ config, bootstrapHost,
     return result;
   };
   let host;
+  let routingActivated = false;
+  const routingInbox = new CellRoutingInbox(path.join(stateDirectory, 'routing-inbox.json'), {
+    controllerKey: connection.controllerKey, cellKey: connection.cellKey,
+    nodeId: connection.invitationId,
+    assignments: () => host.appliedAssignments(),
+    apply: async view => {
+      if (!view.panel || !addressInSubnet(view.panel.address4,
+        activeOffer.descriptor.controllerClientSubnet4)
+        || view.panel.address6 && (!activeOffer.descriptor.controllerClientSubnet6
+          || !addressInSubnet(view.panel.address6,
+            activeOffer.descriptor.controllerClientSubnet6))
+        || view.links.length !== 1 || view.links[0].peer !== 'main'
+        || view.links[0].ipv4 !== true) {
+        throw new Error('Signed routing view differs from pinned data link');
+      }
+      const saved = await dataDeployment.store.read();
+      if (!saved) throw new Error('Cell data link not staged');
+      const dataPath = dataDeployment.buildPath({ stateDirectory: dataDeployment.stateDirectory,
+        plan: saved, runner, policyTable: dataDeployment.policyTable,
+        guardTable: dataDeployment.guardTable, retainGuard: true });
+      const routing = newRoutingCoordinator({
+        directory: path.join(stateDirectory, 'routing-runtime'), runner,
+        verifyInterfaces: async names => names.length === 2
+          && names.includes(user.server.interfaceName)
+          && names.includes(dataPath.interfaceName)
+          && await dataPath.verifyOwned()
+          && await host.verifyUserRuntime(),
+      });
+      const policy = compileRouting({ routingView: view, nodeId: connection.invitationId,
+        context: { clientInterface: user.server.interfaceName,
+          wanInterface: user.server.wanInterface,
+          nat66: user.server.ipv6Mode === 'nat66',
+          links: { main: { interfaceName: dataPath.interfaceName,
+            table: 52000, priority: 20000 } }, panel: view.panel },
+        geoDatabase: geo.current?.database || {} });
+      const activation = newDataActivation({ dataPath, routing,
+        verifyDataLink: () => probeData({
+          interfaceName: dataPath.interfaceName,
+          peerPublicKey: activeOffer.descriptor.controllerPublicKey, runner }) });
+      await activation.activate({ version: 1,
+        interfaces: [user.server.interfaceName, dataPath.interfaceName],
+        commands: policy.commands, nftSnapshot: policy.nftSnapshot });
+    },
+  });
+  let activeOffer = cachedOffer;
   const userDescriptor = config.endpointHost ? validateCellUserDescriptor({
     version: 1, endpointHost: config.endpointHost, endpointPort: user.server.listenPort,
     serverPublicKey: await keyManager.derivePublicKey(user.server.privateKey),
@@ -106,6 +165,18 @@ async function openCellServiceHost({ config, bootstrapHost,
     receiveDataOffer: async offer => {
       await receivedDataOffer.reserve(offer);
       await stageOffer(offer);
+      activeOffer = offer;
+    },
+    receiveRoutingRevision: async (envelope, offer) => {
+      if (!activeOffer || JSON.stringify(activeOffer) !== JSON.stringify(offer)) {
+        throw new Error('Routing revision has no pinned Cell data offer');
+      }
+      const prior = await routingInbox.load();
+      await routingInbox.receive(envelope);
+      if (!routingActivated && prior?.applied?.revision === envelope.revision) {
+        await routingInbox.restoreApplied();
+      }
+      routingActivated = true;
     },
     stageDataLink: cachedOffer ? () => stageOffer(cachedOffer) : undefined,
     geoDatabase: async () => geo.current?.database || {} });

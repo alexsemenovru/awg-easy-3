@@ -13,7 +13,8 @@ const { buildCellArtifacts } = require('./CellArtifacts');
 // before opening this host and never exposes its internal lock to the UI.
 async function openRegisteredCellHost({ stateDirectory, runtimeDirectory,
   connectionStore, identityStore, bootstrap, temporaryInterfaceName,
-  server, userDescriptor, dataPublicKey, receiveDataOffer, stageDataLink,
+  server, userDescriptor, dataPublicKey, receiveDataOffer, receiveRoutingRevision,
+  stageDataLink,
   geoDatabase, runner,
   openSettings = openCellSettingsRuntime,
   openPermanent = createPermanentCellRuntime,
@@ -35,7 +36,7 @@ async function openRegisteredCellHost({ stateDirectory, runtimeDirectory,
   const permanent = openPermanent({ stateDirectory: path.join(stateDirectory, 'permanent'),
     connectionStore, bootstrap, temporaryInterfaceName,
     receiver: settings.receiver, clientRuntime: settings.adapter, userDescriptor,
-    dataPublicKey, receiveDataOffer,
+    dataPublicKey, receiveDataOffer, receiveRoutingRevision,
     ...(runner ? { runner } : {}) });
   if (!permanent || !['recoverBoot', 'join', 'syncSettings']
     .every(name => typeof permanent[name] === 'function')) {
@@ -49,6 +50,19 @@ async function openRegisteredCellHost({ stateDirectory, runtimeDirectory,
     recoverBoot: options => locked(() => permanent.recoverBoot(options)),
     join: options => locked(() => permanent.join(options)),
     syncSettings: sync,
+    appliedAssignments: async () => {
+      const applied = (await settings.receiver.load())?.applied;
+      if (!applied) throw new Error('Signed Cell assignments not applied');
+      return verifySettings(applied, settings.receiver.trust).settings;
+    },
+    verifyUserRuntime: async () => {
+      const applied = (await settings.receiver.load())?.applied;
+      if (!applied) return false;
+      const payload = verifySettings(applied, settings.receiver.trust).settings;
+      const artifacts = buildCellArtifacts({ server, settings: payload,
+        geoDatabase: await settings.adapter.geoDatabase() });
+      return settings.adapter.verifyApplied(artifacts);
+    },
     stageDataLink: stageDataLink ? () => locked(stageDataLink) : undefined,
     createPoller: options => new CellSettingsPoller({ ...options, sync }),
     requiresGeoDatabase: () => locked(async () => {

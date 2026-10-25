@@ -5,6 +5,8 @@ const { identity } = require('../lib/CellRegistration');
 const { signControl, verifyControl, signControlReply, verifyControlReply } = require('../lib/CellControlProtocol');
 const { CellControlService } = require('../lib/CellControlService');
 const { generateOfficialProfile } = require('../lib/Awg3Config');
+const { routingViewFromTopology } = require('../lib/CellRoutingView');
+const { signRoutingRevision, verifyRoutingRevision } = require('../lib/CellRoutingRevision');
 const bytes = value => Buffer.from(JSON.stringify(value));
 
 test('control requests tolerate bounded skew but still reject expired timestamps', () => {
@@ -119,4 +121,32 @@ test('control replies are signed by the controller and bound to the request', ()
   const ack = signControlReply({ ok: true, requestId, applied: 3 }, controller.privateKey);
   assert.equal(verifyControlReply(ack, controller.publicKey, requestId).applied, 3);
   assert.throws(() => signControlReply({ ok: true, requestId, applied: 0 }, controller.privateKey));
+});
+
+test('only its enrolled Cell can request a signed routing revision', async () => {
+  const controller = identity(), cell = identity();
+  const id = 'a'.repeat(32);
+  const view = routingViewFromTopology({ version: 1,
+    nodes: [{ id: 'main', role: 'controller', ipv4: true, ipv6: false },
+      { id, role: 'cell', ipv4: true, ipv6: false }],
+    links: [{ a: 'main', b: id, ipv4: true, ipv6: false }], clients: [] }, id);
+  const signed = signRoutingRevision({ cellKey: cell.publicKey, revision: 1,
+    view }, controller.privateKey);
+  let reads = 0;
+  const service = new CellControlService({ identityStore: { load: async () => controller },
+    bootstrapStore: { read: async () => ({ version: 2, invitations: [{ status: 'consumed',
+      phase: 'closed', cellKey: cell.publicKey, awgPublicKey: 'key', awgPresharedKey: 'psk' }] }) },
+    routingForCell: key => ({ load: async () => { assert.equal(key, cell.publicKey);
+      reads++; return signed; } }) });
+  const request = signControl({ controllerKey: controller.publicKey,
+    action: 'route' }, cell.privateKey);
+  const response = await service.handle(bytes(request));
+  const routing = verifyControlReply(response, controller.publicKey, request.requestId).routing;
+  assert.equal(verifyRoutingRevision(routing, { controllerKey: controller.publicKey,
+    cellKey: cell.publicKey, nodeId: id }).revision, 1);
+  const stranger = signControl({ controllerKey: controller.publicKey,
+    action: 'route' }, identity().privateKey);
+  assert.deepEqual(await service.handle(bytes(stranger)), { ok: false, error: 'control_unavailable' });
+  assert.equal(reads, 1);
+  assert.throws(() => verifyControl(bytes({ ...request, payload: '{}' }), controller.publicKey));
 });

@@ -15,7 +15,10 @@ const { CellSettingsReceiver } = require('../lib/CellSettingsReceiver');
 const { CellAwgBootstrapStore } = require('../lib/CellAwgBootstrapStore');
 const { CellAwgLifecycle } = require('../lib/CellAwgLifecycle');
 const { createAwgOwnership } = require('../lib/CellAwgOwnership');
-const { listenTunnelControlEndpoint, syncCellSettings } = require('../lib/CellControlService');
+const { listenTunnelControlEndpoint, syncCellSettings,
+  fetchCellRoutingRevision } = require('../lib/CellControlService');
+const { routingViewFromTopology } = require('../lib/CellRoutingView');
+const { signRoutingRevision } = require('../lib/CellRoutingRevision');
 
 const ownedLoopback = () => ({
   load: async () => ({ phase: 'ready', spec: { owner: { interfaceName: 'testawg' },
@@ -53,6 +56,33 @@ test('tunnel exchange verifies a signed control reply without TLS', async t => {
     request, controllerKey: identity().publicKey }), /Control reply rejected/);
   assert.throws(() => exchangeOverTunnel({ address: '216.57.108.77', port: server.address().port,
     request, controllerKey: controller.publicKey }), /private/);
+});
+
+test('registered Cell fetches only its signed routing view over owned AWG control', async t => {
+  const controller = identity(), cell = identity(), invitationId = 'a'.repeat(32);
+  const view = routingViewFromTopology({ version: 1,
+    nodes: [{ id: 'main', role: 'controller', ipv4: true, ipv6: false },
+      { id: invitationId, role: 'cell', ipv4: true, ipv6: false }],
+    links: [{ a: 'main', b: invitationId, ipv4: true, ipv6: false }], clients: [] },
+  invitationId);
+  const routing = signRoutingRevision({ cellKey: cell.publicKey, revision: 1,
+    view }, controller.privateKey);
+  const server = await listenTunnelControlEndpoint({ address: '127.0.0.1', port: 0,
+    identityStore: { load: async () => controller }, lifecycle: ownedLoopback(),
+    bootstrapStore: { read: async () => ({ version: 2, invitations: [{
+      status: 'consumed', phase: 'closed', cellKey: cell.publicKey,
+      awgPublicKey: 'key', awgPresharedKey: 'psk' }] }) },
+    routingForCell: () => ({ load: async () => routing }) });
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const connection = { version: 2, status: 'registered', invitationId,
+    controllerKey: controller.publicKey, cellKey: cell.publicKey };
+  const options = { connectionStore: { read: async () => connection },
+    identityStore: { load: async () => cell }, host: '127.0.0.1',
+    port: server.address().port };
+  assert.deepEqual(await fetchCellRoutingRevision(options), routing);
+  await assert.rejects(fetchCellRoutingRevision({ ...options,
+    connectionStore: { read: async () => ({ ...connection,
+      invitationId: 'b'.repeat(32) }) } }), /routing view/);
 });
 
 test('tunnel exchange rejects an altered or mismatched reply', async t => {

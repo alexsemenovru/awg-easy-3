@@ -28,7 +28,8 @@ const context = { clientInterface: 'awgcellu0', wanInterface: 'eth0', nat66: fal
 
 test('routing-only signed view carries no peer keys and compiles the same guarded policy', () => {
   const controller = identity(), cell = identity();
-  const view = routingViewFromTopology(topology(), cellId);
+  const view = routingViewFromTopology(topology(), cellId,
+    { panel: { address4: '10.8.0.1', port: 51821 } });
   const envelope = signRoutingRevision({ cellKey: cell.publicKey, revision: 4, view },
     controller.privateKey);
   assert.ok(!JSON.stringify(envelope).includes(key(1)));
@@ -41,6 +42,8 @@ test('routing-only signed view carries no peer keys and compiles the same guarde
   const delivered = compileCellRouting({ routingView: verified.view, nodeId: cellId, context });
   assert.deepEqual(delivered.commands, desired.commands);
   assert.deepEqual(delivered.nftSnapshot, desired.nftSnapshot);
+  assert.throws(() => compileCellRouting({ routingView: verified.view, nodeId: cellId,
+    context: { ...context, panel: { address4: '10.8.0.1', port: 80 } } }), /signed revision/);
 });
 
 test('routing signature binds exact revision, recipient, and route content', () => {

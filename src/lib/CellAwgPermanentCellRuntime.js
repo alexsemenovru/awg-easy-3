@@ -5,7 +5,8 @@ const { CellAwgPermanentRetirementGate } = require('./CellAwgPermanentRetirement
 const { CellAwgBootstrapCellRetirement } = require('./CellAwgBootstrapCellRetirement');
 const { joinPermanentCell } = require('./CellAwgPermanentJoin');
 const { recoverPermanentBoot } = require('./CellAwgPermanentBoot');
-const { syncCellSettings, fetchCellDataOffer } = require('./CellControlService');
+const { syncCellSettings, fetchCellDataOffer,
+  fetchCellRoutingRevision } = require('./CellControlService');
 const { CellSettingsPoller } = require('./CellSettingsPoller');
 
 // Component assembly for one Cell. The temporary-path retirement rechecks
@@ -13,14 +14,16 @@ const { CellSettingsPoller } = require('./CellSettingsPoller');
 // owns the cross-process installation lock and the temporary AWG lifecycle.
 function createPermanentCellRuntime({ stateDirectory, connectionStore, bootstrap,
   temporaryInterfaceName, receiver, clientRuntime, userDescriptor, dataPublicKey,
-  receiveDataOffer, runner, sync = syncCellSettings,
-  fetchDataOffer = fetchCellDataOffer } = {}) {
+  receiveDataOffer, receiveRoutingRevision, runner, sync = syncCellSettings,
+  fetchDataOffer = fetchCellDataOffer,
+  fetchRoutingRevision = fetchCellRoutingRevision } = {}) {
   if (!connectionStore || typeof connectionStore.read !== 'function'
     || !receiver || typeof receiver.restoreApplied !== 'function'
     || !clientRuntime || typeof clientRuntime.prepareBoot !== 'function'
     || !bootstrap || typeof bootstrap !== 'object' || typeof sync !== 'function'
     || (receiveDataOffer !== undefined && typeof receiveDataOffer !== 'function')
-    || typeof fetchDataOffer !== 'function') {
+    || (receiveRoutingRevision !== undefined && typeof receiveRoutingRevision !== 'function')
+    || typeof fetchDataOffer !== 'function' || typeof fetchRoutingRevision !== 'function') {
     throw new TypeError('Cell connection, bootstrap and settings receiver required');
   }
   const deployment = new CellAwgPermanentDeployment({ stateDirectory,
@@ -48,7 +51,15 @@ function createPermanentCellRuntime({ stateDirectory, connectionStore, bootstrap
       const offer = await fetchDataOffer({ connectionStore, identityStore,
         host: connection.controllerPath.controllerAddress,
         port: connection.controllerPath.controlPort });
-      if (offer) await receiveDataOffer(offer);
+      if (offer) {
+        await receiveDataOffer(offer);
+        if (receiveRoutingRevision) {
+          const routing = await fetchRoutingRevision({ connectionStore, identityStore,
+            host: connection.controllerPath.controllerAddress,
+            port: connection.controllerPath.controlPort });
+          if (routing) await receiveRoutingRevision(routing, offer);
+        }
+      }
     }
     return result;
   };

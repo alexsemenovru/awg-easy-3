@@ -70,4 +70,10 @@ function productCellTopology({ state: input, cells, readyLinks = [], exits = {} 
     panelPath });
 }
 
-module.exports = { productCellTopology };
+// This view is only a desired route draft for guarded application. A staged
+// data offer is enough to plan the route, but not to advertise readiness.
+function plannedCellRoutingTopology({ state, cells, plannedLinks = [], exits = {} } = {}) {
+  return productCellTopology({ state, cells, readyLinks: plannedLinks, exits }).topology;
+}
+
+module.exports = { productCellTopology, plannedCellRoutingTopology };

@@ -8,11 +8,12 @@ const { acknowledgeApplied } = require('./CellSettingsAck');
 const { validateCellUserDescriptor } = require('./CellUserDescriptor');
 const { validateDataKeyAnnouncement } = require('./CellDataKeyStore');
 const { validatePublicDataOffer } = require('./CellDataOfferStore');
+const { verifyRoutingRevision } = require('./CellRoutingRevision');
 const PROTOCOL = 'awg-easy-3-control/1';
 
 class CellControlService {
   constructor({ identityStore, enrollmentStore, bootstrapStore, publisherForCell, descriptorForCell,
-    dataKeyForCell, dataOfferForCell,
+    dataKeyForCell, dataOfferForCell, routingForCell,
     monotonicNow = () => performance.now() }) {
     if (enrollmentStore && bootstrapStore) {
       throw new TypeError('Control service cannot mix legacy and AWG cell enrollment');
@@ -24,6 +25,7 @@ class CellControlService {
     this.descriptorForCell = descriptorForCell;
     this.dataKeyForCell = dataKeyForCell;
     this.dataOfferForCell = dataOfferForCell;
+    this.routingForCell = routingForCell;
     this.inFlight = 0;
     this.monotonicNow = monotonicNow;
     this.tokens = 16;
@@ -79,6 +81,14 @@ class CellControlService {
         return signControlReply({ ok: true, requestId: request.requestId,
           offer }, controller.privateKey);
       }
+      if (request.action === 'route') {
+        if (!this.bootstrapStore || !this.routingForCell) {
+          throw new Error('Cell routing revisions unavailable');
+        }
+        const routing = await this.routingForCell(request.cellKey).load();
+        return signControlReply({ ok: true, requestId: request.requestId,
+          routing }, controller.privateKey);
+      }
       const publisher = this.publisherForCell(request.cellKey);
       if (request.action === 'ack') {
         const result = await publisher.acknowledge(request.payload);
@@ -103,14 +113,15 @@ async function prepareControlEndpoint({ identityStore, certificateStore, enrollm
 // Never accept a merely private host address: prove it belongs to our ready,
 // unchanged inter-server AWG device immediately before opening the listener.
 async function listenTunnelControlEndpoint({ address, port, identityStore, bootstrapStore,
-  lifecycle, publisherForCell, descriptorForCell, dataKeyForCell, dataOfferForCell }) {
+  lifecycle, publisherForCell, descriptorForCell, dataKeyForCell, dataOfferForCell,
+  routingForCell }) {
   if (!bootstrapStore || typeof bootstrapStore.read !== 'function') {
     throw new TypeError('AWG bootstrap store required for tunnel control');
   }
   await requireOwnedTunnelAddress({ lifecycle, address });
   return listenControlOnTunnel({ address, port,
     handler: new CellControlService({ identityStore, bootstrapStore, publisherForCell,
-      descriptorForCell, dataKeyForCell, dataOfferForCell }) });
+      descriptorForCell, dataKeyForCell, dataOfferForCell, routingForCell }) });
 }
 
 // One explicit sync, not a daemon. Control address supplied locally until installer
@@ -179,5 +190,25 @@ async function fetchCellDataOffer({ connectionStore, identityStore, host, port }
   return reply.offer === null ? null : validatePublicDataOffer(reply.offer);
 }
 
+// Read-only signed routing fetch. The caller checks local assignments and
+// commits it through the guarded routing inbox before acknowledging readiness.
+async function fetchCellRoutingRevision({ connectionStore, identityStore, host, port }) {
+  const connection = await connectionStore.read();
+  if (connection?.version !== 2 || connection.status !== 'registered') {
+    throw new Error('Registered AWG Cell connection required');
+  }
+  const identity = await identityStore.load('cell');
+  if (identity.publicKey !== connection.cellKey) throw new Error('Cell identity changed');
+  const request = signControl({ controllerKey: connection.controllerKey,
+    action: 'route' }, identity.privateKey);
+  const reply = await exchangeOverTunnel({ address: host, port, request,
+    controllerKey: connection.controllerKey });
+  if (reply.routing === null) return null;
+  verifyRoutingRevision(reply.routing, { controllerKey: connection.controllerKey,
+    cellKey: connection.cellKey, nodeId: connection.invitationId });
+  return reply.routing;
+}
+
 module.exports = { CellControlService, prepareControlEndpoint,
-  listenTunnelControlEndpoint, syncCellSettings, fetchCellDataOffer };
+  listenTunnelControlEndpoint, syncCellSettings, fetchCellDataOffer,
+  fetchCellRoutingRevision };

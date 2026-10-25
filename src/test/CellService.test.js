@@ -7,6 +7,9 @@ const os = require('node:os');
 const test = require('node:test');
 const { startCellService, syncCellOnce } = require('../lib/CellService');
 const { generateOfficialProfile } = require('../lib/Awg3Config');
+const { identity } = require('../lib/CellRegistration');
+const { routingViewFromTopology } = require('../lib/CellRoutingView');
+const { signRoutingRevision } = require('../lib/CellRoutingRevision');
 
 const config = () => ({ stateDirectory: path.resolve('cell-state'),
   runtimeDirectory: path.resolve('cell-runtime'), interfaceName: 'awgboot0',
@@ -160,4 +163,65 @@ test('Cell sync pins a signed offer and stages a separate guarded AWG plan', asy
   assert.equal(stageCount, 1);
   assert.equal(JSON.parse(await fs.readFile(path.join(root, 'received-data-offer.json'),
     'utf8')).descriptor.controllerAddress4, '10.252.0.1');
+});
+
+test('Cell applies a received signed route only after data offer and assignments', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cell-service-routing-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const key = n => Buffer.alloc(32, n).toString('base64');
+  const controller = identity(), cell = identity(), cellId = 'a'.repeat(32);
+  const assignment = { id: 'phone', publicKey: key(9), address4: '10.88.0.2',
+    networkGroup: 'home', ipv4Enabled: true, ipv6Enabled: false,
+    geoPolicy: { mode: 'off', countries: [] } };
+  const offer = { version: 1, presharedKey: key(3), descriptor: {
+    version: 1, slot: 0, endpointHost: '198.51.100.4', endpointPort: 53000,
+    controllerAddress4: '10.252.0.1', cellAddress4: '10.252.0.2',
+    controllerPublicKey: key(2), controllerClientSubnet4: '10.8.0.0/24',
+    cellClientSubnet4: '10.88.0.0/24', profile: generateOfficialProfile() } };
+  const view = routingViewFromTopology({ version: 1,
+    nodes: [{ id: 'main', role: 'controller', ipv4: true, ipv6: false },
+      { id: cellId, role: 'cell', ipv4: true, ipv6: false }],
+    links: [{ a: 'main', b: cellId, ipv4: true, ipv6: false }],
+    clients: [{ entry: cellId, exit: 'main', assignment }] }, cellId,
+  { panel: { address4: '10.8.0.1', port: 51821 } });
+  const envelope = signRoutingRevision({ cellKey: cell.publicKey, revision: 1,
+    view }, controller.privateKey);
+  let saved = null, applied = 0;
+  await syncCellOnce({ config: { ...config(), stateDirectory: root },
+    bootstrapHost: { connectionStore: { read: async () => ({ version: 2,
+      status: 'registered', invitationId: cellId, controllerKey: controller.publicKey,
+      cellKey: cell.publicKey, permanent: { privateKey: key(7) } }) },
+    identityStore: {}, bootstrap: {} },
+    newStore: () => ({ read: async () => ({ server: { privateKey: key(4),
+      ipv4Subnet: '10.88.0.0/24', interfaceName: 'awguser0',
+      wanInterface: 'eth0', listenPort: 51830 } }) }),
+    newDataIdentity: () => ({ ensure: async () => ({ privateKey: key(5),
+      publicKey: key(6) }) }),
+    newDataDeployment: options => ({ ...options, store: { read: async () => saved },
+      buildPath: () => ({ interfaceName: 'awgdata0' }) }),
+    stageData: async ({ expected }) => { saved = expected.plan; return { guarded: true }; },
+    newRoutingCoordinator: options => options,
+    newDataActivation: ({ verifyDataLink }) => ({ activate: async spec => {
+      assert.ok(spec.commands.some(command => command.args.includes('10.8.0.1/32')));
+      assert.equal(await verifyDataLink(), true);
+      applied++;
+    } }),
+    probeData: async () => true,
+    newGeoUpdater: () => ({ current: { database: {} }, load: async () => {} }),
+    openRegistered: async supplied => ({
+      appliedAssignments: async () => ({ schema: 1, clients: [assignment] }),
+      verifyUserRuntime: async () => true,
+      protectUserTraffic: async () => {},
+      recoverBoot: async () => ({ configured: true }),
+      syncSettings: async () => {
+        await supplied.receiveDataOffer(offer);
+        await supplied.receiveRoutingRevision(envelope, offer);
+        await supplied.receiveRoutingRevision(envelope, offer);
+        return { status: 'applied' };
+      },
+    }),
+  });
+  assert.equal(applied, 1);
+  assert.equal(JSON.parse(await fs.readFile(path.join(root, 'routing-inbox.json'), 'utf8'))
+    .applied.revision, 1);
 });

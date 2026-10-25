@@ -37,7 +37,9 @@ async function fixture(t) {
   policy.plan = async (allowed, desired) => ({ changed: JSON.stringify(policy.state.committed) !== JSON.stringify(desired) });
   const verification = { valid: true };
   const options = { directory, verifyInterfaces: async () => verification.valid, components: { guard, routes, policy } };
-  return { coordinator: new CellRoutingCoordinator(options), fresh: () => new CellRoutingCoordinator(options), guard, routes, policy, verification };
+  return { coordinator: new CellRoutingCoordinator(options), fresh: () => new CellRoutingCoordinator(options),
+    expanding: () => new CellRoutingCoordinator({ ...options, allowExpansion: true }),
+    guard, routes, policy, verification };
 }
 test('coordinator commits matching policy/routes before releasing guard', async t => {
   const { coordinator, guard, routes, policy } = await fixture(t);
@@ -113,6 +115,19 @@ test('interface membership changes and orphaned protection require lifecycle man
   await assert.rejects(coordinator.apply({ ...spec(0), interfaces: ['clients', 'transit', 'extra'] }), /lifecycle/);
   guard.interfaces = ['orphan']; guard.active = true;
   await assert.rejects(coordinator.apply(spec(0)), /lifecycle/); assert.equal(guard.active, true);
+});
+test('explicit Main expansion only adds verified guarded interfaces', async t => {
+  const { expanding, guard } = await fixture(t);
+  const first = expanding();
+  await first.apply(spec(0));
+  const extended = { ...spec(1), interfaces: ['clients', 'transit', 'extra'] };
+  await first.apply(extended, { retainGuard: true });
+  assert.equal(guard.active, true);
+  assert.deepEqual((await expanding().load()).committed.interfaces,
+    ['clients', 'extra', 'transit']);
+  await assert.rejects(expanding().apply(spec(0)), /lifecycle/);
+  await expanding().releaseCommitted();
+  assert.equal(guard.active, false);
 });
 test('guard release failure preserves newly committed parent, never rolls back its journal', async t => {
   const { coordinator, guard, policy } = await fixture(t);

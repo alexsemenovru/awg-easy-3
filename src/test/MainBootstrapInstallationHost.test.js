@@ -12,6 +12,7 @@ const { StateStore } = require('../lib/StateStore');
 const { CellUserDescriptorStore } = require('../lib/CellUserDescriptorStore');
 const { CellDataKeyStore } = require('../lib/CellDataKeyStore');
 const { CellSettingsPublisher } = require('../lib/CellSettingsPublisher');
+const { CellRoutingOutbox } = require('../lib/CellRoutingOutbox');
 
 const resources = () => ({ interfaceNames: ['awgmainb0', 'awgmainc0'],
   udpPorts: [53081, 53084], userInterfaceNames: ['awg0'], userUdpPorts: [51820],
@@ -221,7 +222,8 @@ test('Main prepares one immutable Cell data offer from pinned announcements and 
       profile: generateOfficialProfile() },
     clients: [{ id: 'home', name: 'Owner', networkGroup: 'home', enabled: true,
       address4: '10.8.0.2', privateKey: key(3), publicKey: key(4) }] });
-  const reservations = [], staged = [];
+  const reservations = [], staged = [], activated = [];
+  let live = false;
   const host = await openMainBootstrapInstallationHost({ ...options(),
     stateDirectory: directory, userStateFile,
     keyManager: { generateKeyPair: async () => ({ privateKey: key(30), publicKey: key(31) }),
@@ -229,12 +231,24 @@ test('Main prepares one immutable Cell data offer from pinned announcements and 
       generatePeerKeys: async () => ({ privateKey: key(30), publicKey: key(31),
         presharedKey: key(32) }) },
     prepareStateDirectory: async () => {}, withLock: async ({ work }) => work(),
+    runner: async (file, args) => {
+      if (file === 'awg' && args[0] === 'show') return { stdout: `${key(23)}\t0\n` };
+      throw new Error('Unexpected host command');
+    },
     preflight: async input => { reservations.push(input); return { free: true }; },
-    newDataDeployment: input => input,
+    newDataDeployment: input => ({ ...input,
+      store: { read: async () => staged[0]?.expected.plan || null },
+      buildPath: () => ({ interfaceName: 'awgd0', verifyOperational: async () => true }) }),
+    newRoutingCoordinator: () => ({ verifyOperational: async () => true }),
+    newDataActivationGroup: () => ({ activate: async spec => {
+      activated.push(spec); return { ready: true, links: 1 }; } }),
+    probeData: async () => live,
+    newGeoUpdater: () => ({ current: { database: {} }, load: async () => {} }),
     stageData: async input => { staged.push(input); return { ready: true, guarded: true }; } });
   host.bootstrapStore.read = async () => ({ invitations: [{ id, status: 'consumed',
     phase: 'closed', cellKey, awgPublicKey: key(20), cellAddress: '10.90.8.2',
     permanentDescriptor: { cellAddress: '10.91.8.2' } }] });
+  await host.identityStore.create('controller');
   const suffix = crypto.createHash('sha256').update(cellKey).digest('hex');
   await new CellUserDescriptorStore(path.join(directory, 'cell-descriptors', `${suffix}.json`))
     .update({ version: 1, endpointHost: 'cell.example.test', endpointPort: 51830,
@@ -254,6 +268,23 @@ test('Main prepares one immutable Cell data offer from pinned announcements and 
   assert.deepEqual(await host.stageDataLink(id), { ready: true, guarded: true });
   assert.equal(staged[0].expected.plan.spec.owner.interfaceName, 'awgd0');
   assert.equal(staged[0].deployment.policyTable, 'awg_easy_3_data_0');
+  assert.deepEqual(await host.reconcileRoutingViews(), { published: 1 });
+  assert.deepEqual(await host.reconcileRoutingViews(), { published: 0 });
+  assert.deepEqual(await host.activateDataRouting(), { skipped: 'data-handshake-pending' });
+  live = true;
+  assert.deepEqual(await host.activateDataRouting(), { ready: true, links: 1 });
+  assert.ok(activated[0].interfaces.includes('awgd0'));
+  assert.ok(activated[0].commands.some(command => command.args.includes('10.8.0.2/32')));
+  assert.deepEqual(await host.activateDataRouting(), { ready: true, links: 1,
+    unchanged: true });
+  assert.equal(activated.length, 1);
+  const routing = await new CellRoutingOutbox(
+    path.join(directory, 'cell-routing', `${suffix}.json`),
+    { identityStore: host.identityStore, cellKey, nodeId: id }).load();
+  const routeView = JSON.parse(routing.payload);
+  assert.equal(routeView.links[0].peer, 'main');
+  assert.deepEqual(routeView.panel, { address4: '10.8.0.1', port: 51821 });
+  assert.ok(!routing.payload.includes(key(3)));
   assert.deepEqual(reservations[0].interfaceNames, ['awgd0']);
   const again = await host.prepareDataOffer(id);
   assert.equal(again.created, false);

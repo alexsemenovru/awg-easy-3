@@ -20,14 +20,18 @@ function specification(value) {
   return { version: 1, interfaces, commands: routes.map(x => x.command),
     nftSnapshot: normalizeNftSnapshot(value.nftSnapshot, 'awg_easy_3_routes') };
 }
-function validate(saved) {
+function validate(saved, allowExpansion = false) {
   if (!saved || saved.version !== 1 || Object.keys(saved).sort().join(',') !== 'committed,pending,version') throw new Error('Invalid routing coordinator journal');
   const committed = saved.committed === null ? null : specification(saved.committed);
   let pending = null;
   if (saved.pending !== null) {
     if (!saved.pending || Object.keys(saved.pending).join(',') !== 'desired') throw new Error('Invalid routing coordinator intent');
     pending = { desired: specification(saved.pending.desired) };
-    if (committed && !equal(committed.interfaces, pending.desired.interfaces)) throw new Error('Interface membership requires AWG lifecycle coordinator');
+    if (committed && !(allowExpansion
+      ? committed.interfaces.every(name => pending.desired.interfaces.includes(name))
+      : equal(committed.interfaces, pending.desired.interfaces))) {
+      throw new Error('Interface membership requires AWG lifecycle coordinator');
+    }
   }
   return { version: 1, committed, pending };
 }
@@ -36,9 +40,12 @@ function validate(saved) {
 // interfaces. Does not create/remove/rekey interfaces or provide a process lock.
 // verifyInterfaces must check actual ownership/configuration, not only names.
 class CellRoutingCoordinator {
-  constructor({ directory, verifyInterfaces, runner, components }) {
+  constructor({ directory, verifyInterfaces, runner, components,
+    allowExpansion = false }) {
     if (typeof directory !== 'string' || !directory || typeof verifyInterfaces !== 'function') throw new TypeError('Coordinator directory and interface verifier required');
+    if (typeof allowExpansion !== 'boolean') throw new TypeError('Invalid routing expansion option');
     this.directory = path.resolve(directory); this.file = path.join(this.directory, 'routing.json');
+    this.allowExpansion = allowExpansion;
     this.verifyInterfaces = verifyInterfaces;
     this.guard = components?.guard || new CellRoutingGuard({ journalPath: path.join(this.directory, 'guard.json'), runner });
     // All child operations execute under the coordinator's durable guard.
@@ -60,14 +67,14 @@ class CellRoutingCoordinator {
     try {
       const stat = await fs.lstat(this.file);
       if (!stat.isFile() || stat.size > MAX_BYTES || (process.platform !== 'win32' && (stat.mode & 0o077))) throw new Error('Unsafe routing coordinator journal');
-      return validate(JSON.parse(await fs.readFile(this.file, 'utf8')));
+      return validate(JSON.parse(await fs.readFile(this.file, 'utf8')), this.allowExpansion);
     } catch (error) {
       if (error.code === 'ENOENT') return { version: 1, committed: null, pending: null };
       throw error;
     }
   }
   async save(saved) {
-    const data = JSON.stringify(validate(saved));
+    const data = JSON.stringify(validate(saved, this.allowExpansion));
     if (Buffer.byteLength(data) > MAX_BYTES) throw new Error('Routing coordinator journal too large');
     await fs.mkdir(this.directory, { recursive: true, mode: 0o700 });
     const temporary = path.join(this.directory, `.coordinator-${crypto.randomUUID()}.tmp`);
@@ -133,7 +140,11 @@ class CellRoutingCoordinator {
     return this.exclusive(async () => {
       const saved = await this.load();
       if (saved.pending) throw new Error('Interrupted coordinated routing requires recovery');
-      if (saved.committed && !equal(saved.committed.interfaces, desired.interfaces)) throw new Error('Interface membership requires AWG lifecycle coordinator');
+      if (saved.committed && !(this.allowExpansion
+        ? saved.committed.interfaces.every(name => desired.interfaces.includes(name))
+        : equal(saved.committed.interfaces, desired.interfaces))) {
+        throw new Error('Interface membership requires AWG lifecycle coordinator');
+      }
       await this.protect(desired.interfaces);
       await this.checkChildren(saved);
       const intent = { ...saved, pending: { desired } };

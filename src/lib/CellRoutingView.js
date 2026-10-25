@@ -17,17 +17,18 @@ const exact = (value, required, optional = []) => {
 
 // This is the wire view. It contains addresses and policies needed to route
 // traffic, but never client keys, names, or the other Cells' public endpoints.
-function routingViewFromTopology(topology, nodeId) {
+function routingViewFromTopology(topology, nodeId, { panel } = {}) {
   const plans = planCellTopology(topology).plans;
   const plan = plans.find(row => row.node.id === nodeId);
   if (!plan) throw new TypeError('Unknown Cell routing recipient');
   const controllerId = plans.find(row => row.node.role === 'controller').node.id;
   return validateRoutingView({ schema: 1, nodeId, controllerId,
-    node: plan.node, links: plan.links, routes: plan.routes });
+    node: plan.node, links: plan.links, routes: plan.routes,
+    ...(panel ? { panel } : {}) });
 }
 
 function validateRoutingView(input, expectedNodeId) {
-  exact(input, ['schema', 'nodeId', 'controllerId', 'node', 'links', 'routes']);
+  exact(input, ['schema', 'nodeId', 'controllerId', 'node', 'links', 'routes'], ['panel']);
   if (input.schema !== 1 || !identifier(input.nodeId) || !identifier(input.controllerId)
     || expectedNodeId !== undefined && input.nodeId !== expectedNodeId
     || !Array.isArray(input.links) || input.links.length > 127
@@ -39,6 +40,18 @@ function validateRoutingView(input, expectedNodeId) {
     || input.node.role !== (input.nodeId === input.controllerId ? 'controller' : 'cell')
     || typeof input.node.ipv4 !== 'boolean' || typeof input.node.ipv6 !== 'boolean') {
     throw new TypeError('Invalid Cell routing recipient');
+  }
+  let panel;
+  if (input.panel !== undefined) {
+    exact(input.panel, ['address4', 'port'], ['address6']);
+    if (net.isIP(input.panel.address4) !== 4
+      || !Number.isSafeInteger(input.panel.port) || input.panel.port < 1
+      || input.panel.port > 65535
+      || input.panel.address6 !== undefined
+        && (net.isIP(input.panel.address6) !== 6 || input.panel.address6.includes('%'))) {
+      throw new TypeError('Invalid Cell panel route');
+    }
+    panel = Object.freeze({ ...input.panel });
   }
   const peers = new Set();
   const links = input.links.map(link => {
@@ -87,7 +100,8 @@ function validateRoutingView(input, expectedNodeId) {
       enabled: Object.freeze({ ...route.enabled }), reasons: Object.freeze({ ...route.reasons }) });
   });
   return Object.freeze({ schema: 1, nodeId: input.nodeId, controllerId: input.controllerId,
-    node: Object.freeze({ ...input.node }), links: Object.freeze(links), routes: Object.freeze(routes) });
+    node: Object.freeze({ ...input.node }), links: Object.freeze(links), routes: Object.freeze(routes),
+    ...(panel ? { panel } : {}) });
 }
 
 // A signed routing revision must never silently grant a path to a peer absent

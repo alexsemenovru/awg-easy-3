@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('node:path');
+const fs = require('node:fs/promises');
 const crypto = require('node:crypto');
 const { runProcess } = require('./ProcessRunner');
 const { AwgKeyManager } = require('./AwgKeyManager');
@@ -42,6 +43,14 @@ const { allocateCellInvitationAddresses } = require('./CellInvitationAddressAllo
 const { assignedSettingsFromState, assignmentFingerprint } = require('./CellAssignedSettings');
 const { assertDistinctClientSubnets } = require('./CellSubnetIsolation');
 const { validateCellSettings } = require('./CellSettingsSchema');
+const { CellRoutingOutbox } = require('./CellRoutingOutbox');
+const { plannedCellRoutingTopology } = require('./CellProductTopology');
+const { CellRoutingCoordinator } = require('./CellRoutingCoordinator');
+const { CellDataActivationGroup } = require('./CellDataActivationGroup');
+const { compileCellRouting } = require('./CellRoutingPolicy');
+const { verifyCellDataHandshake } = require('./CellDataHandshake');
+const { verifyMainUserTunnel } = require('./MainUserTunnelVerifier');
+const { GeoIpUpdater } = require('./GeoIpUpdater');
 
 const validName = name => typeof name === 'string' && /^[a-zA-Z0-9_.-]{1,15}$/.test(name);
 const validPort = port => Number.isSafeInteger(port) && port >= 1 && port <= 65535;
@@ -56,6 +65,11 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
   keyManager = new AwgKeyManager({ runner }), preflight = assertFreeCellHostResources,
   newDataDeployment = options => new CellAwgPermanentDeployment(options),
   stageData = stageCellDataPlan,
+  newRoutingCoordinator = options => new CellRoutingCoordinator(options),
+  newDataActivationGroup = options => new CellDataActivationGroup(options),
+  verifyMainTunnel = verifyMainUserTunnel,
+  probeData = verifyCellDataHandshake,
+  newGeoUpdater = options => new GeoIpUpdater(options),
   withLock = withCellInstallationLock,
   prepareStateDirectory = prepareCellInstallationStateDirectory } = {}) {
   if (typeof stateDirectory !== 'string' || !path.isAbsolute(stateDirectory)
@@ -84,6 +98,10 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
       .every(name => resources.nftTables.includes(name))
     || typeof runner !== 'function' || typeof preflight !== 'function'
     || typeof newDataDeployment !== 'function' || typeof stageData !== 'function'
+    || typeof newRoutingCoordinator !== 'function'
+    || typeof newDataActivationGroup !== 'function'
+    || typeof verifyMainTunnel !== 'function' || typeof probeData !== 'function'
+    || typeof newGeoUpdater !== 'function'
     || typeof withLock !== 'function' || typeof prepareStateDirectory !== 'function') {
     throw new TypeError('Complete Main bootstrap installation reservation required');
   }
@@ -153,6 +171,34 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
   const dataOfferForCell = cellKey => new CellDataOfferStore(
     file(path.join('cell-data-offers', `${crypto.createHash('sha256').update(cellKey).digest('hex')}.json`)),
     keyManager);
+  const routingOutboxForRecord = record => new CellRoutingOutbox(
+    file(path.join('cell-routing', `${crypto.createHash('sha256').update(record.cellKey).digest('hex')}.json`)),
+    { identityStore, cellKey: record.cellKey, nodeId: record.id });
+  const routingForCell = cellKey => ({ load: async () => {
+    const record = (await bootstrapStore.read()).invitations.find(item =>
+      item.cellKey === cellKey && item.status === 'consumed' && item.phase === 'closed');
+    return record ? routingOutboxForRecord(record).load() : null;
+  } });
+  let activeRoutingFingerprint = null;
+  let geoCache = null;
+  async function routingGeoDatabase() {
+    const directory = path.join(path.dirname(userStateFile), 'geoip');
+    let signature;
+    try {
+      const stat = await fs.stat(path.join(directory, 'current.db'), { bigint: true });
+      signature = `${stat.ino}:${stat.size}:${stat.mtimeNs}`;
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+      geoCache = null;
+      return {};
+    }
+    if (geoCache?.signature === signature) return geoCache.database;
+    const geo = newGeoUpdater({ directory });
+    await geo.load();
+    if (!geo.current?.database) return {};
+    geoCache = { signature, database: geo.current.database };
+    return geoCache.database;
+  }
 
   async function registeredRecord(invitationId) {
     if (typeof invitationId !== 'string' || !/^[a-f0-9]{32}$/.test(invitationId)) {
@@ -477,6 +523,112 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
       }
       return { published };
     }),
+    reconcileRoutingViews: () => locked(async () => {
+      if (!userStateFile) return { skipped: 'no-panel-state' };
+      const state = await new StateStore(userStateFile).load();
+      if (!state || state.version !== 4) return { skipped: 'no-cell-assignments' };
+      const records = (await bootstrapStore.read()).invitations.filter(record =>
+        record.status === 'consumed' && record.phase === 'closed' && record.cellKey);
+      const inventory = await Promise.all(records.map(async record => ({ id: record.id,
+        descriptor: await descriptorForCell(record.cellKey).read(),
+        offer: await dataOfferForCell(record.cellKey).read() })));
+      if (inventory.some(row => !row.descriptor)) return { skipped: 'cell-endpoint-pending' };
+      const plannedLinks = inventory.filter(row => row.offer).map(row => ({
+        cellId: row.id, ipv4: true,
+        ipv6: Boolean(row.offer.descriptor.cellAddress6) }));
+      const topology = plannedCellRoutingTopology({ state, cells: inventory.map(row => ({
+        id: row.id, descriptor: row.descriptor })), plannedLinks });
+      let published = 0;
+      for (const record of records) {
+        const outbox = routingOutboxForRecord(record);
+        const previous = await outbox.load();
+        const next = await outbox.publish(topology, { panel: {
+          address4: state.server.address4,
+          ...(state.server.address6 ? { address6: state.server.address6 } : {}),
+          port: state.server.panelPort } });
+        if (previous?.revision !== next.revision) published++;
+      }
+      return { published };
+    }),
+    activateDataRouting: () => locked(async () => {
+      if (!userStateFile) return { skipped: 'no-panel-state' };
+      const state = await new StateStore(userStateFile).load();
+      if (!state || state.version !== 4) return { skipped: 'no-cell-assignments' };
+      const records = (await bootstrapStore.read()).invitations.filter(record =>
+        record.status === 'consumed' && record.phase === 'closed' && record.cellKey);
+      if (!records.length) return { skipped: 'no-cells' };
+      const inventory = await Promise.all(records.map(async record => ({ record,
+        descriptor: await descriptorForCell(record.cellKey).read(),
+        offer: await dataOfferForCell(record.cellKey).read() })));
+      if (inventory.some(row => !row.descriptor || !row.offer)) {
+        return { skipped: 'data-link-pending' };
+      }
+      const topology = plannedCellRoutingTopology({ state,
+        cells: inventory.map(row => ({ id: row.record.id, descriptor: row.descriptor })),
+        plannedLinks: inventory.map(row => ({ cellId: row.record.id, ipv4: true,
+          ipv6: Boolean(row.offer.descriptor.cellAddress6) })) });
+      const links = [];
+      for (const row of inventory) {
+        const slot = row.offer.descriptor.slot;
+        const expected = await controllerDataLinkPlan({ storedOffer: row.offer,
+          slot, keyManager });
+        const directory = file(path.join('data-links',
+          crypto.createHash('sha256').update(row.record.cellKey).digest('hex')));
+        const dataDeployment = newDataDeployment({ stateDirectory: directory,
+          runner, policyTable: expected.policyTable,
+          guardTable: expected.guardTable, retainGuard: true });
+        if (!await dataDeployment.store.read()) return { skipped: 'data-link-not-staged' };
+        links.push({ cellId: row.record.id, offer: row.offer, expected,
+          deployment: dataDeployment,
+          path: dataDeployment.buildPath({ stateDirectory: directory,
+            plan: await dataDeployment.store.read(), runner,
+            policyTable: expected.policyTable, guardTable: expected.guardTable,
+            retainGuard: true }) });
+      }
+      const geoDatabase = await routingGeoDatabase();
+      const panel = { address4: state.server.address4,
+        ...(state.server.address6 ? { address6: state.server.address6 } : {}),
+        port: state.server.panelPort };
+      const policy = compileCellRouting({ topology, nodeId: 'main',
+        context: { clientInterface: state.server.interfaceName,
+          wanInterface: state.server.wanInterface,
+          nat66: state.server.ipv6Mode === 'nat66', panel,
+          links: Object.fromEntries(links.map(link => [link.cellId, {
+            interfaceName: link.path.interfaceName,
+            table: 52000 + link.offer.descriptor.slot,
+            priority: 20000 + link.offer.descriptor.slot }])) },
+        geoDatabase });
+      const spec = { version: 1,
+        interfaces: [state.server.interfaceName, ...links.map(link => link.path.interfaceName)],
+        commands: policy.commands, nftSnapshot: policy.nftSnapshot };
+      const routing = newRoutingCoordinator({
+        directory: file('routing-runtime'), runner, allowExpansion: true,
+        verifyInterfaces: async names => names.length === spec.interfaces.length
+          && spec.interfaces.every(name => names.includes(name))
+          && await verifyMainTunnel(state, { runner })
+          && (await Promise.all(links.map(link => link.path.verifyOwned()))).every(Boolean),
+      });
+      const handshake = async interfaceName => {
+        const link = links.find(row => row.path.interfaceName === interfaceName);
+        return Boolean(link) && probeData({ interfaceName,
+          peerPublicKey: link.offer.cellPublicKey, runner });
+      };
+      const fingerprint = crypto.createHash('sha256').update(JSON.stringify(spec)).digest('hex');
+      const live = await Promise.all(links.map(link => handshake(link.path.interfaceName)));
+      if (activeRoutingFingerprint === fingerprint
+        && await routing.verifyOperational(spec)
+        && (await Promise.all(links.map(link => link.path.verifyOperational()))).every(Boolean)) {
+        return { ready: live.every(Boolean), links: links.length, unchanged: true };
+      }
+      if (!live.every(Boolean)) return { skipped: 'data-handshake-pending' };
+      for (const link of links) await stageData({ deployment: link.deployment,
+        expected: link.expected });
+      const activation = newDataActivationGroup({ dataPaths: links.map(link => link.path),
+        routing, verifyDataLink: handshake });
+      const result = await activation.activate(spec);
+      activeRoutingFingerprint = fingerprint;
+      return result;
+    }),
     cells: async () => {
       await identityStore.load('controller');
       const records = (await bootstrapStore.read()).invitations;
@@ -507,7 +659,7 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
       return listenTunnelControlEndpoint({ address: permanentControllerAddress,
         port: permanentControlPort, lifecycle: current.lifecycle,
         identityStore, bootstrapStore, publisherForCell, descriptorForCell,
-        dataKeyForCell, dataOfferForCell });
+        dataKeyForCell, dataOfferForCell, routingForCell });
     }),
     listen: async () => {
       const config = await verifiedConfig();

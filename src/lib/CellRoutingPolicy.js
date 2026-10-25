@@ -35,6 +35,10 @@ function compileCellRouting({ topology, routingView, nodeId, context, geoDatabas
   }
   if (Object.keys(context.links || {}).some(k => !links.has(k))) throw new TypeError('Unknown routing link');
   const panel = context.panel;
+  if (view?.panel && (panel?.address4 !== view.panel.address4
+    || panel?.address6 !== view.panel.address6 || panel?.port !== view.panel.port)) {
+    throw new TypeError('Local panel route differs from signed revision');
+  }
   if (!panel || !integer(panel.port, 1, 65535) || net.isIP(panel.address4) !== 4
     || (panel.address6 !== undefined && (net.isIP(panel.address6) !== 6 || panel.address6.includes('%')))) {
     throw new TypeError('Invalid panel route');
