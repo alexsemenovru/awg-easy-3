@@ -11,7 +11,8 @@ async function openCellSettingsRuntime({ connectionStore, stateDirectory,
   if (!connectionStore || typeof connectionStore.read !== 'function'
     || typeof stateDirectory !== 'string' || !path.isAbsolute(stateDirectory)
     || typeof runtimeDirectory !== 'string' || !path.isAbsolute(runtimeDirectory)
-    || !server || typeof server !== 'object') {
+    || !server || typeof server !== 'object'
+    || typeof retainUserGuard !== 'boolean') {
     throw new TypeError('Registered cell connection and absolute runtime directories required');
   }
   const connection = await connectionStore.read();

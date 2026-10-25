@@ -53,6 +53,10 @@ test('registered Cell host rejects missing absolute state and identity', async (
     /Registered Cell host dependencies/);
   await assert.rejects(openRegisteredCellHost({ ...options(), identityStore: null }),
     /Registered Cell host dependencies/);
+  await assert.rejects(openRegisteredCellHost({ ...options(), retainUserGuard: true,
+    openSettings: async () => ({ adapter: { prepareBoot: async () => {} },
+      receiver: { restoreApplied: async () => ({}) } }) }),
+  /retained user traffic guard/);
 });
 
 test('registered Cell changes GeoIP under the same lock and rolls back failed commit', async () => {

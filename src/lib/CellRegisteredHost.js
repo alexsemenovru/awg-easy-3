@@ -24,7 +24,7 @@ async function openRegisteredCellHost({ stateDirectory, runtimeDirectory,
     || !connectionStore || typeof connectionStore.read !== 'function'
     || !identityStore || typeof identityStore.load !== 'function'
     || typeof openSettings !== 'function' || typeof openPermanent !== 'function'
-    || typeof withLock !== 'function') {
+    || typeof withLock !== 'function' || typeof retainUserGuard !== 'boolean') {
     throw new TypeError('Registered Cell host dependencies required');
   }
   const settings = await openSettings({ connectionStore,
@@ -33,6 +33,11 @@ async function openRegisteredCellHost({ stateDirectory, runtimeDirectory,
     ...(geoDatabase ? { geoDatabase } : {}), ...(runner ? { runner } : {}) });
   if (!settings || !settings.adapter || !settings.receiver) {
     throw new TypeError('Registered Cell settings runtime required');
+  }
+  if (retainUserGuard && (!settings.adapter.retainGuard
+    || typeof settings.adapter.releaseForRouting !== 'function'
+    || typeof settings.adapter.userGuardActive !== 'function')) {
+    throw new TypeError('Registered Cell requires a retained user traffic guard');
   }
   const permanent = openPermanent({ stateDirectory: path.join(stateDirectory, 'permanent'),
     connectionStore, bootstrap, temporaryInterfaceName,
