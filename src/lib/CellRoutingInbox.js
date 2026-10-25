@@ -122,6 +122,17 @@ class CellRoutingInbox {
       return { applied: prior.revision };
     });
   }
+
+  refreshApplied(geoDatabase) {
+    return this.exclusive(async () => {
+      const state = await this.load();
+      if (!state?.applied) return { applied: null };
+      const prior = verifyRoutingRevision(state.applied, this.trust);
+      const view = assertRoutingMatchesAssignments(prior.view, await this.assignments());
+      await this.apply(view, prior.revision, geoDatabase);
+      return { applied: prior.revision };
+    });
+  }
 }
 
 module.exports = { CellRoutingInbox };

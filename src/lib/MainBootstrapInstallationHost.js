@@ -50,6 +50,7 @@ const { CellDataActivationGroup } = require('./CellDataActivationGroup');
 const { compileCellRouting } = require('./CellRoutingPolicy');
 const { verifyCellDataHandshake } = require('./CellDataHandshake');
 const { verifyMainUserTunnel } = require('./MainUserTunnelVerifier');
+const { verifyMainRoutingInterfaceSet } = require('./MainRoutingInterfaceVerifier');
 const { GeoIpUpdater } = require('./GeoIpUpdater');
 
 const validName = name => typeof name === 'string' && /^[a-zA-Z0-9_.-]{1,15}$/.test(name);
@@ -603,10 +604,9 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
         commands: policy.commands, nftSnapshot: policy.nftSnapshot };
       const routing = newRoutingCoordinator({
         directory: file('routing-runtime'), runner, allowExpansion: true,
-        verifyInterfaces: async names => names.length === spec.interfaces.length
-          && spec.interfaces.every(name => names.includes(name))
-          && await verifyMainTunnel(state, { runner })
-          && (await Promise.all(links.map(link => link.path.verifyOwned()))).every(Boolean),
+        verifyInterfaces: names => verifyMainRoutingInterfaceSet({ names,
+          userInterface: state.server.interfaceName, links,
+          verifyUser: () => verifyMainTunnel(state, { runner }) }),
       });
       const handshake = async interfaceName => {
         const link = links.find(row => row.path.interfaceName === interfaceName);

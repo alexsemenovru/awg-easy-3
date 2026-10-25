@@ -83,3 +83,25 @@ test('local route cannot exceed or contradict separately signed client assignmen
   assert.throws(() => assertRoutingMatchesAssignments(view, { schema: 1,
     clients: [{ ...assignment.clients[0], ipv4Enabled: false }] }));
 });
+
+test('the signed wire limit accepts the maximum supported client count', () => {
+  const controller = identity(), cell = identity();
+  const input = topology();
+  input.clients = Array.from({ length: 1000 }, (_, index) => {
+    const publicKey = Buffer.alloc(32);
+    publicKey.writeUInt32BE(index + 1);
+    return { entry: cellId, exit: cellId, assignment: {
+      id: `client_${index}`, publicKey: publicKey.toString('base64'),
+      address4: `10.${Math.floor(index / 254) + 32}.${Math.floor(index % 254 / 254)}.${index % 254 + 1}`,
+      networkGroup: 'guest', ipv4Enabled: true, ipv6Enabled: false,
+      geoPolicy: { mode: 'off', countries: [] },
+    } };
+  });
+  const view = routingViewFromTopology(input, cellId);
+  assert.ok(Buffer.byteLength(JSON.stringify(view)) > 256 * 1024);
+  const signed = signRoutingRevision({ cellKey: cell.publicKey, revision: 1, view },
+    controller.privateKey);
+  assert.ok(Buffer.byteLength(JSON.stringify(signed)) < 1024 * 1024);
+  assert.equal(verifyRoutingRevision(signed, { controllerKey: controller.publicKey,
+    cellKey: cell.publicKey, nodeId: cellId }).view.routes.length, 1000);
+});

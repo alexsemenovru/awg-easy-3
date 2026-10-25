@@ -186,7 +186,8 @@ test('Cell applies a received signed route only after data offer and assignments
   { panel: { address4: '10.8.0.1', port: 51821 } });
   const envelope = signRoutingRevision({ cellKey: cell.publicKey, revision: 1,
     view }, controller.privateKey);
-  let saved = null, applied = 0;
+  let saved = null, applied = 0, installGeo;
+  const verifiedGeo = [];
   await syncCellOnce({ config: { ...config(), stateDirectory: root },
     bootstrapHost: { connectionStore: { read: async () => ({ version: 2,
       status: 'registered', invitationId: cellId, controllerKey: controller.publicKey,
@@ -198,20 +199,26 @@ test('Cell applies a received signed route only after data offer and assignments
     newDataIdentity: () => ({ ensure: async () => ({ privateKey: key(5),
       publicKey: key(6) }) }),
     newDataDeployment: options => ({ ...options, store: { read: async () => saved },
-      buildPath: () => ({ interfaceName: 'awgdata0' }) }),
+      buildPath: () => ({ interfaceName: 'awgdata0', verifyOwned: async () => true }) }),
     stageData: async ({ expected }) => { saved = expected.plan; return { guarded: true }; },
     newRoutingCoordinator: options => options,
-    newDataActivation: ({ verifyDataLink }) => ({ activate: async spec => {
+    newDataActivation: ({ routing, verifyDataLink }) => ({ activate: async spec => {
       assert.ok(spec.commands.some(command => command.args.includes('10.8.0.1/32')));
+      assert.equal(await routing.verifyInterfaces(['awguser0', 'awgdata0']), true);
       assert.equal(await verifyDataLink(), true);
       applied++;
     } }),
     probeData: async () => true,
-    newGeoUpdater: () => ({ current: { database: {} }, load: async () => {} }),
+    newGeoUpdater: options => { installGeo = options.install; return {
+      current: { database: {} }, load: async () => {} }; },
     openRegistered: async supplied => ({
       appliedAssignments: async () => ({ schema: 1, clients: [assignment] }),
-      verifyUserRuntime: async () => true,
+      verifyUserRuntime: async () => {
+        verifiedGeo.push(await supplied.geoDatabase());
+        return true;
+      },
       protectUserTraffic: async () => {},
+      installGeoSnapshot: async (_snapshot, commit) => commit(),
       recoverBoot: async () => ({ configured: true }),
       syncSettings: async () => {
         await supplied.receiveDataOffer(offer);
@@ -222,6 +229,13 @@ test('Cell applies a received signed route only after data offer and assignments
     }),
   });
   assert.equal(applied, 1);
+  await installGeo({ database: { RU: { ipv4: [], ipv6: [] } } }, async () => {});
+  assert.equal(applied, 2);
+  await assert.rejects(installGeo({ database: { RU: { ipv4: [], ipv6: [] } } },
+    async () => { throw new Error('GeoIP commit failed'); }), /GeoIP commit failed/);
+  assert.equal(applied, 4);
+  assert.deepEqual(verifiedGeo.map(database => Object.keys(database)),
+    [[], ['RU'], ['RU'], ['RU']]);
   assert.equal(JSON.parse(await fs.readFile(path.join(root, 'routing-inbox.json'), 'utf8'))
     .applied.revision, 1);
 });

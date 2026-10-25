@@ -3,7 +3,9 @@
 const crypto = require('node:crypto');
 const { validateRoutingView } = require('./CellRoutingView');
 
-const MAX_BYTES = 256 * 1024;
+// A valid 1000-client routing view is about 270 KiB even with GeoIP off.
+// Keep the signed payload below the 1 MiB control-reply cap after JSON escaping.
+const MAX_BYTES = 512 * 1024;
 const token = (value, size) => typeof value === 'string' && /^[A-Za-z0-9_-]+$/.test(value)
   && Buffer.from(value, 'base64url').length === size
   && Buffer.from(value, 'base64url').toString('base64url') === value;

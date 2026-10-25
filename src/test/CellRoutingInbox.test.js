@@ -69,3 +69,30 @@ test('routing inbox refuses a peer not in the applied assignment before any writ
   await assert.rejects(inbox.receive(signed), /assignments differ/);
   assert.equal(await inbox.load(), null);
 });
+
+test('GeoIP refresh reapplies the signed view without advancing its revision', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-routing-geo-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const controller = identity(), cell = identity();
+  const file = path.join(dir, 'routing.json');
+  const applied = [];
+  let fail = false;
+  const inbox = new CellRoutingInbox(file, { controllerKey: controller.publicKey,
+    cellKey: cell.publicKey, nodeId: cellId,
+    assignments: async () => ({ schema: 1, clients: [assignment] }),
+    apply: async (_view, revision, database) => {
+      if (fail) throw new Error('geo apply failed');
+      applied.push({ revision, database });
+    } });
+  assert.deepEqual(await inbox.refreshApplied({ RU: {} }), { applied: null });
+  await inbox.receive(signRoutingRevision({ cellKey: cell.publicKey,
+    revision: 1, view: view() }, controller.privateKey));
+  const before = await fs.readFile(file, 'utf8');
+  await inbox.refreshApplied({ RU: { ipv4: ['203.0.113.0/24'], ipv6: [] } });
+  assert.deepEqual(applied.at(-1), { revision: 1,
+    database: { RU: { ipv4: ['203.0.113.0/24'], ipv6: [] } } });
+  assert.equal(await fs.readFile(file, 'utf8'), before);
+  fail = true;
+  await assert.rejects(inbox.refreshApplied({}), /geo apply failed/);
+  assert.equal(await fs.readFile(file, 'utf8'), before);
+});

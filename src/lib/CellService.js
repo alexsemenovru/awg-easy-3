@@ -101,11 +101,12 @@ async function openCellServiceHost({ config, bootstrapHost,
   };
   let host;
   let routingActivated = false;
+  let geoCandidate = null;
   const routingInbox = new CellRoutingInbox(path.join(stateDirectory, 'routing-inbox.json'), {
     controllerKey: connection.controllerKey, cellKey: connection.cellKey,
     nodeId: connection.invitationId,
     assignments: () => host.appliedAssignments(),
-    apply: async view => {
+    apply: async (view, _revision, geoDatabase) => {
       if (!view.panel || !addressInSubnet(view.panel.address4,
         activeOffer.descriptor.controllerClientSubnet4)
         || view.panel.address6 && (!activeOffer.descriptor.controllerClientSubnet6
@@ -134,7 +135,7 @@ async function openCellServiceHost({ config, bootstrapHost,
           nat66: user.server.ipv6Mode === 'nat66',
           links: { main: { interfaceName: dataPath.interfaceName,
             table: 52000, priority: 20000 } }, panel: view.panel },
-        geoDatabase: geo.current?.database || {} });
+        geoDatabase: geoDatabase || geo.current?.database || {} });
       const activation = newDataActivation({ dataPath, routing,
         verifyDataLink: () => probeData({
           interfaceName: dataPath.interfaceName,
@@ -153,7 +154,22 @@ async function openCellServiceHost({ config, bootstrapHost,
       ipv6Subnet: user.server.ipv6Subnet } : {}), profile: user.server.profile,
   }) : undefined;
   const geo = newGeoUpdater({ directory: path.join(stateDirectory, 'geoip'),
-    install: (snapshot, commit) => host.installGeoSnapshot(snapshot, commit) });
+    install: (snapshot, commit) => host.installGeoSnapshot(snapshot, async () => {
+      if (!routingActivated) return commit();
+      const previous = geo.current?.database || {};
+      // The Cell user firewall has already been updated by the host. Runtime
+      // verification must compare against that same candidate until commit.
+      geoCandidate = snapshot.database;
+      try {
+        await routingInbox.refreshApplied(snapshot.database);
+        try { await commit(); }
+        catch (error) {
+          try { await routingInbox.refreshApplied(previous); }
+          catch (rollbackError) { error.rollbackErrors = [rollbackError]; }
+          throw error;
+        }
+      } finally { geoCandidate = null; }
+    }) });
   await geo.load();
   host = await openRegistered({ stateDirectory, runtimeDirectory,
     connectionStore: bootstrapHost.connectionStore,
@@ -179,7 +195,7 @@ async function openCellServiceHost({ config, bootstrapHost,
       routingActivated = true;
     },
     stageDataLink: cachedOffer ? () => stageOffer(cachedOffer) : undefined,
-    geoDatabase: async () => geo.current?.database || {} });
+    geoDatabase: async () => geoCandidate || geo.current?.database || {} });
   // A missing cache may require a network download. Guard user traffic before
   // waiting for it, not only inside the later permanent-path recovery.
   await host.protectUserTraffic();
