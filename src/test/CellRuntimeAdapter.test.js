@@ -25,6 +25,7 @@ test('default cell guard requires explicit persistent state directory', () => {
 function guard(events, { failRecover = false, verify = true } = {}) {
   return { recover: async () => { events.push('guard-recover');
     if (failRecover) throw new Error('Foreign or changed routing guard'); },
+  current: async () => null,
   protect: async interfaces => { assert.deepEqual(interfaces, ['awg0']); events.push('guard-protect'); },
   release: async check => { events.push('guard-release-start');
     if (!verify || !await check()) throw new Error('Runtime not verified; guard retained');
@@ -67,6 +68,18 @@ test('Cell retains the user guard until the signed routing path is verified', as
   assert.ok(!events.includes('guard-release'));
   await adapter.releaseForRouting(async () => true);
   assert.equal(events.at(-1), 'guard-release');
+});
+
+test('Cell retries a signed route when its user guard exists only in kernel readback', async () => {
+  let kernel = true;
+  const owned = { ...guard([]),
+    load: async () => ({ interfaces: [], pending: null }),
+    current: async () => kernel ? { nftables: [] } : null };
+  const adapter = new CellRuntimeAdapter({ server: server(), retainGuard: true,
+    guard: owned, runtime: runtime(async () => {}) });
+  assert.equal(await adapter.userGuardActive(), true);
+  kernel = false;
+  assert.equal(await adapter.userGuardActive(), false);
 });
 
 test('failed Docker forwarding leaves Cell traffic guarded', async () => {

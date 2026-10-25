@@ -31,7 +31,8 @@ class CellRuntimeAdapter {
       || ownedReceipt && !['assertKnown', 'recordCurrent', 'matchesCurrent']
         .every(name => typeof ownedReceipt[name] === 'function')
       || verifyRuntime !== null && typeof verifyRuntime !== 'function'
-      || typeof retainGuard !== 'boolean') {
+      || typeof retainGuard !== 'boolean'
+      || retainGuard && typeof ownedGuard.current !== 'function') {
       throw new TypeError('Durable cell guard and runtime verifier required');
     }
     this.server = structuredClone(server);
@@ -125,7 +126,8 @@ class CellRuntimeAdapter {
 
   async userGuardActive() {
     const state = await this.guard.load();
-    return state.pending !== null || state.interfaces.length > 0;
+    return state.pending !== null || state.interfaces.length > 0
+      || await this.guard.current() !== null;
   }
 }
 
