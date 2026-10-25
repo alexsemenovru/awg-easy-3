@@ -65,6 +65,7 @@ async function openRegisteredCellHost({ stateDirectory, runtimeDirectory,
       return settings.adapter.verifyApplied(artifacts);
     },
     releaseUserGuard: verifyRouting => settings.adapter.releaseForRouting(verifyRouting),
+    userGuardActive: () => settings.adapter.userGuardActive(),
     stageDataLink: stageDataLink ? () => locked(stageDataLink) : undefined,
     createPoller: options => new CellSettingsPoller({ ...options, sync }),
     requiresGeoDatabase: () => locked(async () => {

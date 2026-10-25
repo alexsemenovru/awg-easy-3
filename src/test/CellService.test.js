@@ -187,7 +187,7 @@ test('Cell applies a received signed route only after data offer and assignments
   { panel: { address4: '10.8.0.1', port: 51821 } });
   const envelope = signRoutingRevision({ cellKey: cell.publicKey, revision: 1,
     view }, controller.privateKey);
-  let saved = null, applied = 0, installGeo;
+  let saved = null, applied = 0, installGeo, guardedAgain = false;
   const verifiedGeo = [];
   await syncCellOnce({ config: { ...config(), stateDirectory: root },
     bootstrapHost: { connectionStore: { read: async () => ({ version: 2,
@@ -222,24 +222,28 @@ test('Cell applies a received signed route only after data offer and assignments
       },
       protectUserTraffic: async () => {},
       releaseUserGuard: async verify => assert.equal(await verify(), true),
+      userGuardActive: async () => guardedAgain,
       installGeoSnapshot: async (_snapshot, commit) => commit(),
       recoverBoot: async () => ({ configured: true }),
       syncSettings: async () => {
         await supplied.receiveDataOffer(offer);
         await supplied.receiveRoutingRevision(envelope, offer);
         await supplied.receiveRoutingRevision(envelope, offer);
+        guardedAgain = true;
+        await supplied.receiveRoutingRevision(envelope, offer);
+        guardedAgain = false;
         return { status: 'applied' };
       },
     }),
   });
-  assert.equal(applied, 1);
-  await installGeo({ database: { RU: { ipv4: [], ipv6: [] } } }, async () => {});
   assert.equal(applied, 2);
+  await installGeo({ database: { RU: { ipv4: [], ipv6: [] } } }, async () => {});
+  assert.equal(applied, 3);
   await assert.rejects(installGeo({ database: { RU: { ipv4: [], ipv6: [] } } },
     async () => { throw new Error('GeoIP commit failed'); }), /GeoIP commit failed/);
-  assert.equal(applied, 4);
+  assert.equal(applied, 5);
   assert.deepEqual(verifiedGeo.map(database => Object.keys(database)),
-    [[], [], ['RU'], ['RU'], ['RU'], ['RU'], [], []]);
+    [[], [], [], [], ['RU'], ['RU'], ['RU'], ['RU'], [], []]);
   assert.equal(JSON.parse(await fs.readFile(path.join(root, 'routing-inbox.json'), 'utf8'))
     .applied.revision, 1);
 });

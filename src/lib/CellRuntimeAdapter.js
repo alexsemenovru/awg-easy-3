@@ -122,6 +122,11 @@ class CellRuntimeAdapter {
     }
     await this.guard.release(verifyRouting);
   }
+
+  async userGuardActive() {
+    const state = await this.guard.load();
+    return state.pending !== null || state.interfaces.length > 0;
+  }
 }
 
 module.exports = { CellRuntimeAdapter };

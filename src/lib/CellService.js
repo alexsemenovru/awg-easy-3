@@ -202,7 +202,8 @@ async function openCellServiceHost({ config, bootstrapHost,
       }
       const prior = await routingInbox.load();
       await routingInbox.receive(envelope);
-      if (!routingActivated && prior?.applied?.revision === envelope.revision) {
+      if (prior?.applied?.revision === envelope.revision
+        && (!routingActivated || await host.userGuardActive())) {
         await routingInbox.restoreApplied();
       }
       routingActivated = true;
