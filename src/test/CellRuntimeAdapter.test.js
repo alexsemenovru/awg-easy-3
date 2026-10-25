@@ -54,6 +54,21 @@ test('cell runtime protects before changing peers and releases only after readba
     'guard-release-start', 'verify', 'guard-release']);
 });
 
+test('Cell retains the user guard until the signed routing path is verified', async () => {
+  const events = [];
+  const adapter = new CellRuntimeAdapter({ server: server(), retainGuard: true,
+    runner: async file => { if (file === 'ip') throw missing(); return { stdout: '' }; },
+    guard: guard(events), verifyRuntime: async () => true,
+    dockerForwarding: { ensure: async () => {} },
+    runtime: runtime(async () => { events.push('apply'); }) });
+  await adapter.apply({ schema: 1, clients: [] });
+  assert.deepEqual(events, ['guard-recover', 'guard-protect', 'apply']);
+  await assert.rejects(adapter.releaseForRouting(async () => false), /guard retained/);
+  assert.ok(!events.includes('guard-release'));
+  await adapter.releaseForRouting(async () => true);
+  assert.equal(events.at(-1), 'guard-release');
+});
+
 test('failed Docker forwarding leaves Cell traffic guarded', async () => {
   const events = [];
   const adapter = new CellRuntimeAdapter({ server: server(),

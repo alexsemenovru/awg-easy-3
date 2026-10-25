@@ -7,7 +7,7 @@ const { CellSettingsReceiver } = require('./CellSettingsReceiver');
 // Assemble only from a validated, registered Cell connection. The same
 // durable directory anchors the settings journal and the traffic guard.
 async function openCellSettingsRuntime({ connectionStore, stateDirectory,
-  runtimeDirectory, server, geoDatabase, runner } = {}) {
+  runtimeDirectory, server, geoDatabase, runner, retainUserGuard = false } = {}) {
   if (!connectionStore || typeof connectionStore.read !== 'function'
     || typeof stateDirectory !== 'string' || !path.isAbsolute(stateDirectory)
     || typeof runtimeDirectory !== 'string' || !path.isAbsolute(runtimeDirectory)
@@ -22,6 +22,7 @@ async function openCellSettingsRuntime({ connectionStore, stateDirectory,
   }
   const adapter = new CellRuntimeAdapter({ server, runtimeDirectory,
     stateDirectory: path.join(stateDirectory, 'client-runtime'),
+    retainGuard: retainUserGuard,
     ...(geoDatabase ? { geoDatabase } : {}), ...(runner ? { runner } : {}) });
   const receiver = new CellSettingsReceiver(path.join(stateDirectory, 'settings.json'), {
     controllerKey: connection.controllerKey, cellKey: connection.cellKey,

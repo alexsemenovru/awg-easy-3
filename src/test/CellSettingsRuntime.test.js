@@ -26,6 +26,8 @@ test('settings assembly binds registered identity, receiver and durable cell gua
   assert.equal(receiver.filePath, path.join(input.stateDirectory, 'settings.json'));
   assert.equal(adapter.guard.file,
     path.join(input.stateDirectory, 'client-runtime', 'guard.json'));
+  const guarded = await openCellSettingsRuntime({ ...input, retainUserGuard: true });
+  assert.equal(guarded.adapter.retainGuard, true);
 });
 
 test('settings assembly refuses missing registration and ambiguous directories', async () => {

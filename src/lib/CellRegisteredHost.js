@@ -15,7 +15,7 @@ async function openRegisteredCellHost({ stateDirectory, runtimeDirectory,
   connectionStore, identityStore, bootstrap, temporaryInterfaceName,
   server, userDescriptor, dataPublicKey, receiveDataOffer, receiveRoutingRevision,
   stageDataLink,
-  geoDatabase, runner,
+  geoDatabase, runner, retainUserGuard = false,
   openSettings = openCellSettingsRuntime,
   openPermanent = createPermanentCellRuntime,
   withLock = withCellInstallationLock } = {}) {
@@ -29,7 +29,8 @@ async function openRegisteredCellHost({ stateDirectory, runtimeDirectory,
   }
   const settings = await openSettings({ connectionStore,
     stateDirectory: path.join(stateDirectory, 'settings'), runtimeDirectory,
-    server, ...(geoDatabase ? { geoDatabase } : {}), ...(runner ? { runner } : {}) });
+    server, retainUserGuard,
+    ...(geoDatabase ? { geoDatabase } : {}), ...(runner ? { runner } : {}) });
   if (!settings || !settings.adapter || !settings.receiver) {
     throw new TypeError('Registered Cell settings runtime required');
   }
@@ -63,6 +64,7 @@ async function openRegisteredCellHost({ stateDirectory, runtimeDirectory,
         geoDatabase: await settings.adapter.geoDatabase() });
       return settings.adapter.verifyApplied(artifacts);
     },
+    releaseUserGuard: verifyRouting => settings.adapter.releaseForRouting(verifyRouting),
     stageDataLink: stageDataLink ? () => locked(stageDataLink) : undefined,
     createPoller: options => new CellSettingsPoller({ ...options, sync }),
     requiresGeoDatabase: () => locked(async () => {

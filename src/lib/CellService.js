@@ -140,9 +140,16 @@ async function openCellServiceHost({ config, bootstrapHost,
         verifyDataLink: () => probeData({
           interfaceName: dataPath.interfaceName,
           peerPublicKey: activeOffer.descriptor.controllerPublicKey, runner }) });
-      await activation.activate({ version: 1,
+      const spec = { version: 1,
         interfaces: [user.server.interfaceName, dataPath.interfaceName],
-        commands: policy.commands, nftSnapshot: policy.nftSnapshot });
+        commands: policy.commands, nftSnapshot: policy.nftSnapshot };
+      await activation.activate(spec);
+      await host.releaseUserGuard(async () =>
+        await host.verifyUserRuntime()
+        && await routing.verifyOperational(spec)
+        && await dataPath.verifyOperational()
+        && await probeData({ interfaceName: dataPath.interfaceName,
+          peerPublicKey: activeOffer.descriptor.controllerPublicKey, runner }));
     },
   });
   let activeOffer = cachedOffer;
@@ -154,22 +161,28 @@ async function openCellServiceHost({ config, bootstrapHost,
       ipv6Subnet: user.server.ipv6Subnet } : {}), profile: user.server.profile,
   }) : undefined;
   const geo = newGeoUpdater({ directory: path.join(stateDirectory, 'geoip'),
-    install: (snapshot, commit) => host.installGeoSnapshot(snapshot, async () => {
-      if (!routingActivated) return commit();
+    install: async (snapshot, commit) => {
       const previous = geo.current?.database || {};
-      // The Cell user firewall has already been updated by the host. Runtime
-      // verification must compare against that same candidate until commit.
-      geoCandidate = snapshot.database;
       try {
-        await routingInbox.refreshApplied(snapshot.database);
-        try { await commit(); }
-        catch (error) {
+        await host.installGeoSnapshot(snapshot, async () => {
+          // The user firewall has already been updated. Verify it against this
+          // candidate while the signed routing policy is reapplied.
+          geoCandidate = snapshot.database;
+          if (routingActivated) await routingInbox.refreshApplied(snapshot.database);
+          await commit();
+        });
+      } catch (error) {
+        // The host has rolled its user firewall back by this point. Restore
+        // the previous route too, then release the user guard only if both
+        // policies verify again.
+        geoCandidate = null;
+        if (routingActivated) {
           try { await routingInbox.refreshApplied(previous); }
           catch (rollbackError) { error.rollbackErrors = [rollbackError]; }
-          throw error;
         }
+        throw error;
       } finally { geoCandidate = null; }
-    }) });
+    } });
   await geo.load();
   host = await openRegistered({ stateDirectory, runtimeDirectory,
     connectionStore: bootstrapHost.connectionStore,
@@ -195,6 +208,7 @@ async function openCellServiceHost({ config, bootstrapHost,
       routingActivated = true;
     },
     stageDataLink: cachedOffer ? () => stageOffer(cachedOffer) : undefined,
+    retainUserGuard: true,
     geoDatabase: async () => geoCandidate || geo.current?.database || {} });
   // A missing cache may require a network download. Guard user traffic before
   // waiting for it, not only inside the later permanent-path recovery.

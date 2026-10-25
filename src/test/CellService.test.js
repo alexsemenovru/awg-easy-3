@@ -37,6 +37,7 @@ test('Cell service restores signed state before polling and closes poller only',
       stop: async () => { order.push('geo-stop'); } }),
     openRegistered: async supplied => {
       args = supplied;
+      assert.equal(supplied.retainUserGuard, true);
       order.push('registered');
       return { protectUserTraffic: async () => { order.push('guard'); },
         recoverBoot: async () => { order.push('restore'); return { configured: true }; },
@@ -199,9 +200,11 @@ test('Cell applies a received signed route only after data offer and assignments
     newDataIdentity: () => ({ ensure: async () => ({ privateKey: key(5),
       publicKey: key(6) }) }),
     newDataDeployment: options => ({ ...options, store: { read: async () => saved },
-      buildPath: () => ({ interfaceName: 'awgdata0', verifyOwned: async () => true }) }),
+      buildPath: () => ({ interfaceName: 'awgdata0', verifyOwned: async () => true,
+        verifyOperational: async () => true }) }),
     stageData: async ({ expected }) => { saved = expected.plan; return { guarded: true }; },
-    newRoutingCoordinator: options => options,
+    newRoutingCoordinator: options => ({ ...options,
+      verifyOperational: async () => true }),
     newDataActivation: ({ routing, verifyDataLink }) => ({ activate: async spec => {
       assert.ok(spec.commands.some(command => command.args.includes('10.8.0.1/32')));
       assert.equal(await routing.verifyInterfaces(['awguser0', 'awgdata0']), true);
@@ -218,6 +221,7 @@ test('Cell applies a received signed route only after data offer and assignments
         return true;
       },
       protectUserTraffic: async () => {},
+      releaseUserGuard: async verify => assert.equal(await verify(), true),
       installGeoSnapshot: async (_snapshot, commit) => commit(),
       recoverBoot: async () => ({ configured: true }),
       syncSettings: async () => {
@@ -235,7 +239,7 @@ test('Cell applies a received signed route only after data offer and assignments
     async () => { throw new Error('GeoIP commit failed'); }), /GeoIP commit failed/);
   assert.equal(applied, 4);
   assert.deepEqual(verifiedGeo.map(database => Object.keys(database)),
-    [[], ['RU'], ['RU'], ['RU']]);
+    [[], [], ['RU'], ['RU'], ['RU'], ['RU'], [], []]);
   assert.equal(JSON.parse(await fs.readFile(path.join(root, 'routing-inbox.json'), 'utf8'))
     .applied.revision, 1);
 });

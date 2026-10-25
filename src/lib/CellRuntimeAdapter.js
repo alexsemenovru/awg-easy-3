@@ -17,7 +17,7 @@ const GUARD = 'awg_easy_3_cell_guard';
 class CellRuntimeAdapter {
   constructor({ server, runtimeDirectory, stateDirectory,
     geoDatabase = async () => ({}), runner = runProcess,
-    runtime = new RuntimeApplier({ runtimeDirectory, runner }),
+    runtime = new RuntimeApplier({ runtimeDirectory, runner }), retainGuard = false,
     guard = null, policyReceipt = null, verifyRuntime = null, dockerForwarding = null }) {
     if (!guard && (typeof stateDirectory !== 'string' || !path.isAbsolute(stateDirectory)
       || (process.platform !== 'win32' && /^\/run(?:\/|$)/.test(stateDirectory)))) {
@@ -30,7 +30,8 @@ class CellRuntimeAdapter {
     if (!['recover', 'protect', 'release'].every(name => typeof ownedGuard[name] === 'function')
       || ownedReceipt && !['assertKnown', 'recordCurrent', 'matchesCurrent']
         .every(name => typeof ownedReceipt[name] === 'function')
-      || verifyRuntime !== null && typeof verifyRuntime !== 'function') {
+      || verifyRuntime !== null && typeof verifyRuntime !== 'function'
+      || typeof retainGuard !== 'boolean') {
       throw new TypeError('Durable cell guard and runtime verifier required');
     }
     this.server = structuredClone(server);
@@ -41,6 +42,7 @@ class CellRuntimeAdapter {
     this.policyReceipt = ownedReceipt;
     this.dockerForwarding = dockerForwarding || new CellDockerForwarding({ server, runner });
     this.verifyRuntime = verifyRuntime || (artifacts => this.verifyApplied(artifacts));
+    this.retainGuard = retainGuard;
   }
 
   async validate(settings) {
@@ -111,7 +113,14 @@ class CellRuntimeAdapter {
     await this.runtime.apply({ ...artifacts, interfaceActive: active });
     if (this.policyReceipt) await this.policyReceipt.recordCurrent();
     await this.dockerForwarding.ensure();
-    await this.guard.release(() => this.verifyRuntime(artifacts));
+    if (!this.retainGuard) await this.guard.release(() => this.verifyRuntime(artifacts));
+  }
+
+  async releaseForRouting(verifyRouting) {
+    if (!this.retainGuard || typeof verifyRouting !== 'function') {
+      throw new TypeError('Retained user guard and routing verifier required');
+    }
+    await this.guard.release(verifyRouting);
   }
 }
 
