@@ -47,3 +47,41 @@ test('complex controller and cell policies match isolated nft kernel readback', 
     assert.deepEqual(kernelReadback(nftSnapshot), nftSnapshot, `${nodeId} policy differs from kernel readback`);
   }
 });
+
+test('two Cells with distinct client exits match isolated nft kernel readback', { skip: !enabled }, () => {
+  const nodes = [{ id: 'main', role: 'controller', ipv4: true, ipv6: true },
+    { id: 'cellA', role: 'cell', ipv4: true, ipv6: true },
+    { id: 'cellB', role: 'cell', ipv4: true, ipv6: false }];
+  const topology = { version: 1, nodes,
+    links: [{ a: 'main', b: 'cellA', ipv4: true, ipv6: true },
+      { a: 'main', b: 'cellB', ipv4: true, ipv6: false }],
+    clients: [
+      { entry: 'main', exit: 'cellA', assignment: { id: 'owner', publicKey: key(11),
+        address4: '10.8.0.2', address6: 'fd08::2', networkGroup: 'home',
+        ipv4Enabled: true, ipv6Enabled: true,
+        geoPolicy: { mode: 'block', countries: ['RU'] } } },
+      { entry: 'cellA', exit: 'main', assignment: { id: 'phone', publicKey: key(12),
+        address4: '10.64.0.2', address6: 'fd64::2', networkGroup: 'home',
+        ipv4Enabled: true, ipv6Enabled: true,
+        geoPolicy: { mode: 'off', countries: [] } } },
+      { entry: 'cellB', exit: 'cellB', assignment: { id: 'guest', publicKey: key(13),
+        address4: '10.65.0.2', networkGroup: 'guest',
+        ipv4Enabled: true, ipv6Enabled: false,
+        geoPolicy: { mode: 'off', countries: [] } } },
+    ] };
+  const links = { main: { cellA: ['transitA', 52000, 20000],
+    cellB: ['transitB', 52001, 20001] },
+  cellA: { main: ['transitA', 52000, 20000] },
+  cellB: { main: ['transitB', 52001, 20001] } };
+  for (const node of nodes) {
+    const context = { clientInterface: 'clients', wanInterface: 'wan',
+      nat66: node.ipv6,
+      links: Object.fromEntries(Object.entries(links[node.id]).map(([peer, values]) =>
+        [peer, { interfaceName: values[0], table: values[1], priority: values[2] }])),
+      panel: { address4: '10.8.0.1', address6: 'fd08::1', port: 51821 } };
+    const { nftSnapshot } = compileCellRouting({ topology, nodeId: node.id,
+      context, geoDatabase });
+    assert.deepEqual(kernelReadback(nftSnapshot), nftSnapshot,
+      `${node.id} policy differs from kernel readback`);
+  }
+});
