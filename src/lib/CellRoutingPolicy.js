@@ -1,6 +1,7 @@
 'use strict';
 const net = require('node:net');
 const { planCellTopology } = require('./CellTopology');
+const { validateRoutingView } = require('./CellRoutingView');
 const { renderGeoIpPolicy } = require('./GeoIpPolicy');
 const { ipNumber } = require('./GeoIpAddress');
 const { routingPolicySnapshot } = require('./CellNftPolicyJson');
@@ -14,8 +15,10 @@ const integer = (x, min, max) => Number.isSafeInteger(x) && x >= min && x <= max
 // Pure compiler, deliberately separate from current local-only runtime. Commands
 // are argv arrays, not shell strings; applying them requires an ownership-aware
 // transaction. One AWG interface per direct link avoids overlapping AllowedIPs.
-function compileCellRouting({ topology, nodeId, context, geoDatabase = {} }) {
-  const plan = planCellTopology(topology).plans.find(p => p.node.id === nodeId);
+function compileCellRouting({ topology, routingView, nodeId, context, geoDatabase = {} }) {
+  if (Boolean(topology) === Boolean(routingView)) throw new TypeError('One routing source required');
+  const view = routingView ? validateRoutingView(routingView, nodeId) : null;
+  const plan = view || planCellTopology(topology).plans.find(p => p.node.id === nodeId);
   if (!plan || !context || typeof context.nat66 !== 'boolean') throw new TypeError('Invalid routing context');
   const client = iface(context.clientInterface), wan = iface(context.wanInterface);
   const names = new Set([client, wan]);
@@ -36,7 +39,7 @@ function compileCellRouting({ topology, nodeId, context, geoDatabase = {} }) {
     || (panel.address6 !== undefined && (net.isIP(panel.address6) !== 6 || panel.address6.includes('%')))) {
     throw new TypeError('Invalid panel route');
   }
-  const controller = topology.nodes.find(n => n.role === 'controller').id;
+  const controller = view ? view.controllerId : topology.nodes.find(n => n.role === 'controller').id;
   const managed = `{ ${[...names].filter(n => n !== wan).map(n => `"${n}"`).join(', ')} }`;
   const enabled = (r, family) => r.enabled[`ipv${family}`] && r[`address${family}`];
   const pathTo = (id, family) => id === nodeId ? client : links.get(id)?.[`ipv${family}`] ? links.get(id).interfaceName : null;
