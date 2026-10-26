@@ -150,7 +150,7 @@ fi
 unset AWG_IMAGE AWG_CELL_WAN_INTERFACE AWG_CELL_USER_PORT AWG_CELL_ENDPOINT
 compose() { docker compose --env-file "$env_file" -f docker-compose.cells-cell.yml "$@"; }
 compose config --quiet || die 'Cell compose configuration is invalid'
-awg_cells_install_rp_filter cell awgcellb0 awgcellc0 awgcellu0 \
+awg_cells_install_rp_filter cell awgcellb0 awgcellc0 awgcellu0 awgdata0 \
   || die 'cannot reserve loose rp_filter for Cell-owned AWG interfaces'
 info 'Starting the headless Cell; the invitation is never printed'
 compose up -d cell || die 'Cell service did not start; private state was preserved'

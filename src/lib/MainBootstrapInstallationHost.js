@@ -543,9 +543,11 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
       for (const record of records) {
         const outbox = routingOutboxForRecord(record);
         const previous = await outbox.load();
+        const dataOffer = inventory.find(row => row.id === record.id)?.offer;
         const next = await outbox.publish(topology, { panel: {
           address4: state.server.address4,
-          ...(state.server.address6 ? { address6: state.server.address6 } : {}),
+          ...(state.server.address6 && dataOffer?.descriptor.cellAddress6
+            ? { address6: state.server.address6 } : {}),
           port: state.server.panelPort } });
         if (previous?.revision !== next.revision) published++;
       }

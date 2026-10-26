@@ -20,10 +20,26 @@ awg_cells_install_rp_filter() {
     if [ ! -f "$awg_rp_target" ] || [ -L "$awg_rp_target" ] \
       || [ "$(stat -c %u "$awg_rp_target")" != 0 ] \
       || [ "$(stat -c %a "$awg_rp_target")" != 644 ] \
-      || [ "$(stat -c %h "$awg_rp_target")" != 1 ] \
-      || ! cmp -s "$awg_rp_temporary" "$awg_rp_target"; then
+      || [ "$(stat -c %h "$awg_rp_target")" != 1 ]; then
       rm -f -- "$awg_rp_temporary"
       return 1
+    fi
+    if ! cmp -s "$awg_rp_temporary" "$awg_rp_target"; then
+      # Migrate only the exact file written by the earlier installer. Any
+      # locally edited or foreign sysctl file still requires inspection.
+      awg_rp_legacy=$(mktemp "/etc/sysctl.d/.awg-easy-3-${awg_rp_role}-legacy.XXXXXX") \
+        || { rm -f -- "$awg_rp_temporary"; return 1; }
+      case "$awg_rp_role" in
+        main) printf 'net.ipv4.conf.%s.rp_filter = 2\n' awgmainb0 awgmainc0 > "$awg_rp_legacy" ;;
+        cell) printf 'net.ipv4.conf.%s.rp_filter = 2\n' awgcellb0 awgcellc0 awgcellu0 > "$awg_rp_legacy" ;;
+      esac
+      if ! cmp -s "$awg_rp_legacy" "$awg_rp_target"; then
+        rm -f -- "$awg_rp_legacy" "$awg_rp_temporary"
+        return 1
+      fi
+      rm -f -- "$awg_rp_legacy"
+      mv -f -- "$awg_rp_temporary" "$awg_rp_target" || return 1
+      return 0
     fi
   else
     ln "$awg_rp_temporary" "$awg_rp_target" || { rm -f -- "$awg_rp_temporary"; return 1; }

@@ -39,6 +39,22 @@ test('missing Docker legacy chain leaves host firewall unchanged', async () => {
   assert.deepEqual(calls, [['-S', 'DOCKER-USER']]);
 });
 
+test('Docker without a legacy filter table needs no compatibility rules', async () => {
+  const runner = async () => {
+    throw Object.assign(new Error('iptables failed'), { code: 3,
+      stderr: "iptables v1.8.11 (legacy): can't initialize iptables table `filter': Table does not exist (do you need to insmod?)" });
+  };
+  assert.equal(await new CellDockerForwarding({ server, runner }).ensure(), false);
+});
+
+test('other legacy firewall errors are not silently ignored', async () => {
+  const runner = async () => {
+    throw Object.assign(new Error('iptables failed'), { code: 3,
+      stderr: 'iptables v1.8.11 (legacy): Permission denied' });
+  };
+  await assert.rejects(new CellDockerForwarding({ server, runner }).ensure(), /iptables failed/);
+});
+
 test('existing owned rules are verified, not duplicated', async () => {
   const calls = [];
   const runner = async (command, args) => {

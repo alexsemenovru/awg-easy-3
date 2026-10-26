@@ -140,7 +140,13 @@ compose() {
     -f docker-compose.cells-main.yml --profile cells-main "$@"
 }
 compose config --quiet || die 'Main Node compose configuration is invalid'
-awg_cells_install_rp_filter main awgmainb0 awgmainc0 \
+set -- awgmainb0 awgmainc0
+awg_data_slot=0
+while [ "$awg_data_slot" -lt 127 ]; do
+  set -- "$@" "awgd${awg_data_slot}"
+  awg_data_slot=$((awg_data_slot + 1))
+done
+awg_cells_install_rp_filter main "$@" \
   || die 'cannot reserve loose rp_filter for Main-owned AWG interfaces'
 install -d -m 0700 cell-data cell-status
 info 'Starting the Main Node service without changing the running panel'

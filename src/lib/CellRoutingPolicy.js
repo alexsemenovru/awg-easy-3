@@ -44,7 +44,9 @@ function compileCellRouting({ topology, routingView, nodeId, context, geoDatabas
     throw new TypeError('Invalid panel route');
   }
   const controller = view ? view.controllerId : topology.nodes.find(n => n.role === 'controller').id;
-  const managed = `{ ${[...names].filter(n => n !== wan).map(n => `"${n}"`).join(', ')} }`;
+  // nftables canonicalizes anonymous sets by interface name on some kernels.
+  // Emit that same order so the signed policy matches kernel readback.
+  const managed = `{ ${[...names].filter(n => n !== wan).sort().map(n => `"${n}"`).join(', ')} }`;
   const enabled = (r, family) => r.enabled[`ipv${family}`] && r[`address${family}`];
   const pathTo = (id, family) => id === nodeId ? client : links.get(id)?.[`ipv${family}`] ? links.get(id).interfaceName : null;
   const home = plan.routes.filter(r => r.group === 'home');

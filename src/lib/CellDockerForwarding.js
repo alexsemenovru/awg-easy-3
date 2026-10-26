@@ -27,6 +27,13 @@ class CellDockerForwarding {
       ({ stdout: forward } = await this.runner('iptables-legacy', ['-S', 'FORWARD']));
     } catch (error) {
       if (error?.code === 1 || error?.exitCode === 1) return false;
+      // Hosts running Docker with bridge=none/iptables=false may have no
+      // legacy filter table at all. Docker's optional compatibility rules do
+      // not apply there; the Cell's own nft policy remains authoritative.
+      if ((error?.code === 3 || error?.exitCode === 3)
+        && /can't initialize iptables table [`']filter['`]: Table does not exist/.test(error.stderr || '')) {
+        return false;
+      }
       throw error;
     }
     if (!chain.includes('-N DOCKER-USER')

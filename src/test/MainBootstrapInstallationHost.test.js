@@ -218,6 +218,7 @@ test('Main prepares one immutable Cell data offer from pinned announcements and 
     auth: { passwordHash: 'hash', sessionSecret: 'secret' },
     server: { interfaceName: 'awg0', wanInterface: 'eth0', privateKey: key(1),
       publicKey: key(2), address4: '10.8.0.1', ipv4Subnet: '10.8.0.0/24',
+      address6: 'fd42:8::1', ipv6Subnet: 'fd42:8::/64',
       listenPort: 51820, panelPort: 51821, endpointHost: 'main.example.test',
       profile: generateOfficialProfile() },
     clients: [{ id: 'home', name: 'Owner', networkGroup: 'home', enabled: true,

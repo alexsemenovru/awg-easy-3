@@ -2,5 +2,9 @@
 /.git
 /.github
 /data
+/cell-data
+/cell-status
+/.env
+/.env.*
 node_modules
 *.log
