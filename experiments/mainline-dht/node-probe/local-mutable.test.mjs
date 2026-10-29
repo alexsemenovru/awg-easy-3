@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash, createPublicKey, generateKeyPairSync, sign, verify } from 'node:crypto'
 import DHT from 'bittorrent-dht'
+import locator from '../../../src/lib/CellDhtLocator.js'
 
 const spkiPrefix = Buffer.from('302a300506032b6570032100', 'hex')
 const wait = (emitter, event) => new Promise(resolve => emitter.once(event, resolve))
@@ -73,4 +74,39 @@ test('pinned Node DHT publishes and updates a signed BEP 44 record on loopback',
     await assert.rejects(put(moved, options(2)), /sequence number less than current/)
     await assert.rejects(put(moved, options(4, () => Buffer.alloc(64))))
     assert.equal((await get(reader, target, salt)).seq, 3)
+  })
+
+test('product Cell locator survives a BEP 44 put/get on loopback',
+  { timeout: 15000 }, async t => {
+    const { publicKey, privateKey } = generateKeyPairSync('ed25519')
+    const cellKey = publicKey.export({ format: 'jwk' }).x
+    const now = Date.now()
+    const opts = locator.createCellLocator({
+      privateKey: privateKey.export({ format: 'pem', type: 'pkcs8' }), seq: 9,
+      host: '198.51.100.7', port: 49123, now })
+    const verifyItem = (signature, message, key) => key.equals(opts.k) &&
+      verify(null, message, publicKey, signature)
+    const storage = new DHT({ bootstrap: false, verify: verifyItem })
+    const writer = new DHT({ bootstrap: false, verify: verifyItem })
+    const reader = new DHT({ bootstrap: false, verify: verifyItem })
+    t.after(async () => { await Promise.all([close(storage), close(writer), close(reader)]) })
+    for (const dht of [storage, writer, reader]) {
+      const listening = wait(dht, 'listening')
+      dht.listen(0, '127.0.0.1')
+      await listening
+    }
+    const contact = { host: '127.0.0.1', port: storage.address().port }
+    const writerReady = wait(writer, 'node')
+    const readerReady = wait(reader, 'node')
+    writer.addNode(contact)
+    reader.addNode(contact)
+    await Promise.all([writerReady, readerReady])
+    const published = await put(writer, opts)
+    assert.deepEqual(published.hash, locator.targetFor(cellKey))
+    assert.ok(published.accepted > 0)
+    const item = await get(reader, published.hash, opts.salt)
+    assert.deepEqual(locator.verifyCellLocator(item, { cellKey, minimumSeq: 9, now }), {
+      cellKey, seq: 9, host: '198.51.100.7', port: 49123,
+      expiresAt: now + 15 * 60 * 1000, target: published.hash,
+    })
   })
