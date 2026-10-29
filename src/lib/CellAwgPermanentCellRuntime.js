@@ -14,7 +14,8 @@ const { CellSettingsPoller } = require('./CellSettingsPoller');
 // owns the cross-process installation lock and the temporary AWG lifecycle.
 function createPermanentCellRuntime({ stateDirectory, connectionStore, bootstrap,
   temporaryInterfaceName, receiver, clientRuntime, userDescriptor, dataPublicKey,
-  receiveDataOffer, receiveRoutingRevision, runner, sync = syncCellSettings,
+  receiveDataOffer, receiveRoutingRevision, acknowledgeRoutingRevision,
+  runner, sync = syncCellSettings,
   fetchDataOffer = fetchCellDataOffer,
   fetchRoutingRevision = fetchCellRoutingRevision } = {}) {
   if (!connectionStore || typeof connectionStore.read !== 'function'
@@ -23,6 +24,7 @@ function createPermanentCellRuntime({ stateDirectory, connectionStore, bootstrap
     || !bootstrap || typeof bootstrap !== 'object' || typeof sync !== 'function'
     || (receiveDataOffer !== undefined && typeof receiveDataOffer !== 'function')
     || (receiveRoutingRevision !== undefined && typeof receiveRoutingRevision !== 'function')
+    || (acknowledgeRoutingRevision !== undefined && typeof acknowledgeRoutingRevision !== 'function')
     || typeof fetchDataOffer !== 'function' || typeof fetchRoutingRevision !== 'function') {
     throw new TypeError('Cell connection, bootstrap and settings receiver required');
   }
@@ -57,7 +59,12 @@ function createPermanentCellRuntime({ stateDirectory, connectionStore, bootstrap
           const routing = await fetchRoutingRevision({ connectionStore, identityStore,
             host: connection.controllerPath.controllerAddress,
             port: connection.controllerPath.controlPort });
-          if (routing) await receiveRoutingRevision(routing, offer);
+          if (routing) {
+            await receiveRoutingRevision(routing, offer);
+            if (acknowledgeRoutingRevision) await acknowledgeRoutingRevision({
+              identityStore, host: connection.controllerPath.controllerAddress,
+              port: connection.controllerPath.controlPort });
+          }
         }
       }
     }

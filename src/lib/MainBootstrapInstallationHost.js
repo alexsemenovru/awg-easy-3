@@ -179,6 +179,11 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
     const record = (await bootstrapStore.read()).invitations.find(item =>
       item.cellKey === cellKey && item.status === 'consumed' && item.phase === 'closed');
     return record ? routingOutboxForRecord(record).load() : null;
+  }, acknowledge: async ack => {
+    const record = (await bootstrapStore.read()).invitations.find(item =>
+      item.cellKey === cellKey && item.status === 'consumed' && item.phase === 'closed');
+    if (!record) throw new Error('Unknown Cell routing recipient');
+    return routingOutboxForRecord(record).acknowledge(ack);
   } });
   let activeRoutingFingerprint = null;
   let geoCache = null;
@@ -495,12 +500,13 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
       const records = (await bootstrapStore.read()).invitations.filter(record =>
         record.status === 'consumed' && record.phase === 'closed' && record.cellKey);
       return Promise.all(records.map(async record => {
-        const [descriptor, published] = await Promise.all([
+        const [descriptor, published, routeApplied] = await Promise.all([
           descriptorForCell(record.cellKey).read(), publisherForCell(record.cellKey).load(),
+          routingOutboxForRecord(record).applied(),
         ]);
         const confirmed = published?.confirmed
           ? validateCellSettings(JSON.parse(published.confirmed.desired.payload)).clients : [];
-        return { id: record.id, descriptor,
+        return { id: record.id, descriptor, routeApplied: routeApplied !== null,
           confirmed: Object.fromEntries(confirmed.map(client =>
             [client.id, assignmentFingerprint(client)])) };
       }));

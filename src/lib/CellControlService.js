@@ -89,6 +89,14 @@ class CellControlService {
         return signControlReply({ ok: true, requestId: request.requestId,
           routing }, controller.privateKey);
       }
+      if (request.action === 'route-ack') {
+        if (!this.bootstrapStore || !this.routingForCell) {
+          throw new Error('Cell routing acknowledgements unavailable');
+        }
+        const result = await this.routingForCell(request.cellKey).acknowledge(request.payload);
+        return signControlReply({ ok: true, requestId: request.requestId,
+          applied: result.revision }, controller.privateKey);
+      }
       const publisher = this.publisherForCell(request.cellKey);
       if (request.action === 'ack') {
         const result = await publisher.acknowledge(request.payload);
@@ -209,6 +217,26 @@ async function fetchCellRoutingRevision({ connectionStore, identityStore, host, 
   return reply.routing;
 }
 
+async function acknowledgeCellRoutingRevision({ connectionStore, identityStore,
+  routingInbox, host, port }) {
+  const connection = await connectionStore.read();
+  if (connection?.version !== 2 || connection.status !== 'registered') {
+    throw new Error('Registered AWG Cell connection required');
+  }
+  const state = await routingInbox.load();
+  if (!state?.applied) throw new Error('No applied Cell routing revision');
+  const identity = await identityStore.load('cell');
+  if (identity.publicKey !== connection.cellKey) throw new Error('Cell identity changed');
+  const { signRoutingAck } = require('./CellRoutingAck');
+  const ack = signRoutingAck(state.applied, identity.privateKey);
+  const request = signControl({ controllerKey: connection.controllerKey,
+    action: 'route-ack', payload: ack }, identity.privateKey);
+  const reply = await exchangeOverTunnel({ address: host, port, request,
+    controllerKey: connection.controllerKey });
+  if (reply.applied !== ack.revision) throw new Error('Routing acknowledgement mismatch');
+  return { applied: ack.revision };
+}
+
 module.exports = { CellControlService, prepareControlEndpoint,
   listenTunnelControlEndpoint, syncCellSettings, fetchCellDataOffer,
-  fetchCellRoutingRevision };
+  fetchCellRoutingRevision, acknowledgeCellRoutingRevision };

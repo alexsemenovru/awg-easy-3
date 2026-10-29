@@ -16,7 +16,8 @@ function validateEntries(value) {
   const seen = new Set();
   const entries = value.entries.map(entry => {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)
-      || !['descriptor,id', 'confirmed,descriptor,id'].includes(Object.keys(entry).sort().join(','))
+      || !['descriptor,id', 'confirmed,descriptor,id',
+        'confirmed,descriptor,id,routeApplied'].includes(Object.keys(entry).sort().join(','))
       || typeof entry.id !== 'string' || !/^[a-f0-9]{32}$/.test(entry.id)
       || seen.has(entry.id)) throw new Error('Invalid Main Cell entry snapshot');
     seen.add(entry.id);
@@ -27,8 +28,12 @@ function validateEntries(value) {
         !/^[A-Za-z0-9_-]{1,64}$/.test(clientId) || !/^[a-f0-9]{64}$/.test(fingerprint))) {
       throw new Error('Invalid Main Cell entry confirmations');
     }
+    if (entry.routeApplied !== undefined && typeof entry.routeApplied !== 'boolean') {
+      throw new Error('Invalid Main Cell route acknowledgement');
+    }
     return { id: entry.id, descriptor: entry.descriptor === null ? null
-      : validateCellUserDescriptor(entry.descriptor), confirmed: { ...confirmed } };
+      : validateCellUserDescriptor(entry.descriptor), confirmed: { ...confirmed },
+      routeApplied: entry.routeApplied === true };
   });
   return { version: 1, entries };
 }
@@ -85,7 +90,8 @@ class MainCellEntrySnapshot {
     }
     const value = validateEntries(JSON.parse(await fs.readFile(this.filePath, 'utf8')));
     return Object.fromEntries(value.entries.map(entry => [entry.id,
-      { descriptor: entry.descriptor, confirmed: entry.confirmed }]));
+      { descriptor: entry.descriptor, confirmed: entry.confirmed,
+        routeApplied: entry.routeApplied }]));
   }
 }
 

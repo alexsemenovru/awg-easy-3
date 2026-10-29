@@ -83,6 +83,10 @@ test('new Cell client upgrades state and withholds its profile until Cell confir
   manager.entryDetails = async () => ({ [cellId]: { confirmed: {
     [created.client.id]: assignmentFingerprint(assignmentFromClient(created.client)),
   } } });
+  await assert.rejects(manager.getClientExport(created.client.id), error => error.code === 'CELL_PENDING');
+  manager.entryDetails = async () => ({ [cellId]: { routeApplied: true, confirmed: {
+    [created.client.id]: assignmentFingerprint(assignmentFromClient(created.client)),
+  } } });
   assert.match((await manager.getClientExport(created.client.id)).nativeConfig,
     /Endpoint = cell\.example\.test:51830/);
 });

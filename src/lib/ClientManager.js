@@ -235,7 +235,7 @@ class ClientManager {
     if (!client) throw new TypeError(`Unknown client: ${clientId}`);
     if (client.entryCellId) {
       const detail = (await this.entryDetails())[client.entryCellId];
-      if (detail?.confirmed?.[client.id]
+      if (detail?.routeApplied !== true || detail?.confirmed?.[client.id]
         !== assignmentFingerprint(assignmentFromClient(client))) {
         throw Object.assign(new Error('Cell has not yet applied this client profile'),
           { code: 'CELL_PENDING' });

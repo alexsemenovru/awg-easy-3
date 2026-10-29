@@ -5,6 +5,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { routingViewFromTopology } = require('./CellRoutingView');
 const { signRoutingRevision, verifyRoutingRevision } = require('./CellRoutingRevision');
+const { verifyRoutingAck } = require('./CellRoutingAck');
 
 const queues = new Map();
 
@@ -16,6 +17,7 @@ class CellRoutingOutbox {
       throw new TypeError('Private routing outbox and identity required');
     }
     this.filePath = path.resolve(filePath);
+    this.ackPath = `${this.filePath}.ack`;
     this.identityStore = identityStore;
     this.cellKey = cellKey;
     this.nodeId = nodeId;
@@ -73,6 +75,58 @@ class CellRoutingOutbox {
     } finally { await fs.unlink(temporary).catch(error => {
       if (error.code !== 'ENOENT') throw error;
     }); }
+  }
+
+  async readAck() {
+    let raw;
+    try {
+      const stat = await fs.lstat(this.ackPath);
+      if (!stat.isFile() || stat.nlink !== 1 || stat.size > 2048
+        || process.platform !== 'win32'
+          && (stat.uid !== process.getuid() || (stat.mode & 0o077))) {
+        throw new Error('Unsafe routing acknowledgement');
+      }
+      raw = await fs.readFile(this.ackPath, 'utf8');
+    } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+    return JSON.parse(raw);
+  }
+
+  applied() {
+    return this.exclusive(async () => {
+      const [desired, ack] = await Promise.all([this.load(), this.readAck()]);
+      if (!desired || !ack || ack.revision !== desired.revision) return null;
+      verifyRoutingAck(ack, desired);
+      return desired.revision;
+    });
+  }
+
+  acknowledge(input) {
+    const ack = structuredClone(input);
+    return this.exclusive(async () => {
+      const desired = await this.load();
+      if (!desired) throw new Error('No published routing revision');
+      const result = verifyRoutingAck(ack, desired);
+      const dir = path.dirname(this.ackPath);
+      const info = await fs.lstat(dir);
+      if (!info.isDirectory() || process.platform !== 'win32'
+        && (info.uid !== process.getuid() || (info.mode & 0o077))) {
+        throw new Error('Private routing acknowledgement directory required');
+      }
+      const temporary = path.join(dir, `.routing-ack-${crypto.randomUUID()}.tmp`);
+      try {
+        const handle = await fs.open(temporary, 'wx', 0o600);
+        try { await handle.writeFile(JSON.stringify(ack)); await handle.sync(); }
+        finally { await handle.close(); }
+        await fs.rename(temporary, this.ackPath);
+        if (process.platform !== 'win32') {
+          const parent = await fs.open(dir, 'r');
+          try { await parent.sync(); } finally { await parent.close(); }
+        }
+      } finally { await fs.unlink(temporary).catch(error => {
+        if (error.code !== 'ENOENT') throw error;
+      }); }
+      return result;
+    });
   }
 
   publish(topology, { panel } = {}) {

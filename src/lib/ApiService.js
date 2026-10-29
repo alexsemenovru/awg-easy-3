@@ -31,7 +31,8 @@ const publicClient = (client, entryDetails = {}) => Object.freeze({
   ipv6Available: Boolean(client.address6),
   networkGroup: client.networkGroup,
   ...(client.entryCellId ? { entryCellId: client.entryCellId,
-    entryReady: entryDetails[client.entryCellId]?.confirmed?.[client.id]
+    entryReady: entryDetails[client.entryCellId]?.routeApplied === true
+      && entryDetails[client.entryCellId]?.confirmed?.[client.id]
       === assignmentFingerprint(assignmentFromClient(client)) } : {}),
   address4: client.address4,
   ...(client.geoPolicy ? { geoPolicy: client.geoPolicy } : {}),
@@ -192,7 +193,8 @@ class ApiService {
         id: cell.id, status: cell.status, phase: cell.phase,
         createdAt: cell.createdAt,
         entryReady: cell.status === 'consumed' && cell.phase === 'closed'
-          && Boolean(entryDetails[cell.id]?.descriptor),
+          && Boolean(entryDetails[cell.id]?.descriptor)
+          && entryDetails[cell.id]?.routeApplied === true,
         ...(cell.settings ? { settings: {
           desiredRevision: cell.settings.desiredRevision,
           confirmedRevision: cell.settings.confirmedRevision,

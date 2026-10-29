@@ -15,6 +15,7 @@ const { cellDataLinkPlan } = require('./CellDataLinkPlan');
 const { stageCellDataPlan } = require('./CellDataStage');
 const { normalizeAwgConfig } = require('./CellAwgSnapshot');
 const { CellRoutingInbox } = require('./CellRoutingInbox');
+const { acknowledgeCellRoutingRevision } = require('./CellControlService');
 const { CellRoutingCoordinator } = require('./CellRoutingCoordinator');
 const { CellDataActivation } = require('./CellDataActivation');
 const { compileCellRouting } = require('./CellRoutingPolicy');
@@ -208,6 +209,9 @@ async function openCellServiceHost({ config, bootstrapHost,
       }
       routingActivated = true;
     },
+    acknowledgeRoutingRevision: ({ identityStore, host, port }) =>
+      acknowledgeCellRoutingRevision({ connectionStore: bootstrapHost.connectionStore,
+        identityStore, routingInbox, host, port }),
     stageDataLink: cachedOffer ? () => stageOffer(cachedOffer) : undefined,
     retainUserGuard: true,
     geoDatabase: async () => geoCandidate || geo.current?.database || {} });

@@ -70,6 +70,10 @@ test('Cell inventory is authenticated and never exposes unvalidated private fiel
     { state: 'ready', updatedAt: 200, cells: [{ ...cell, entryReady: false }] });
   service.cellEntryDetails = async () => ({ [cell.id]: { descriptor: { endpoint: 'hidden' } } });
   assert.deepEqual(await service.cellsInfo('signed-token'),
+    { state: 'ready', updatedAt: 200, cells: [{ ...cell, entryReady: false }] });
+  service.cellEntryDetails = async () => ({ [cell.id]: {
+    descriptor: { endpoint: 'hidden' }, routeApplied: true } });
+  assert.deepEqual(await service.cellsInfo('signed-token'),
     { state: 'ready', updatedAt: 200, cells: [{ ...cell, entryReady: true }] });
   service.cellStatus = async () => ({ state: 'ready', updatedAt: 200,
     cells: [{ ...cell, cellKey: 'secret' }] });

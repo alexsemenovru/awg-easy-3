@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { identity } = require('../lib/CellRegistration');
 const { verifyRoutingRevision } = require('../lib/CellRoutingRevision');
+const { signRoutingAck } = require('../lib/CellRoutingAck');
 const { CellRoutingOutbox } = require('../lib/CellRoutingOutbox');
 
 const cellId = 'a'.repeat(32);
@@ -38,4 +39,23 @@ test('routing outbox signs exactly one durable revision per desired view', async
   await fs.writeFile(file, JSON.stringify({ ...second, payload: '{}' }));
   await assert.rejects(reopened.load());
   await assert.rejects(reopened.publish(topology('main')));
+});
+
+test('Cell route readiness requires a valid acknowledgement of the current revision', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-routing-ack-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const controller = identity(), cell = identity(), stranger = identity();
+  const file = path.join(dir, 'routing.json');
+  const options = { identityStore: { load: async () => controller },
+    cellKey: cell.publicKey, nodeId: cellId };
+  const outbox = new CellRoutingOutbox(file, options);
+  const first = await outbox.publish(topology('main'));
+  assert.equal(await outbox.applied(), null);
+  assert.throws(() => signRoutingAck(first, stranger.privateKey));
+  const ack = signRoutingAck(first, cell.privateKey);
+  assert.equal((await outbox.acknowledge(ack)).revision, 1);
+  assert.equal(await new CellRoutingOutbox(file, options).applied(), 1);
+  await outbox.publish(topology(cellId));
+  assert.equal(await outbox.applied(), null);
+  await assert.rejects(outbox.acknowledge(ack));
 });

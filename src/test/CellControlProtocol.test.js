@@ -137,7 +137,11 @@ test('only its enrolled Cell can request a signed routing revision', async () =>
     bootstrapStore: { read: async () => ({ version: 2, invitations: [{ status: 'consumed',
       phase: 'closed', cellKey: cell.publicKey, awgPublicKey: 'key', awgPresharedKey: 'psk' }] }) },
     routingForCell: key => ({ load: async () => { assert.equal(key, cell.publicKey);
-      reads++; return signed; } }) });
+      reads++; return signed; }, acknowledge: async ack => {
+      assert.equal(key, cell.publicKey);
+      assert.equal(ack.revision, 1);
+      return { revision: 1 };
+    } }) });
   const request = signControl({ controllerKey: controller.publicKey,
     action: 'route' }, cell.privateKey);
   const response = await service.handle(bytes(request));
@@ -148,5 +152,10 @@ test('only its enrolled Cell can request a signed routing revision', async () =>
     action: 'route' }, identity().privateKey);
   assert.deepEqual(await service.handle(bytes(stranger)), { ok: false, error: 'control_unavailable' });
   assert.equal(reads, 1);
+  const routeAck = signControl({ controllerKey: controller.publicKey,
+    action: 'route-ack', payload: { revision: 1 } }, cell.privateKey);
+  const acknowledged = await service.handle(bytes(routeAck));
+  assert.equal(verifyControlReply(acknowledged, controller.publicKey,
+    routeAck.requestId).applied, 1);
   assert.throws(() => verifyControl(bytes({ ...request, payload: '{}' }), controller.publicKey));
 });
