@@ -46,6 +46,15 @@ function normalizeNftSnapshot(snapshot, table) {
 // order *within* each chain.
 function canonicalNftSnapshot(snapshot, table) {
   const objects = normalizeNftSnapshot(snapshot, table).nftables;
+  // nft readback may reorder an anonymous set. Its members are unordered;
+  // preserve every member and all other expression/rule ordering when
+  // comparing ownership (including journals written before that reordering).
+  for (const item of objects) for (const expression of item.rule?.expr || []) {
+    const members = expression.match?.right?.set;
+    if (Array.isArray(members) && members.every(member => typeof member === 'string')) {
+      members.sort();
+    }
+  }
   const rank = { table: 0, chain: 1, set: 2, rule: 3 };
   objects.sort((left, right) => {
     const leftKind = Object.keys(left)[0], rightKind = Object.keys(right)[0];

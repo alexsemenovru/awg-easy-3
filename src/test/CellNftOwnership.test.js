@@ -13,6 +13,22 @@ test('nft identity ignores kernel handles and metadata, but preserves policy cha
   b.nftables.at(-1).rule.expr = [{ accept: null }];
   assert.notEqual(nftFingerprint(a, table), nftFingerprint(b, table));
 });
+test('anonymous set readback order does not strand an owned routing transaction', () => {
+  const desired = snapshot();
+  desired.nftables.at(-1).rule.expr = [{ match: { op: '==',
+    left: { meta: { key: 'iifname' } }, right: { set: ['awgcellu0', 'awgdata0'] } } },
+  { drop: null }];
+  const readback = structuredClone(desired);
+  readback.nftables.at(-1).rule.expr[0].match.right.set.reverse();
+  assert.deepEqual(desired.nftables.at(-1).rule.expr[0].match.right.set,
+    ['awgcellu0', 'awgdata0']);
+  assert.equal(planNftReplacement({ table, current: readback, owned: desired,
+    desired }).changed, false);
+  const foreign = structuredClone(readback);
+  foreign.nftables.at(-1).rule.expr[0].match.right.set[1] = 'unowned0';
+  assert.throws(() => planNftReplacement({ table, current: foreign,
+    owned: desired, desired }), /changed/);
+});
 test('same-name table cannot be adopted on first installation', () => {
   assert.throws(() => planNftReplacement({ table, current: snapshot(), owned: null, desired: snapshot() }), /Foreign/);
 });
