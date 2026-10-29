@@ -3,6 +3,11 @@ import assert from 'node:assert/strict'
 import { createHash, createPublicKey, generateKeyPairSync, sign, verify } from 'node:crypto'
 import DHT from 'bittorrent-dht'
 import locator from '../../../src/lib/CellDhtLocator.js'
+import exchangeModule from '../../../src/lib/CellDhtContactExchange.js'
+import cursorModule from '../../../src/lib/CellDhtCursorStore.js'
+import { mkdtemp, rm } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 
 const spkiPrefix = Buffer.from('302a300506032b6570032100', 'hex')
 const wait = (emitter, event) => new Promise(resolve => emitter.once(event, resolve))
@@ -81,10 +86,8 @@ test('product Cell locator survives a BEP 44 put/get on loopback',
     const { publicKey, privateKey } = generateKeyPairSync('ed25519')
     const cellKey = publicKey.export({ format: 'jwk' }).x
     const now = Date.now()
-    const opts = locator.createCellLocator({
-      privateKey: privateKey.export({ format: 'pem', type: 'pkcs8' }), seq: 9,
-      host: '198.51.100.7', port: 49123, now })
-    const verifyItem = (signature, message, key) => key.equals(opts.k) &&
+    const rawPublic = Buffer.from(cellKey, 'base64url')
+    const verifyItem = (signature, message, key) => key.equals(rawPublic) &&
       verify(null, message, publicKey, signature)
     const storage = new DHT({ bootstrap: false, verify: verifyItem })
     const writer = new DHT({ bootstrap: false, verify: verifyItem })
@@ -101,12 +104,21 @@ test('product Cell locator survives a BEP 44 put/get on loopback',
     writer.addNode(contact)
     reader.addNode(contact)
     await Promise.all([writerReady, readerReady])
-    const published = await put(writer, opts)
-    assert.deepEqual(published.hash, locator.targetFor(cellKey))
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'awg-dht-loopback-'))
+    t.after(() => rm(dir, { recursive: true, force: true }))
+    const { CellDhtCursorStore } = cursorModule
+    const { CellDhtContactExchange } = exchangeModule
+    const sender = new CellDhtContactExchange({ dht: writer, cellKey,
+      cursor: new CellDhtCursorStore(path.join(dir, 'sender', 'cursor'), cellKey) })
+    const receiver = new CellDhtContactExchange({ dht: reader, cellKey,
+      cursor: new CellDhtCursorStore(path.join(dir, 'receiver', 'cursor'), cellKey) })
+    const published = await sender.publish({
+      privateKey: privateKey.export({ format: 'pem', type: 'pkcs8' }),
+      host: '198.51.100.7', port: 49123, now })
     assert.ok(published.accepted > 0)
-    const item = await get(reader, published.hash, opts.salt)
-    assert.deepEqual(locator.verifyCellLocator(item, { cellKey, minimumSeq: 9, now }), {
-      cellKey, seq: 9, host: '198.51.100.7', port: 49123,
-      expiresAt: now + 15 * 60 * 1000, target: published.hash,
-    })
+    const result = await receiver.lookup(now)
+    assert.equal(result.host, '198.51.100.7')
+    assert.equal(result.port, 49123)
+    assert.equal(result.seq, published.seq)
+    assert.deepEqual(result.target, locator.targetFor(cellKey))
   })

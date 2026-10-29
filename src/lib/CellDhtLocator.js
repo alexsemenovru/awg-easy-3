@@ -39,6 +39,8 @@ function targetFor(cellKey) {
   return crypto.createHash('sha1').update(Buffer.from(cellKey, 'base64url')).update(SALT).digest();
 }
 
+function contactSalt() { return Buffer.from(SALT); }
+
 function createCellLocator({ privateKey, seq, host, port, now = Date.now() }) {
   if (!Number.isSafeInteger(now) || now < 0 || !Number.isSafeInteger(seq) || seq < 1) fail();
   const key = crypto.createPrivateKey(privateKey);
@@ -73,4 +75,4 @@ function verifyCellLocator(item, { cellKey, minimumSeq = 0, now = Date.now() }) 
     expiresAt: value.expiresAt, target: targetFor(cellKey) });
 }
 
-module.exports = { targetFor, createCellLocator, verifyCellLocator };
+module.exports = { contactSalt, targetFor, createCellLocator, verifyCellLocator };
