@@ -25,6 +25,11 @@ test('DHT publication requires acknowledged copies under the expected target', a
   dht.put = (options, callback) => callback(null, targetFor(cell.publicKey), 2);
   assert.deepEqual(await make(dht, cell.publicKey).publish(args), { seq: 12, accepted: 2 });
   await assert.rejects(make(dht, identity().publicKey).publish(args), /identity mismatch/);
+  let reserved = false;
+  const exchange = new CellDhtContactExchange({ dht, cellKey: cell.publicKey,
+    cursor: { reserve: async () => { reserved = true; return 12; }, accept: async () => null } });
+  await assert.rejects(exchange.publish({ ...args, host: 'not-an-IP' }), /Invalid DHT/);
+  assert.equal(reserved, false);
 });
 
 test('DHT lookup distinguishes absent record and failed network', async () => {

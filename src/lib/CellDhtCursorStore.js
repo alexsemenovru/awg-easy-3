@@ -35,6 +35,11 @@ class CellDhtCursorStore {
           && (stat.uid !== process.getuid() || (stat.mode & 0o077))) {
         throw new Error('Unsafe DHT cursor');
       }
+      const dir = await fs.lstat(path.dirname(this.filePath));
+      if (!dir.isDirectory() || process.platform !== 'win32'
+        && (dir.uid !== process.getuid() || (dir.mode & 0o077))) {
+        throw new Error('Private DHT cursor directory required');
+      }
       raw = await fs.readFile(this.filePath, 'utf8');
     } catch (error) { if (error.code === 'ENOENT') return 0; throw error; }
     const state = JSON.parse(raw);
