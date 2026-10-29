@@ -78,7 +78,9 @@ test('numbered Home groups share panel access only with their own peers', () => 
   const f = fixture();
   f.clients[0].assignment.networkGroup = 'home2';
   const mixed = compileCellRouting({ topology: f, nodeId: 'main', context: context('cell') });
+  const cellMixed = compileCellRouting({ topology: f, nodeId: 'cell', context: context('main') });
   assert.match(mixed.nftables, /ip saddr 10\.88\.0\.2 ip daddr 10\.88\.0\.1 tcp dport 51821 accept/);
+  assert.match(cellMixed.nftables, /iifname "clients" oifname "transit" ip saddr 10\.88\.0\.2 ip daddr 10\.88\.0\.1 tcp dport 51821 accept/);
   assert.doesNotMatch(mixed.nftables, /ip saddr 10\.88\.0\.2 ip daddr 10\.88\.0\.3 accept/);
   f.clients[1].assignment.networkGroup = 'home2';
   const same = compileCellRouting({ topology: f, nodeId: 'main', context: context('cell') });
