@@ -2,6 +2,7 @@
 
 const dgram = require('node:dgram');
 const { clientTraffic } = require('./ClientTraffic');
+const { isHomeGroup } = require('./NetworkGroups');
 
 const SERVICES = Object.freeze([
   Object.freeze({ name: 'mdns4', family: 'udp4', group: '224.0.0.251', port: 5353 }),
@@ -32,20 +33,28 @@ class DiscoveryRelay {
     this.requesterTtlMs = requesterTtlMs;
     this.home4 = new Set();
     this.home6 = new Set();
+    this.groups4 = new Map();
+    this.groups6 = new Map();
     this.sockets = [];
     this.requesters = new Map();
   }
 
   refresh(state) {
-    const homes = state.clients.filter((client) => clientTraffic(client).enabled && client.networkGroup === 'home');
+    const homes = state.clients.filter((client) => clientTraffic(client).enabled
+      && isHomeGroup(client.networkGroup));
     this.home4 = new Set(homes.filter((client) => clientTraffic(client).ipv4Enabled)
       .map((client) => normalizedAddress(client.address4)));
     this.home6 = new Set(homes.filter((client) => clientTraffic(client).ipv6Enabled)
       .map((client) => client.address6).filter(Boolean).map(normalizedAddress));
+    this.groups4 = new Map(homes.filter(client => clientTraffic(client).ipv4Enabled)
+      .map(client => [normalizedAddress(client.address4), client.networkGroup]));
+    this.groups6 = new Map(homes.filter(client => clientTraffic(client).ipv6Enabled && client.address6)
+      .map(client => [normalizedAddress(client.address6), client.networkGroup]));
     // Expire pending unicast replies immediately when permissions are revoked.
     for (const service of SERVICES) {
       this.requesters.set(service.name, (this.requesters.get(service.name) ?? [])
-        .filter((item) => this.homes(service).has(item.address)));
+        .filter((item) => this.homes(service).has(item.address)
+          && this.groups(service).get(item.address) === item.group));
     }
   }
 
@@ -53,23 +62,30 @@ class DiscoveryRelay {
     return service.family === 'udp4' ? this.home4 : this.home6;
   }
 
+  groups(service) {
+    return service.family === 'udp4' ? this.groups4 : this.groups6;
+  }
+
   targets(service, rinfo) {
     const source = normalizedAddress(rinfo.address);
     const homes = this.homes(service);
     if (!homes.has(source)) return [];
+    const group = this.groups(service).get(source);
     const now = this.clock();
     const key = service.name;
-    const requesters = (this.requesters.get(key) ?? []).filter((item) => item.expires > now && homes.has(item.address));
+    const requesters = (this.requesters.get(key) ?? []).filter((item) => item.expires > now
+      && homes.has(item.address) && this.groups(service).get(item.address) === item.group);
     if (rinfo.port !== service.port) {
-      requesters.push({ address: source, port: rinfo.port, expires: now + this.requesterTtlMs });
+      requesters.push({ address: source, group, port: rinfo.port,
+        expires: now + this.requesterTtlMs });
     }
     this.requesters.set(key, requesters.slice(-128));
 
     const targets = [...homes]
-      .filter((address) => address !== source)
+      .filter((address) => address !== source && this.groups(service).get(address) === group)
       .map((address) => ({ address, port: service.port }));
     if (rinfo.port === service.port) {
-      targets.push(...requesters.filter((item) => item.address !== source)
+      targets.push(...requesters.filter((item) => item.address !== source && item.group === group)
         .map((item) => ({ address: item.address, port: item.port })));
     }
     return [...new Map(targets.map((target) => [`${target.address}:${target.port}`, target])).values()];

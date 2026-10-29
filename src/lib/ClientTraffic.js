@@ -1,4 +1,5 @@
 'use strict';
+const { isHomeGroup } = require('./NetworkGroups');
 
 const net = require('node:net');
 
@@ -60,7 +61,8 @@ const assertCurrentPanelPathRemains = (client, nextClient, remoteAddress) => {
   const family = remote === canonicalAddress(client.address4) ? 4
     : remote === canonicalAddress(client.address6) ? 6 : null;
   if (!family) return;
-  if (!nextClient || nextClient.networkGroup !== 'home' || !clientTraffic(nextClient)[`ipv${family}Enabled`]) {
+  if (!nextClient || !isHomeGroup(nextClient.networkGroup)
+    || !clientTraffic(nextClient)[`ipv${family}Enabled`]) {
     throw trafficError('CURRENT_PANEL_PATH', 'This change would block your current connection to the panel');
   }
 };

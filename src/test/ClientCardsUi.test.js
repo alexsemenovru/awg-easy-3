@@ -23,7 +23,7 @@ const setup = async ({ mode = 'password' } = {}) => {
       setAttribute: (name, content) => { value[name] = content; },
       showModal: () => { value.open = true; },
       close: () => { value.open = false; },
-      replaceChildren: () => {}, reset: () => {},
+      replaceChildren: () => {}, append: () => {}, reset: () => {},
       matches: (candidate) => candidate === selector,
       focus: () => { document.activeElement = value; },
     };
@@ -45,7 +45,7 @@ const setup = async ({ mode = 'password' } = {}) => {
   container.querySelector = (selector) => container.cards.find((card) =>
     selector === `[data-client-id="${card.dataset.clientId}"]`);
   container.querySelectorAll = (selector) => selector === '.client-card' ? container.cards
-    : container.cards.flatMap((card) => ['.group-toggle', '.ipv4-toggle', '.ipv6-toggle']
+    : container.cards.flatMap((card) => ['.group-select', '.ipv4-toggle', '.ipv6-toggle']
       .map((control) => card.querySelector(control)));
   const nodes = new Map([
     ['#clients', container],
@@ -53,6 +53,7 @@ const setup = async ({ mode = 'password' } = {}) => {
   ]);
   document = {
     hidden: false, activeElement: null, addEventListener: () => {}, querySelectorAll: () => [],
+    createElement: () => element(),
     querySelector: (selector) => {
       if (!nodes.has(selector)) nodes.set(selector, element(selector));
       return nodes.get(selector);
@@ -118,7 +119,8 @@ const setup = async ({ mode = 'password' } = {}) => {
     failPasswordChange: () => { passwordChangeFailure = Object.assign(new Error('Invalid credentials'), { status: 403 }); },
     change: async (selector, checked) => {
       const control = container.cards[0].querySelector(selector);
-      control.checked = checked;
+      if (selector === '.group-select') control.value = checked;
+      else control.checked = checked;
       control.focus();
       await control.handlers.change();
     },
@@ -222,7 +224,7 @@ test('card sections start closed and retain independent open states through fami
   ]) {
     await f.change(selector, checked);
     assert.equal(f.card().querySelector('.ip-summary').textContent, summary);
-    assert.equal(f.card().querySelector('.status').textContent, 'Home');
+    assert.equal(f.card().querySelector('.status').textContent, 'homeGroupOption');
     assert.equal(f.card().querySelector('.access-settings').open, true);
     assert.equal(f.card().querySelector('.diagnostics').open, false);
     assert.equal(f.card(1).querySelector('.access-settings').open, false);
@@ -254,12 +256,12 @@ test('an unsuccessful refresh preserves the successfully saved mode and open set
   assert.equal(f.card().querySelector('.ip-summary').textContent, 'ip4Only');
 });
 
-test('closed settings stay closed when a Home/Guest change refreshes the cards', async () => {
+test('closed settings stay closed when a numbered Home group changes', async () => {
   const f = await setup();
-  await f.change('.group-toggle', false);
-  assert.equal(f.card().querySelector('.status').textContent, 'Guest');
+  await f.change('.group-select', 'home2');
+  assert.equal(f.card().querySelector('.status').textContent, 'homeGroupOption');
   assert.equal(f.card().querySelector('.access-settings').open, false);
-  assert.strictEqual(f.document.activeElement, f.card().querySelector('.group-toggle'));
+  assert.strictEqual(f.document.activeElement, f.card().querySelector('.group-select'));
   assert.equal(f.document.querySelector('#notice').textContent, 'accessApplied');
 });
 

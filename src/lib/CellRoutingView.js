@@ -5,6 +5,7 @@ const { planCellTopology } = require('./CellTopology');
 const { normalizeGeoPolicy } = require('./GeoIpPolicy');
 const { ipNumber } = require('./GeoIpAddress');
 const { validateCellSettings } = require('./CellSettingsSchema');
+const { isHomeGroup } = require('./NetworkGroups');
 
 const identifier = value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(value);
 const exact = (value, required, optional = []) => {
@@ -66,7 +67,7 @@ function validateRoutingView(input, expectedNodeId) {
   const routes = input.routes.map(route => {
     exact(route, ['id', 'entry', 'exit', 'address4', 'group', 'geoPolicy', 'enabled', 'reasons'], ['address6']);
     if (!identifier(route.id) || ids.has(route.id) || !identifier(route.entry)
-      || !identifier(route.exit) || !['home', 'guest'].includes(route.group)
+      || !identifier(route.exit) || !(route.group === 'guest' || isHomeGroup(route.group))
       || net.isIP(route.address4) !== 4
       || route.address6 !== undefined && (net.isIP(route.address6) !== 6 || route.address6.includes('%'))) {
       throw new TypeError('Invalid Cell routed client');

@@ -27,6 +27,21 @@ test('fans mDNS only between enabled Home peers', () => {
   assert.deepEqual(relay.targets(mdns, { address: '10.8.0.4', port: 5353 }), []);
 });
 
+test('discovery traffic and pending replies stay inside one numbered Home group', () => {
+  const relay = new DiscoveryRelay();
+  const grouped = state();
+  grouped.clients[1].networkGroup = 'home2';
+  grouped.clients.push({ id: 'c', enabled: true, networkGroup: 'home2', address4: '10.8.0.6' });
+  relay.refresh(grouped);
+  const ssdp = SERVICES.find(service => service.name === 'ssdp4');
+  assert.deepEqual(relay.targets(ssdp, { address: '10.8.0.3', port: 41300 }),
+    [{ address: '10.8.0.6', port: 1900 }]);
+  assert.deepEqual(relay.targets(ssdp, { address: '10.8.0.2', port: 1900 }), []);
+  grouped.clients[1].networkGroup = 'home';
+  relay.refresh(grouped);
+  assert.deepEqual(relay.targets(ssdp, { address: '10.8.0.6', port: 1900 }), []);
+});
+
 test('returns SSDP responses to recent requester ports without involving Guests', () => {
   let now = 1000;
   const relay = new DiscoveryRelay({ clock: () => now });

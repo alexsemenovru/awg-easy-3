@@ -18,6 +18,20 @@
   const deleteDialog = $('#delete-dialog');
   const languageSelect = $('#language');
   const supportedLanguages = ['en', 'ru', 'fa', 'es', 'zh-cn'];
+  const groupLabel = value => value === 'guest' ? t('guestShort')
+    : t('homeGroupOption', { number: value === 'home' ? 1 : Number(value.slice(4)) });
+  const fillGroupOptions = (select, selected = select.value) => {
+    select.replaceChildren();
+    for (const [value, label] of [['guest', t('guestOption')],
+      ...Array.from({ length: 10 }, (_, index) => [index ? `home${index + 1}` : 'home',
+        t('homeGroupOption', { number: index + 1 })])]) {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      select.append(option);
+    }
+    select.value = selected;
+  };
   let clients = [];
   let selectedClient;
   let pendingDelete;
@@ -157,8 +171,8 @@
   });
   const update = async (client, changes, input) => {
     const keepFocus = document.activeElement === input;
-    const inputSelector = ['.group-toggle', '.ipv4-toggle', '.ipv6-toggle'].find((selector) => input.matches(selector));
-    const controls = [...clientsNode.querySelectorAll('input, button')];
+    const inputSelector = ['.group-select', '.ipv4-toggle', '.ipv6-toggle'].find((selector) => input.matches(selector));
+    const controls = [...clientsNode.querySelectorAll('input, select, button')];
     const previousDisabled = controls.map((control) => control.disabled);
     controls.forEach((control) => { control.disabled = true; });
     let applied = false;
@@ -171,7 +185,10 @@
       await loadClients();
     } catch {
       // A failed refresh must not pretend that a successful server change was undone.
-      if (!applied) input.checked = !input.checked;
+      if (!applied) {
+        if (inputSelector === '.group-select') input.value = client.networkGroup;
+        else input.checked = !input.checked;
+      }
     } finally {
       controls.forEach((control, index) => { control.disabled = previousDisabled[index]; });
       if (keepFocus && inputSelector) {
@@ -203,16 +220,16 @@
     }
     const status = node.querySelector('.status');
     // Group and traffic permission are independent, including when both IP families are off.
-    status.textContent = client.networkGroup === 'home' ? 'Home' : 'Guest';
-    status.className = `status ${client.networkGroup}`;
+    status.textContent = groupLabel(client.networkGroup);
+    status.className = `status ${client.networkGroup === 'guest' ? 'guest' : 'home'}`;
     const summary = node.querySelector('.ip-summary');
     const summaryKey = !client.enabled ? 'disabled' : client.ipv4Enabled && client.ipv6Enabled ? 'ipBoth'
       : client.ipv6Enabled ? 'ip6Only' : 'ip4Only';
     summary.dataset.i18n = summaryKey;
     summary.textContent = t(summaryKey);
-    const group = node.querySelector('.group-toggle');
-    group.checked = client.networkGroup === 'home';
-    group.addEventListener('change', () => update(client, { networkGroup: group.checked ? 'home' : 'guest' }, group));
+    const group = node.querySelector('.group-select');
+    fillGroupOptions(group, client.networkGroup);
+    group.addEventListener('change', () => update(client, { networkGroup: group.value }, group));
     for (const family of [4, 6]) {
       const control = node.querySelector(`.ipv${family}-toggle`);
       control.checked = client[`ipv${family}Enabled`];
@@ -298,6 +315,13 @@
   languageSelect.addEventListener('change', () => {
     i18n.setLanguage(languageSelect.value);
     localStorage.setItem('awg-easy-language', languageSelect.value);
+    for (const select of document.querySelectorAll('#client-group, .group-select')) {
+      fillGroupOptions(select);
+    }
+    for (const client of clients) {
+      const card = clientsNode.querySelector(`[data-client-id="${CSS.escape(client.id)}"]`);
+      if (card) card.querySelector('.status').textContent = groupLabel(client.networkGroup);
+    }
     for (const option of $('#client-entry').options) {
       if (option.value) option.textContent = t('cellOption', { id: option.value.slice(0, 8) });
     }
@@ -317,6 +341,7 @@
   });
   $('#show-create').addEventListener('click', async () => {
     const entrySelect = $('#client-entry');
+    fillGroupOptions($('#client-group'), 'guest');
     entrySelect.replaceChildren(entrySelect.querySelector('option[value=""]'));
     createDialog.showModal();
     try {

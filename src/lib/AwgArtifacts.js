@@ -1,4 +1,5 @@
 'use strict';
+const { isHomeGroup } = require('./NetworkGroups');
 
 const { createVpnLink } = require('./AmneziaVpnLink');
 const { renderClientConfig, renderServerConfig } = require('./AwgConfigRenderer');
@@ -23,7 +24,7 @@ const buildAwgArtifacts = ({ server, clients, geoDatabase = {}, entryDescriptors
   }
 
   const enabledClients = clients.filter((client) => !client.entryCellId && clientTraffic(client).enabled);
-  const activeHomes = enabledClients.filter((client) => client.networkGroup === 'home');
+  const activeHomes = enabledClients.filter((client) => isHomeGroup(client.networkGroup));
   if (activeHomes.length === 0) throw new Error('At least one enabled home client is required');
 
   const serverHasIPv6 = Boolean(server.ipv6Subnet && server.address6);
@@ -58,11 +59,23 @@ const buildAwgArtifacts = ({ server, clients, geoDatabase = {}, entryDescriptors
     ...(serverHasIPv6 ? { ipv6Subnet: server.ipv6Subnet } : {}),
     nat66: serverHasIPv6 && server.ipv6Mode === 'nat66',
     panelPort: server.panelPort ?? 51821,
-    home4: activeHomes.filter((client) => clientTraffic(client).ipv4Enabled).map((client) => client.address4),
+    home4: activeHomes.filter((client) => client.networkGroup === 'home'
+      && clientTraffic(client).ipv4Enabled).map((client) => client.address4),
+    homeGroups4: Object.fromEntries(Array.from({ length: 9 }, (_, index) => {
+      const group = `home${index + 2}`;
+      return [group, activeHomes.filter(client => client.networkGroup === group
+        && clientTraffic(client).ipv4Enabled).map(client => client.address4)];
+    })),
     guest4: enabledClients.filter((client) => client.networkGroup === 'guest' && clientTraffic(client).ipv4Enabled)
       .map((client) => client.address4),
-    home6: serverHasIPv6 ? activeHomes.filter((client) => clientTraffic(client).ipv6Enabled)
+    home6: serverHasIPv6 ? activeHomes.filter((client) => client.networkGroup === 'home'
+      && clientTraffic(client).ipv6Enabled)
       .map((client) => client.address6).filter(Boolean) : [],
+    homeGroups6: Object.fromEntries(Array.from({ length: 9 }, (_, index) => {
+      const group = `home${index + 2}`;
+      return [group, serverHasIPv6 ? activeHomes.filter(client => client.networkGroup === group
+        && clientTraffic(client).ipv6Enabled).map(client => client.address6).filter(Boolean) : []];
+    })),
     guest6: serverHasIPv6
       ? enabledClients.filter((client) => client.networkGroup === 'guest' && clientTraffic(client).ipv6Enabled)
         .map((client) => client.address6).filter(Boolean)

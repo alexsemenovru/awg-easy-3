@@ -62,6 +62,22 @@ test('both Home-family permits precede the shared inter-peer isolation drop', ()
   assert.ok(isolation < lines.findIndex((line) => line.includes('AWG IPv6 to WAN')));
 });
 
+test('numbered Home groups share the panel but are isolated from each other', () => {
+  const rules = renderNftablesPolicy({ ...basePolicy(),
+    homeGroups4: { home2: ['10.8.0.4', '10.8.0.5'] },
+    ipv6Subnet: 'fd42:8:3::/64', home6: ['fd42:8:3::2'],
+    homeGroups6: { home2: ['fd42:8:3::4'] } });
+  assert.match(rules, /set home2_4 \{[\s\S]*?10\.8\.0\.4, 10\.8\.0\.5/);
+  assert.match(rules, /ip saddr @home2_4 tcp dport 51821 accept/);
+  assert.match(rules, /ip saddr @home2_4 ip daddr @home2_4 accept/);
+  assert.match(rules, /ip6 saddr @home2_6 ip6 daddr @home2_6 accept/);
+  assert.ok(rules.indexOf('ip saddr @home2_4 ip daddr @home2_4 accept')
+    < rules.indexOf('drop comment "isolate guest peers"'));
+  assert.doesNotMatch(rules, /ip saddr @home4 ip daddr @home2_4 accept/);
+  assert.throws(() => renderNftablesPolicy({ ...basePolicy(),
+    homeGroups4: { home2: ['10.8.0.2'] } }), /multiple network groups/);
+});
+
 test('adds NAT66 only for the project IPv6 prefix when requested', () => {
   const policy = renderNftablesPolicy({
     interfaceName: 'awg0',

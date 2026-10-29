@@ -6,6 +6,7 @@ const path = require('node:path');
 
 const { validateProfile } = require('./Awg3Config');
 const { normalizeClientPolicy } = require('./ClientPolicy');
+const { isHomeGroup } = require('./NetworkGroups');
 const { clientTraffic } = require('./ClientTraffic');
 const { normalizeGeoPolicy } = require('./GeoIpPolicy');
 
@@ -160,7 +161,7 @@ const validateState = (input) => {
   });
 
   for (const field of ['id', 'address4', 'address6', 'publicKey']) uniqueField(clients, field);
-  if (!clients.some((client) => client.enabled && client.networkGroup === 'home')) {
+  if (!clients.some((client) => client.enabled && isHomeGroup(client.networkGroup))) {
     throw new Error('State must contain at least one enabled home client');
   }
 

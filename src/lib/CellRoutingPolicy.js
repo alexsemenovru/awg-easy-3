@@ -5,6 +5,7 @@ const { validateRoutingView } = require('./CellRoutingView');
 const { renderGeoIpPolicy } = require('./GeoIpPolicy');
 const { ipNumber } = require('./GeoIpAddress');
 const { routingPolicySnapshot } = require('./CellNftPolicyJson');
+const { isHomeGroup } = require('./NetworkGroups');
 const TABLE = 'awg_easy_3_routes';
 const iface = value => {
   if (typeof value !== 'string' || !/^[a-zA-Z0-9_.-]{1,15}$/.test(value)) throw new TypeError('Invalid routing interface');
@@ -49,7 +50,7 @@ function compileCellRouting({ topology, routingView, nodeId, context, geoDatabas
   const managed = `{ ${[...names].filter(n => n !== wan).sort().map(n => `"${n}"`).join(', ')} }`;
   const enabled = (r, family) => r.enabled[`ipv${family}`] && r[`address${family}`];
   const pathTo = (id, family) => id === nodeId ? client : links.get(id)?.[`ipv${family}`] ? links.get(id).interfaceName : null;
-  const home = plan.routes.filter(r => r.group === 'home');
+  const home = plan.routes.filter(r => isHomeGroup(r.group));
   const input = [], forward = [], output = [], nat = [], geoRules = [], geoSets = new Map();
   const remoteHostDestinations = new Set();
   const geoDefinitions = new Map();
@@ -102,7 +103,8 @@ function compileCellRouting({ topology, routingView, nodeId, context, geoDatabas
         }
       }
       for (const other of home) {
-        if (other.id === r.id || !enabled(other, family) || !pathTo(other.entry, family)
+        if (other.id === r.id || other.group !== r.group
+          || !enabled(other, family) || !pathTo(other.entry, family)
           || (r.entry !== nodeId && other.entry !== nodeId)) continue;
         forward.push(`iifname "${from}" oifname "${pathTo(other.entry, family)}" ${ip} saddr ${source} ${ip} daddr ${other[`address${family}`]} accept`);
       }

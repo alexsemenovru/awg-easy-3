@@ -58,8 +58,10 @@ const renderNftablesPolicy = ({
   ipv6Subnet,
   nat66 = false,
   home4,
+  homeGroups4 = {},
   guest4,
   home6 = [],
+  homeGroups6 = {},
   guest6 = [],
   panelPort = 51821,
   geoClients = [],
@@ -75,28 +77,54 @@ const renderNftablesPolicy = ({
   const normalizedGuest4 = validateAddressList(guest4, 4, 'guest4');
   const normalizedHome6 = validateAddressList(home6, 6, 'home6');
   const normalizedGuest6 = validateAddressList(guest6, 6, 'guest6');
+  const normalizeExtras = (groups, family) => {
+    if (!groups || typeof groups !== 'object' || Array.isArray(groups)
+      || Object.keys(groups).some(name => !/^home(?:[2-9]|10)$/.test(name))) {
+      throw new TypeError('Invalid numbered Home groups');
+    }
+    return Object.fromEntries(Object.entries(groups).map(([name, addresses]) =>
+      [name, validateAddressList(addresses, family, name)]));
+  };
+  const extra4 = normalizeExtras(homeGroups4, 4);
+  const extra6 = normalizeExtras(homeGroups6, 6);
+  const allHome4 = [...normalizedHome4, ...Object.values(extra4).flat()];
+  const allHome6 = [...normalizedHome6, ...Object.values(extra6).flat()];
   if (typeof nat66 !== 'boolean') throw new TypeError('nat66 must be a boolean');
   if (nat66 && !subnet6) throw new TypeError('nat66 requires ipv6Subnet');
 
-  if (!headlessCell && normalizedHome4.length === 0 && (!subnet6 || normalizedHome6.length === 0)) {
+  if (!headlessCell && allHome4.length === 0 && (!subnet6 || allHome6.length === 0)) {
     throw new TypeError('At least one home peer with a permitted IP family is required');
   }
-  if (!subnet6 && (normalizedHome6.length || normalizedGuest6.length)) {
+  if (!subnet6 && (allHome6.length || normalizedGuest6.length)) {
     throw new TypeError('IPv6 peers require ipv6Subnet');
   }
   const overlaps = normalizedHome4.filter((address) => normalizedGuest4.includes(address));
   if (overlaps.length > 0) throw new TypeError(`Peers cannot be both home and guest: ${overlaps.join(', ')}`);
   const overlaps6 = normalizedHome6.filter((address) => normalizedGuest6.includes(address));
   if (overlaps6.length > 0) throw new TypeError(`IPv6 peers cannot be both home and guest: ${overlaps6.join(', ')}`);
+  if (new Set([...allHome4, ...normalizedGuest4]).size !== allHome4.length + normalizedGuest4.length
+    || new Set([...allHome6, ...normalizedGuest6]).size !== allHome6.length + normalizedGuest6.length) {
+    throw new TypeError('A client address cannot belong to multiple network groups');
+  }
 
   const port = Number(panelPort);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
     throw new TypeError('panelPort must be an integer between 1 and 65535');
   }
 
+  const extraSets = (groups, family) => Object.entries(groups).filter(([, addresses]) => addresses.length)
+    .map(([name, addresses]) => `  set ${name}_${family} {\n    type ipv${family}_addr${elementsClause(addresses)}\n  }\n`).join('\n');
+  const homeSets = (groups, family) => [`home${family}`,
+    ...Object.entries(groups).filter(([, addresses]) => addresses.length)
+      .map(([name]) => `${name}_${family}`)];
+  const homeInput = (groups, family, ip) => homeSets(groups, family)
+    .map(set => `    iifname ${quote(awg)} ${ip} saddr @${set} tcp dport ${port} accept comment "home peers may access the panel"`).join('\n');
+  const homeForward = (groups, family, ip) => homeSets(groups, family)
+    .map(set => `    iifname ${quote(awg)} oifname ${quote(awg)} ${ip} saddr @${set} ${ip} daddr @${set} accept comment "home peer traffic"`).join('\n');
+
   const ipv6Sets = subnet6 ? `
   set active6 {
-    type ipv6_addr${elementsClause([...normalizedHome6, ...normalizedGuest6])}
+    type ipv6_addr${elementsClause([...allHome6, ...normalizedGuest6])}
   }
 
   set home6 {
@@ -106,15 +134,16 @@ const renderNftablesPolicy = ({
   set guest6 {
     type ipv6_addr${elementsClause(normalizedGuest6)}
   }
+${extraSets(extra6, 6)}
 
 ` : '';
 
   const ipv6InputRules = subnet6 && !headlessCell ? `
     iifname ${quote(awg)} ip6 saddr @guest6 ip6 daddr ${subnet6} drop comment "guest peers cannot access AWG-Easy 3 services"
-    iifname ${quote(awg)} ip6 saddr @home6 tcp dport ${port} accept comment "home peers may access the panel"` : '';
+${homeInput(extra6, 6, 'ip6')}` : '';
 
   const ipv6HomeForwardRule = subnet6 ? `
-    iifname ${quote(awg)} oifname ${quote(awg)} ip6 saddr @home6 ip6 daddr @home6 accept comment "home IPv6 peer traffic"` : '';
+${homeForward(extra6, 6, 'ip6')}` : '';
 
   const ipv6ForwardRules = subnet6 ? `
     iifname ${quote(awg)} oifname ${quote(wan)} ip6 saddr ${subnet6} accept comment "AWG IPv6 to WAN"
@@ -131,12 +160,12 @@ const renderNftablesPolicy = ({
     oifname ${quote(awg)} meta nfproto ipv6 drop comment "IPv6 unavailable"`;
 
   const geo = renderGeoIpPolicy({ clients: geoClients, database: geoDatabase, awg, wan,
-    active4: [...normalizedHome4, ...normalizedGuest4], active6: [...normalizedHome6, ...normalizedGuest6] });
+    active4: [...allHome4, ...normalizedGuest4], active6: [...allHome6, ...normalizedGuest6] });
 
   return `# Managed by AWG-Easy 3. Do not append unrelated rules to this table.
 table inet ${TABLE_NAME} {
   set active4 {
-    type ipv4_addr${elementsClause([...normalizedHome4, ...normalizedGuest4])}
+    type ipv4_addr${elementsClause([...allHome4, ...normalizedGuest4])}
   }
 
   set home4 {
@@ -146,6 +175,7 @@ table inet ${TABLE_NAME} {
   set guest4 {
     type ipv4_addr${elementsClause(normalizedGuest4)}
   }
+${extraSets(extra4, 4)}
 ${ipv6Sets}${geo.sets}
   chain client_permissions {
     iifname ${quote(awg)} ip saddr != @active4 drop comment "IPv4 permission: from VPN client"
@@ -156,13 +186,13 @@ ${ipv6Sets}${geo.sets}
     type filter hook input priority -10; policy accept;
     jump client_permissions
     iifname ${quote(awg)} ip saddr @guest4 ip daddr ${subnet4} drop comment "guest peers cannot access AWG-Easy 3 services"
-${headlessCell ? `    iifname ${quote(awg)} drop comment "headless cell has no client-facing services"` : `    iifname ${quote(awg)} ip saddr @home4 tcp dport ${port} accept comment "home peers may access the panel"${ipv6InputRules}`}
+${headlessCell ? `    iifname ${quote(awg)} drop comment "headless cell has no client-facing services"` : `${homeInput(extra4, 4, 'ip')}${ipv6InputRules}`}
   }
 
   chain forward {
     type filter hook forward priority -10; policy accept;
     jump client_permissions
-    iifname ${quote(awg)} oifname ${quote(awg)} ip saddr @home4 ip daddr @home4 accept comment "home peer traffic"${ipv6HomeForwardRule}
+${homeForward(extra4, 4, 'ip')}${ipv6HomeForwardRule}
     iifname ${quote(awg)} oifname ${quote(awg)} drop comment "isolate guest peers"
 ${headlessCell ? `    iifname ${quote(awg)} oifname ${quote(wan)} ip daddr 10.8.0.0/24 drop comment "main panel subnet must not fall back to WAN"\n` : ''}
 ${geo.rules ? `${geo.rules}\n` : ''}    iifname ${quote(awg)} oifname ${quote(wan)} ip saddr ${subnet4} accept comment "AWG IPv4 to WAN"

@@ -1,4 +1,5 @@
 'use strict';
+const { isHomeGroup } = require('./NetworkGroups');
 
 const { validateState, CELL_STATE_VERSION } = require('./StateStore');
 const { validateCellUserDescriptor } = require('./CellUserDescriptor');
@@ -60,7 +61,7 @@ function productCellTopology({ state: input, cells, readyLinks = [], exits = {} 
   });
   const topology = { version: 1, nodes, links, clients };
   const planned = planCellTopology(topology);
-  const panelPath = Object.freeze(Object.fromEntries(clients.filter(row => row.assignment.networkGroup === 'home')
+  const panelPath = Object.freeze(Object.fromEntries(clients.filter(row => isHomeGroup(row.assignment.networkGroup))
     .map(row => [row.assignment.id, Object.freeze({
       ipv4: Boolean(row.assignment.ipv4Enabled && (row.entry === 'main' || linked.get(row.entry)?.ipv4)),
       ipv6: Boolean(row.assignment.ipv6Enabled && nodes[0].ipv6

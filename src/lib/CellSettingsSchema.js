@@ -1,4 +1,5 @@
 'use strict';
+const { NETWORK_GROUPS } = require('./NetworkGroups');
 
 const net = require('node:net');
 const { ipNumber } = require('./GeoIpAddress');
@@ -30,7 +31,7 @@ function validateCellSettings(input) {
     if (typeof client.id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(client.id)
       || ids.has(client.id) || !vpnKey(client.publicKey) || keys.has(client.publicKey)
       || (client.presharedKey !== undefined && !vpnKey(client.presharedKey))
-      || !['home', 'guest'].includes(client.networkGroup)
+      || !NETWORK_GROUPS.includes(client.networkGroup)
       || typeof client.ipv4Enabled !== 'boolean' || typeof client.ipv6Enabled !== 'boolean') {
       throw new TypeError('Invalid cell client assignment');
     }

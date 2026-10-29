@@ -74,6 +74,17 @@ test('Home exceptions precede isolation and Guest never obtains Home or panel ac
   assert.ok(!built.nftables.includes('ip saddr 10.88.0.2 ip daddr 10.88.0.3 accept'));
   assert.match(built.nftables, /oifname \{ "clients", "transit" \} drop/);
 });
+test('numbered Home groups share panel access only with their own peers', () => {
+  const f = fixture();
+  f.clients[0].assignment.networkGroup = 'home2';
+  const mixed = compileCellRouting({ topology: f, nodeId: 'main', context: context('cell') });
+  assert.match(mixed.nftables, /ip saddr 10\.88\.0\.2 ip daddr 10\.88\.0\.1 tcp dport 51821 accept/);
+  assert.doesNotMatch(mixed.nftables, /ip saddr 10\.88\.0\.2 ip daddr 10\.88\.0\.3 accept/);
+  f.clients[1].assignment.networkGroup = 'home2';
+  const same = compileCellRouting({ topology: f, nodeId: 'main', context: context('cell') });
+  assert.match(same.nftables, /ip saddr 10\.88\.0\.2 ip daddr 10\.88\.0\.3 accept/);
+  assert.match(same.nftables, /ip6 saddr fd88::2 ip6 daddr fd88::3 accept/);
+});
 test('compiler rejects route allocation collisions and interface injection', () => {
   for (const change of [c => c.links.main.table = 254, c => c.links.main.interfaceName = 'wan',
     c => c.clientInterface = 'x"; accept', c => c.panel.address6 = 'fd88:0:0:0:0:0:0:2']) {
