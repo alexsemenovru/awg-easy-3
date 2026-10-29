@@ -48,6 +48,17 @@ test('complex controller and cell policies match isolated nft kernel readback', 
   }
 });
 
+test('numbered Home isolation matches isolated nft kernel readback', { skip: !enabled }, () => {
+  const grouped = structuredClone(topology);
+  grouped.clients[0].assignment.networkGroup = 'home2';
+  for (const [nodeId, peer] of [['main', 'cell'], ['cell', 'main']]) {
+    const { nftSnapshot } = compileCellRouting({ topology: grouped, nodeId,
+      context: context(peer), geoDatabase });
+    assert.deepEqual(kernelReadback(nftSnapshot), nftSnapshot,
+      `${nodeId} numbered Home policy differs from kernel readback`);
+  }
+});
+
 test('two Cells with distinct client exits match isolated nft kernel readback', { skip: !enabled }, () => {
   const nodes = [{ id: 'main', role: 'controller', ipv4: true, ipv6: true },
     { id: 'cellA', role: 'cell', ipv4: true, ipv6: true },

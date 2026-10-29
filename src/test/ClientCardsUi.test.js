@@ -265,6 +265,14 @@ test('closed settings stay closed when a numbered Home group changes', async () 
   assert.equal(f.document.querySelector('#notice').textContent, 'accessApplied');
 });
 
+test('rejected numbered Home change restores the previous selection', async () => {
+  const f = await setup();
+  f.fail('CURRENT_PANEL_PATH');
+  await f.change('.group-select', 'guest');
+  assert.equal(f.card().querySelector('.group-select').value, 'home');
+  assert.equal(f.document.querySelector('#notice').textContent, 'CURRENT_PANEL_PATH');
+});
+
 test('successful IP-family mutation confirms application, rejected mutation never confirms success', async () => {
   const f = await setup();
   await f.change('.ipv6-toggle', false);
