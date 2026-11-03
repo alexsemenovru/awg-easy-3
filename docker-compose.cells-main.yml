@@ -3,7 +3,7 @@
 services:
   awg-easy:
     volumes:
-      - ./cell-status:/cell-status:ro
+      - ./cell-status:/cell-status:ro,z
     environment:
       AWG_MAIN_STATUS_FILE: /cell-status/cells.json
       AWG_MAIN_INVITATION_SOCKET: /cell-status/control.sock
@@ -19,9 +19,9 @@ services:
     devices:
       - /dev/net/tun:/dev/net/tun
     volumes:
-      - ./data:/data:ro
-      - ./cell-data:/cell-data
-      - ./cell-status:/cell-status
+      - ./data:/data:ro,z
+      - ./cell-data:/cell-data:Z
+      - ./cell-status:/cell-status:z
     read_only: true
     tmpfs:
       - /run:mode=0700,size=16m

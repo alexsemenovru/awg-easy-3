@@ -15,7 +15,7 @@ services:
     devices:
       - /dev/net/tun:/dev/net/tun
     volumes:
-      - ./cell-data:/cell-data
+      - ./cell-data:/cell-data:Z
     read_only: true
     tmpfs:
       - /run:mode=0700,size=16m
