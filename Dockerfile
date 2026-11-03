@@ -5,8 +5,13 @@ FROM --platform=linux/amd64 golang:1.25.12-alpine3.23@sha256:f128118f1f3a7f38949
 ARG AWG_GO_COMMIT
 RUN apk add --no-cache build-base git
 RUN git clone --filter=blob:none https://github.com/amnezia-vpn/amneziawg-go.git /src && git -C /src checkout --detach "$AWG_GO_COMMIT" && test "$(git -C /src rev-parse HEAD)" = "$AWG_GO_COMMIT"
+COPY patches/amneziawg-go-gro-pktinfo.patch /tmp/awg-go-gro-pktinfo.patch
+COPY patches/amneziawg-go-multiip_test.go /src/conn/multiip_test.go
 WORKDIR /src
-RUN go mod download && go mod verify && CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-linkmode external -extldflags "-static" -s -w' -o /out/amneziawg-go .
+RUN git apply --check /tmp/awg-go-gro-pktinfo.patch && git apply /tmp/awg-go-gro-pktinfo.patch \
+ && go mod download && go mod verify \
+ && go test ./conn -run '^TestMultiIPReplySource$' -count=1 -timeout=20s \
+ && CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-linkmode external -extldflags "-static" -s -w' -o /out/amneziawg-go .
 FROM --platform=linux/amd64 alpine:3.23@sha256:1beb0dc0a51de7ff38e3b5274078a2e0b81113ba5c7535e1a03d5913a5edbda3 AS awg-tools
 ARG AWG_TOOLS_COMMIT
 RUN apk add --no-cache build-base git linux-headers

@@ -106,6 +106,14 @@ También puede usar `--port`, `--panel-port` y `--lang en|ru|fa|es|zh-cn`. Si el
 
 ## Compatibilidad y pruebas de campo
 
+**Servidores con varias IP públicas.** La compilación incluida de
+`amneziawg-go` conserva la IP de destino al dividir paquetes UDP GRO para
+responder desde la misma dirección. Si llegan paquetes pero no se completa el
+handshake, compare las IP de entrada y salida. Una ruta con `src <IP-de-entrada>`
+es solo una solución temporal: cambia la IP de origen preferida para todo el
+servidor. La ausencia de handshakes de clientes inactivos no justifica reiniciar
+el contenedor.
+
 Estos perfiles requieren un cliente AWG 3.x; WireGuard convencional y clientes AWG antiguos no son compatibles. AWG-Easy 3 es independiente de los proyectos cliente.
 
 - **Android, alternativa verificada:** [AmneziaWG v3.1.20260814](https://github.com/amnezia-vpn/amneziawg-android/releases/tag/v3.1.20260814). La pantalla de información muestra aplicación **3.1.20260813** y motor **3.1.20260814**. El 09-09-2026 el usuario confirmó en Honor 50 la importación de nuestro `.conf`, la conexión y el acceso al panel por IPv4 e IPv6. Importe el archivo, no `vpn://`; **2.0.1 no es compatible**. La descarga usa un nombre ASCII corto, como `Honor_50.conf`, sin cambiar el nombre visible del cliente ni el contenido. Los nombres compuestos solo por caracteres no ASCII usan `AWG-client.conf`.

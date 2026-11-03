@@ -25,6 +25,16 @@ test('pins amd64 base images and official AWG source revisions', () => {
   assert.doesNotMatch(compose, /SYS_MODULE|ports:/);
 });
 
+test('bundled AWG source retains packet destination across UDP GRO splitting', () => {
+  const dockerfile = fs.readFileSync(path.join(root, 'Dockerfile'), 'utf8');
+  const patch = fs.readFileSync(path.join(root, 'patches', 'amneziawg-go-gro-pktinfo.patch'), 'utf8');
+  const regression = fs.readFileSync(path.join(root, 'patches', 'amneziawg-go-multiip_test.go'), 'utf8');
+  assert.match(dockerfile, /git apply --check \/tmp\/awg-go-gro-pktinfo\.patch/);
+  assert.match(dockerfile, /go test \.\/conn -run '\^TestMultiIPReplySource\$'/);
+  assert.match(patch, /msgs\[n\]\.NN = copy\(msgs\[n\]\.OOB, msg\.OOB\[:msg\.NN\]\)/);
+  assert.match(regression, /127\.0\.0\.2/);
+});
+
 test('installs only the minimal Node runtime dependency set', () => {
   const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'src', 'package.json'), 'utf8'));
   assert.deepEqual(Object.keys(packageJson.dependencies).sort(), ['bcryptjs', 'qrcode', 'transliteration']);

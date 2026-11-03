@@ -106,6 +106,12 @@ sudo awg-easy-3 export-client "Home admin"
 
 ## 兼容性与实测
 
+**多公网 IP 主机。** 随附的 `amneziawg-go` 构建会在拆分 UDP GRO 数据包时保留
+入站目标地址，使回复使用相同的源 IP。若数据包已到达服务器但握手始终失败，
+请比较入站与出站 UDP 地址。带有 `src <入口IP>` 的默认路由只能作为临时方案，
+因为它会改变整台主机的首选源地址。空闲客户端没有近期握手，不代表服务故障，
+不应仅凭此重启容器。
+
 这些配置需要支持 AWG 3.x 的客户端；普通 WireGuard 和旧版 AWG 客户端不兼容。AWG-Easy 3 独立于各客户端项目。
 
 - **Android，已实测的替代客户端：**[AmneziaWG v3.1.20260814](https://github.com/amnezia-vpn/amneziawg-android/releases/tag/v3.1.20260814)。关于页面显示应用版本 **3.1.20260813**、内核版本 **3.1.20260814**。2026-09-09，用户在 Honor 50 上确认我们的 `.conf` 可导入、隧道可连接，面板可通过 IPv4 和 IPv6 打开。请导入文件，不是 `vpn://`；**2.0.1 不兼容**。下载文件采用简短 ASCII 名称，例如 `Honor_50.conf`，不会修改面板中的客户端名称或配置内容。完全由非 ASCII 字符组成的名称使用 `AWG-client.conf`。

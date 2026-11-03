@@ -104,6 +104,14 @@ Supported package managers are APT, DNF, YUM, Zypper, Pacman and APK. NixOS is d
 
 ## Compatibility and field testing
 
+**Hosts with multiple public IP addresses.** The bundled `amneziawg-go` build
+preserves the destination address of received UDP packets when splitting UDP GRO
+batches, so replies can use the same source IP. If a client reaches the server
+but its handshake never completes, compare incoming and outgoing UDP addresses.
+An OS route with `src <endpoint-IP>` can be a temporary workaround, but changes
+the preferred source for the whole host. Do not treat idle clients' missing
+handshakes as a failed service or restart the container solely for that reason.
+
 AWG 3.x profiles require an AWG 3.x-capable client; ordinary WireGuard and older AWG clients are not compatible. AWG-Easy 3 is independent of the client projects.
 
 - **Android, tested alternative:** [AmneziaWG release v3.1.20260814](https://github.com/amnezia-vpn/amneziawg-android/releases/tag/v3.1.20260814). Its About screen reports app **3.1.20260813**, backend **3.1.20260814**. On 2026-09-09, the user confirmed import of our `.conf`, connection, and panel access over both IPv4 and IPv6 on Honor 50. Use file import, not `vpn://`; **2.0.1 is not compatible**. Downloads use a short ASCII tunnel name, e.g. `Honor_50.conf`; the displayed client name and profile contents do not change. Non-ASCII-only names use `AWG-client.conf`.
