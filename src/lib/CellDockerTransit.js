@@ -2,7 +2,20 @@
 const { runProcess } = require('./ProcessRunner');
 const stable = x => Array.isArray(x) ? x.map(stable) : x && typeof x === 'object'
   ? Object.fromEntries(Object.keys(x).sort().map(k => [k, stable(x[k])])) : x;
-const same = (a, b) => JSON.stringify(stable(a)) === JSON.stringify(stable(b));
+const canonical = rule => {
+  const copy = structuredClone(rule);
+  // nft reads a conntrack state-set match back as == rather than in.
+  // Normalize only this equivalent spelling and unordered state membership.
+  for (const item of copy.expr || []) {
+    const m = item.match;
+    if (m?.left?.ct?.key === 'state' && ['in','=='].includes(m.op)
+      && Array.isArray(m.right?.set) && m.right.set.every(x => typeof x === 'string')) {
+      m.op = '=='; m.right.set.sort();
+    }
+  }
+  return stable(copy);
+};
+const same = (a, b) => JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
 const absent = e => e?.code === 1 || e?.exitCode === 1
   || (e?.code === 3 || e?.exitCode === 3) && /Table does not exist/.test(e.stderr || '');
 

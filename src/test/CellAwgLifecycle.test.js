@@ -11,7 +11,7 @@ async function fixture(t, userspaceCommand = 'amneziawg-go') {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cell-life-'));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   const spec = { version: 1, owner: createAwgOwnership({ interfaceName: 'cell0', config }), addresses: ['10.88.0.1/24', 'fd88::1/64'] };
-  const kernel = { link: null, config: '', addresses: [], rpFilter: 0, guard: false, calls: [], fail: null };
+  const kernel = { link: null, config: '', addresses: [], rpFilter: 0, guard: false, calls: [], fail: null, blankReads: 0 };
   const opts = { journalPath: path.join(dir, 'lifecycle.json'), userspaceCommand, activateGuard: async names => {
     assert.deepEqual(names, ['cell0']); kernel.guard = true;
   }, runner: async (file, args) => {
@@ -19,7 +19,13 @@ async function fixture(t, userspaceCommand = 'amneziawg-go') {
     if (file === 'ip' && args[0] === '-j') return { stdout: JSON.stringify([{ ifname: 'cell0', addr_info: kernel.addresses.map(cidr => {
       const [local, prefix] = cidr.split('/'); return { local, prefixlen: Number(prefix), family: local.includes(':') ? 'inet6' : 'inet', scope: 'global' };
     }) }]) };
-    if (file === 'awg' && args[0] === 'showconf') return { stdout: kernel.config };
+    if (file === 'awg' && args[0] === 'showconf') {
+      if (kernel.config === '[Interface]\n' && ++kernel.blankReads > 1) {
+        if (kernel.fail === 'ephemeral-port') return { stdout: '[Interface]\nListenPort = 49155\n' };
+        if (kernel.fail === 'changed-blank') return { stdout: '[Interface]\nListenPort = 49155\nH1 = 987\n' };
+      }
+      return { stdout: kernel.config };
+    }
     if (file === 'sysctl' && args[0] === '-n') return { stdout: String(kernel.rpFilter) };
     assert.equal(kernel.guard, true); kernel.calls.push([file, ...args]);
     const state = JSON.parse(await fs.readFile(opts.journalPath, 'utf8'));
@@ -58,6 +64,14 @@ test('Cell lifecycle can invoke the neutral bundled userspace command', async t 
   const { life, spec, kernel } = await fixture(t, 'net-forward');
   await life.create(spec);
   assert.ok(kernel.calls.some(([file, name]) => file === 'net-forward' && name === 'cell0'));
+});
+
+test('asynchronous ephemeral binding cannot strand creation; other blank mutations remain refused', async t => {
+  const f = await fixture(t); f.kernel.fail = 'ephemeral-port';
+  assert.equal((await f.life.create(f.spec)).ready, true);
+  const g = await fixture(t); g.kernel.fail = 'changed-blank';
+  await assert.rejects(g.life.create(g.spec), /Unexpected partial AWG configuration/);
+  assert.equal(g.kernel.guard, true);
 });
 test('already inherited loose rp_filter needs no write in a read-only sidecar', async t => {
   const { life, spec, kernel } = await fixture(t);

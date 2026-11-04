@@ -9,7 +9,13 @@ function fixture() {
     if (args.includes('DOCKER-USER')) return { stdout: JSON.stringify({ nftables: rules.map(rule => ({ rule })) }) };
     const batch = JSON.parse(options.input).nftables;
     batches.push(batch);
-    for (const { insert: { rule } } of batch) rules.push({ ...rule, handle: rules.length + 1 });
+    for (const { insert: { rule } } of batch) {
+      const actual = structuredClone(rule);
+      for (const item of actual.expr) if (item.match?.left?.ct?.key === 'state') {
+        item.match.op = '=='; item.match.right.set.reverse();
+      }
+      rules.push({ ...actual, handle: rules.length + 1 });
+    }
     return { stdout: '' };
   };
   return { rules, batches, compat: new CellDockerTransit({ runner }) };

@@ -10,6 +10,9 @@ const { ipNumber } = require('./GeoIpAddress');
 const { formatIPv6 } = require('./AddressAllocator');
 const queues = new Map();
 const hash = text => crypto.createHash('sha256').update(text.trim()).digest('hex');
+// Before setconf, Go may asynchronously bind an ephemeral listen socket.
+// Only this unconfigured port is volatile; retain every other blank field.
+const blankHash = text => hash(text.split(/\r?\n/).filter(line => !/^ListenPort\s*=/i.test(line)).join('\n'));
 function address(text) {
   if (typeof text !== 'string') throw new TypeError('Invalid AWG device address');
   const [host, prefix, extra] = text.split('/'), family = net.isIP(host);
@@ -148,7 +151,7 @@ class CellAwgLifecycle {
         || link.linkinfo?.info_data?.type !== 'tun' || !Array.isArray(link.flags)
         || link.flags.includes('UP')) throw new Error('Unexpected newly created AWG device');
       const blank = (await this.run('awg', ['showconf', name])).stdout;
-      saved = { ...saved, blankHash: hash(blank) }; await this.save(saved);
+      saved = { ...saved, blankHash: blankHash(blank) }; await this.save(saved);
       await this.run('ip', ['link', 'set', 'dev', name, 'alias', spec.owner.ownerTag, 'mtu', String(spec.owner.mtu)]);
       link = await this.link(name);
     }
@@ -158,7 +161,9 @@ class CellAwgLifecycle {
     let configured = false;
     try { configured = matchesAwgConfig(spec.owner.config, current); } catch { /* Fresh device has no private key yet. */ }
     if (!configured) {
-      if (!saved.blankHash || hash(current) !== saved.blankHash) throw new Error('Unexpected partial AWG configuration; guard retained');
+      // Also accept the exact raw hash written by earlier versions.
+      if (!saved.blankHash || (hash(current) !== saved.blankHash
+        && blankHash(current) !== saved.blankHash)) throw new Error('Unexpected partial AWG configuration; guard retained');
       await this.configure(spec);
     }
     await this.verify(spec, true);

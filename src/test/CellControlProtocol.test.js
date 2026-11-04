@@ -32,6 +32,20 @@ test('control rate budget bounds malformed requests and refills', async () => {
   assert.equal(loads, 17);
 });
 
+test('one tunnel peer cannot exhaust another peer budget; retained buckets stay bounded', async () => {
+  const service = new CellControlService({ monotonicNow: () => 1000,
+    identityStore: { load: async () => { throw new Error('invalid proof'); } } });
+  const bytes = Buffer.from('bad');
+  const first = { remoteAddress: '10.91.8.2' };
+  for (let i=0;i<16;i++) await service.handle(bytes, first);
+  assert.equal((await service.handle(bytes, first)).error, 'control_busy');
+  assert.equal((await service.handle(bytes, { remoteAddress:'10.91.8.3' })).error, 'control_unavailable');
+  for (let i=0;i<254;i++) await service.handle(bytes, { remoteAddress:`10.92.${Math.floor(i/250)}.${i%250+1}` });
+  assert.equal(service.peerBudgets.size, 256);
+  assert.equal((await service.handle(bytes, { remoteAddress:'10.93.0.1' })).error, 'control_busy');
+  assert.equal(service.peerBudgets.size, 256);
+});
+
 test('control requests are bound to identities, method and payload', () => {
   const controllerKey = identity().publicKey;
   const cell = identity();

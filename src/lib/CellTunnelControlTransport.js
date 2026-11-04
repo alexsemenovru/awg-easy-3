@@ -69,7 +69,7 @@ async function listenControlOnTunnel({ address, port, handler, timeoutMs = 10000
     socket.once('close', () => clearTimeout(timer));
     readLine(socket, REQUEST_LIMIT, async bytes => {
       try {
-        const response = await handler.handle(bytes);
+        const response = await handler.handle(bytes, { remoteAddress: socket.remoteAddress });
         if (!socket.destroyed) socket.end(JSON.stringify(response) + '\n');
       } catch { socket.destroy(); }
     });

@@ -1,4 +1,5 @@
 'use strict';
+const net = require('node:net');
 const { requireOwnedTunnelAddress } = require('./CellOwnedTunnel');
 const { verifyControl, signControl, signControlReply, verifyControlReply } = require('./CellControlProtocol');
 const { exchangeOverTls, createRegistrationServer } = require('./CellRegistrationTransport');
@@ -30,15 +31,34 @@ class CellControlService {
     this.monotonicNow = monotonicNow;
     this.tokens = 16;
     this.lastRefill = monotonicNow();
+    this.peerBudgets = new Map();
   }
 
-  async handle(bytes) {
+  async handle(bytes, context) {
     const now = this.monotonicNow();
     if (!Number.isFinite(now)) return { ok: false, error: 'control_busy' };
-    this.tokens = Math.min(16, this.tokens + Math.max(0, now - this.lastRefill) / 1000);
-    this.lastRefill = Math.max(now, this.lastRefill);
-    if (this.inFlight >= 4 || this.tokens < 1) return { ok: false, error: 'control_busy' };
-    this.tokens--;
+    // The owned AWG listener supplies the real socket source; AWG AllowedIPs
+    // bind that address to its peer. A Cell cannot burn another Cell's budget
+    // by putting its public key in an unverified request. Keep the old shared
+    // bucket only for callers without authenticated tunnel-source context.
+    let budget = this;
+    if (context !== undefined) {
+      const source = context?.remoteAddress;
+      if (!net.isIP(source || '')) return { ok: false, error: 'control_unavailable' };
+      budget = this.peerBudgets.get(source);
+      if (!budget) {
+        for (const [key, prior] of this.peerBudgets) {
+          if (now - prior.lastRefill >= 60000) this.peerBudgets.delete(key);
+        }
+        if (this.peerBudgets.size >= 256) return { ok: false, error: 'control_busy' };
+        budget = { tokens: 16, lastRefill: now };
+        this.peerBudgets.set(source, budget);
+      }
+    }
+    budget.tokens = Math.min(16, budget.tokens + Math.max(0, now - budget.lastRefill) / 1000);
+    budget.lastRefill = Math.max(now, budget.lastRefill);
+    if (this.inFlight >= 4 || budget.tokens < 1) return { ok: false, error: 'control_busy' };
+    budget.tokens--;
     this.inFlight++;
     try {
       const controller = await this.identityStore.load('controller');
