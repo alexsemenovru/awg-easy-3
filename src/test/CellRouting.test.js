@@ -17,6 +17,29 @@ function fixture() {
 const context = peer => ({ clientInterface: 'clients', wanInterface: 'wan', nat66: true,
   links: { [peer]: { interfaceName: 'transit', table: 52000, priority: 20000 } },
   panel: { address4: '10.88.0.1', address6: 'fd88::1', port: 51821 } });
+
+test('Home peers on two spokes communicate through Main without changing their exits', () => {
+  const f = fixture();
+  f.nodes.push({ id: 'cellB', role: 'cell', ipv4: true, ipv6: true });
+  f.links.push({ a: 'main', b: 'cellB', ipv4: true, ipv6: true });
+  f.clients[0].exit = 'cell';
+  f.clients[1].entry = f.clients[1].exit = 'cellB';
+  const mainContext = context('cell');
+  mainContext.links.cellB = { interfaceName: 'transitB', table: 52001, priority: 20001 };
+  const main = compileCellRouting({ topology: f, nodeId: 'main', context: mainContext });
+  const cell = compileCellRouting({ topology: f, nodeId: 'cell', context: context('main') });
+  assert.match(main.nftables, /iifname "transit" oifname "transitB" ip saddr 10\.88\.0\.2 ip daddr 10\.88\.0\.3 accept/);
+  assert.match(cell.nftables, /iifname "clients" oifname "transit" ip saddr 10\.88\.0\.2 ip daddr 10\.88\.0\.3 accept/);
+  assert.match(cell.nftables, /iifname "clients" oifname "wan" ip saddr 10\.88\.0\.2 accept/);
+  assert.ok(cell.commands.some(c => c.args.includes('10.88.0.3/32') && c.args.includes('transit')));
+  f.clients[1].assignment.networkGroup = 'home2';
+  const isolated = compileCellRouting({ topology: f, nodeId: 'cell', context: context('main') });
+  assert.doesNotMatch(isolated.nftables, /ip saddr 10\.88\.0\.2 ip daddr 10\.88\.0\.3 accept/);
+  assert.ok(isolated.nftables.indexOf('ip daddr { 10.88.0.2, 10.88.0.3 } drop')
+    < isolated.nftables.indexOf('oifname "wan" ip saddr 10.88.0.2 accept'));
+  f.clients[0].exit = 'cellB'; // No direct exit link was provisioned.
+  assert.equal(planCellTopology(f).plans[1].routes[0].enabled.ipv4, false);
+});
 test('only the entry receives client key material; routing policies follow the client', () => {
   const f = fixture();
   const main = planCellTopology(f).plans.find(p => p.node.id === 'main');

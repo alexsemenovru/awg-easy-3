@@ -50,6 +50,13 @@ function compileCellRouting({ topology, routingView, nodeId, context, geoDatabas
   const managed = `{ ${[...names].filter(n => n !== wan).sort().map(n => `"${n}"`).join(', ')} }`;
   const enabled = (r, family) => r.enabled[`ipv${family}`] && r[`address${family}`];
   const pathTo = (id, family) => id === nodeId ? client : links.get(id)?.[`ipv${family}`] ? links.get(id).interfaceName : null;
+  // Home traffic between spokes traverses their Main. Keep this separate from
+  // exit selection: a missing direct exit must never acquire an implicit relay.
+  const homePathTo = (id, family) => {
+    const direct = pathTo(id, family);
+    if (direct || nodeId === controller || links.has(id) || id === nodeId) return direct;
+    return links.get(controller)?.[`ipv${family}`] ? links.get(controller).interfaceName : null;
+  };
   const home = plan.routes.filter(r => isHomeGroup(r.group));
   const input = [], forward = [], output = [], nat = [], geoRules = [], geoSets = new Map();
   const remoteHostDestinations = new Set();
@@ -68,8 +75,9 @@ function compileCellRouting({ topology, routingView, nodeId, context, geoDatabas
       && ipNumber(r[`address${family}`]) === ipNumber(panelAddress))) throw new TypeError('Panel overlaps a client');
     // Exact host routes for reverse traffic. No default route in the host table.
     for (const r of plan.routes) {
-      if (r.entry !== nodeId && enabled(r, family) && pathTo(r.entry, family)) {
-        route(family, 'main', `${r[`address${family}`]}/${suffix}`, pathTo(r.entry, family));
+      const incomingPath = isHomeGroup(r.group) ? homePathTo(r.entry, family) : pathTo(r.entry, family);
+      if (r.entry !== nodeId && enabled(r, family) && incomingPath) {
+        route(family, 'main', `${r[`address${family}`]}/${suffix}`, incomingPath);
         remoteHostDestinations.add(`${ip} daddr ${r[`address${family}`]} drop`);
       }
     }
@@ -82,16 +90,16 @@ function compileCellRouting({ topology, routingView, nodeId, context, geoDatabas
       // the VPS default route. nft egress allowlist independently blocks leakage.
       route(family, link.table, 'unreachable', null, 32767);
       if (link[`ipv${family}`]) route(family, link.table, 'default', link.interfaceName, 100);
-      for (const r of home) if (enabled(r, family) && pathTo(r.entry, family)) {
-        route(family, link.table, `${r[`address${family}`]}/${suffix}`, pathTo(r.entry, family));
+      for (const r of home) if (enabled(r, family) && homePathTo(r.entry, family)) {
+        route(family, link.table, `${r[`address${family}`]}/${suffix}`, homePathTo(r.entry, family));
       }
       if (panelAddress && controller !== nodeId && pathTo(controller, family)) {
         route(family, link.table, `${panelAddress}/${suffix}`, pathTo(controller, family));
       }
     }
     for (const r of home) {
-      if (!enabled(r, family) || !pathTo(r.entry, family)) continue;
-      const source = r[`address${family}`], from = pathTo(r.entry, family);
+      if (!enabled(r, family) || !homePathTo(r.entry, family)) continue;
+      const source = r[`address${family}`], from = homePathTo(r.entry, family);
       if (panelAddress) {
         if (nodeId === controller) {
           input.push(`iifname "${from}" ${ip} saddr ${source} ${ip} daddr ${panelAddress} tcp dport ${panel.port} accept`);
@@ -104,9 +112,9 @@ function compileCellRouting({ topology, routingView, nodeId, context, geoDatabas
       }
       for (const other of home) {
         if (other.id === r.id || other.group !== r.group
-          || !enabled(other, family) || !pathTo(other.entry, family)
-          || (r.entry !== nodeId && other.entry !== nodeId)) continue;
-        forward.push(`iifname "${from}" oifname "${pathTo(other.entry, family)}" ${ip} saddr ${source} ${ip} daddr ${other[`address${family}`]} accept`);
+          || !enabled(other, family) || !homePathTo(other.entry, family)
+          || (nodeId !== controller && r.entry !== nodeId && other.entry !== nodeId)) continue;
+        forward.push(`iifname "${from}" oifname "${homePathTo(other.entry, family)}" ${ip} saddr ${source} ${ip} daddr ${other[`address${family}`]} accept`);
       }
     }
     // Home allowances precede this isolation barrier; neither Guest nor WAN-like

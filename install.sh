@@ -263,6 +263,15 @@ apt_compose_package() {
       return 0
     fi
   done
+  # Debian 13 packages Compose v2 under the historic docker-compose name.
+  # Inspect the actual candidate, not any available/installed old version.
+  if LC_ALL=C apt-cache policy docker-compose 2>/dev/null | awk '
+    $1 == "Candidate:" { version=$2; sub(/^[0-9]+:/, "", version); found=(version ~ /^2\./) }
+    END { exit !found }
+  '; then
+    printf '%s\n' docker-compose
+    return 0
+  fi
   return 1
 }
 

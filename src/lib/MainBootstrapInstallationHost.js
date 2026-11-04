@@ -47,6 +47,7 @@ const { CellRoutingOutbox } = require('./CellRoutingOutbox');
 const { plannedCellRoutingTopology } = require('./CellProductTopology');
 const { CellRoutingCoordinator } = require('./CellRoutingCoordinator');
 const { CellDataActivationGroup } = require('./CellDataActivationGroup');
+const { CellDockerTransit } = require('./CellDockerTransit');
 const { compileCellRouting } = require('./CellRoutingPolicy');
 const { verifyCellDataHandshake } = require('./CellDataHandshake');
 const { verifyMainUserTunnel } = require('./MainUserTunnelVerifier');
@@ -632,7 +633,8 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
       for (const link of links) await stageData({ deployment: link.deployment,
         expected: link.expected });
       const activation = newDataActivationGroup({ dataPaths: links.map(link => link.path),
-        routing, verifyDataLink: handshake });
+        routing, verifyDataLink: handshake,
+        beforeRelease: names => new CellDockerTransit({ runner }).ensure(names) });
       const result = await activation.activate(spec);
       activeRoutingFingerprint = fingerprint;
       return result;

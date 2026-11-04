@@ -122,7 +122,7 @@ else
     || die 'Main Node installation record must be root-owned, private and unlinked'
 fi
 
-for directory in cell-data cell-status; do
+for directory in cell-data cell-status cell-status/uapi; do
   [ ! -L "$directory" ] || die "unsafe $directory symlink"
   if [ -e "$directory" ]; then
     [ -d "$directory" ] || die "unsafe $directory path"
@@ -147,6 +147,14 @@ awg_data_slot=0
 while [ "$awg_data_slot" -lt 127 ]; do
   set -- "$@" "awgd${awg_data_slot}"
   awg_data_slot=$((awg_data_slot + 1))
+done
+# These names will be reserved in firewalld as well as sysctl. Do not change
+# the zone of a pre-existing foreign device occupying any reserved slot.
+for awg_reserved_name do
+  if ip link show dev "$awg_reserved_name" >/dev/null 2>&1; then
+    ip -d -o link show dev "$awg_reserved_name" | grep -Eq 'alias awg-easy-3-cell:[a-f0-9-]{36}([[:space:]]|$)' \
+      || die "foreign interface occupies reserved Main slot $awg_reserved_name"
+  fi
 done
 awg_cells_install_rp_filter main "$@" \
   || die 'cannot reserve loose rp_filter for Main-owned AWG interfaces'

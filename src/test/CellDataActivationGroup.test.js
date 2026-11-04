@@ -43,3 +43,12 @@ test('one failed data probe retains every path guard and the route guard', async
   assert.deepEqual(calls, ['recover:data0', 'recover:data1', 'routing:recover',
     'routing:apply']);
 });
+
+test('Docker compatibility failure cannot release any data or routing guard', async () => {
+  const calls = [];
+  const group = new CellDataActivationGroup({ dataPaths: [path('data0', calls),
+    path('data1', calls)], routing: routing(calls), verifyDataLink: async () => true,
+    beforeRelease: async names => { assert.deepEqual([...names].sort(), [...spec.interfaces].sort()); throw new Error('Docker policy changed'); } });
+  await assert.rejects(group.activate(spec), /Docker policy changed/);
+  assert.ok(!calls.some(x => x.startsWith('release:') || x === 'routing:release'));
+});

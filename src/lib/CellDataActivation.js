@@ -7,19 +7,20 @@ const { specification } = require('./CellRoutingCoordinator');
 // routing revision and a real data-link probe are verified. A crash leaves
 // durable guards; startup must call activate again before serving clients.
 class CellDataActivation {
-  constructor({ dataPath, routing, verifyDataLink }) {
+  constructor({ dataPath, routing, verifyDataLink, beforeRelease = async () => {} }) {
     if (!dataPath || !dataPath.retainGuard || !dataPath.lifecycle
       || !['initialize', 'recover', 'verifyOwned', 'releaseAfterRouting']
         .every(name => typeof dataPath[name] === 'function')
       || typeof dataPath.lifecycle.load !== 'function'
       || !routing || !['recover', 'apply', 'verify', 'releaseCommitted']
         .every(name => typeof routing[name] === 'function')
-      || typeof verifyDataLink !== 'function') {
+      || typeof verifyDataLink !== 'function' || typeof beforeRelease !== 'function') {
       throw new TypeError('Guarded data path, routing coordinator and link probe required');
     }
     this.dataPath = dataPath;
     this.routing = routing;
     this.verifyDataLink = verifyDataLink;
+    this.beforeRelease = beforeRelease;
   }
 
   async activate(value) {
@@ -36,8 +37,11 @@ class CellDataActivation {
     // protected; only then commit the requested revision.
     await this.routing.recover();
     await this.routing.apply(desired, { retainGuard: true });
-    await this.dataPath.releaseAfterRouting(async () =>
-      await this.routing.verify(desired) && await this.verifyDataLink() === true);
+    await this.dataPath.releaseAfterRouting(async () => {
+      if (!await this.routing.verify(desired) || await this.verifyDataLink() !== true) return false;
+      await this.beforeRelease(desired.interfaces);
+      return true;
+    });
     await this.routing.releaseCommitted();
     return { ready: true };
   }

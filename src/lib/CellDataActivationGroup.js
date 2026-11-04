@@ -6,7 +6,7 @@ const { specification } = require('./CellRoutingCoordinator');
 // user-routing guard on until every constituent AWG path, route and handshake
 // has been verified. A partial release cannot open client forwarding.
 class CellDataActivationGroup {
-  constructor({ dataPaths, routing, verifyDataLink }) {
+  constructor({ dataPaths, routing, verifyDataLink, beforeRelease = async () => {} }) {
     if (!Array.isArray(dataPaths) || !dataPaths.length
       || new Set(dataPaths.map(path => path.interfaceName)).size !== dataPaths.length
       || dataPaths.some(path => !path || !path.retainGuard || !path.lifecycle
@@ -15,12 +15,13 @@ class CellDataActivationGroup {
         || typeof path.lifecycle.load !== 'function')
       || !routing || !['recover', 'apply', 'verify', 'releaseCommitted']
         .every(name => typeof routing[name] === 'function')
-      || typeof verifyDataLink !== 'function') {
+      || typeof verifyDataLink !== 'function' || typeof beforeRelease !== 'function') {
       throw new TypeError('Guarded Cell data paths and routing coordinator required');
     }
     this.dataPaths = dataPaths;
     this.routing = routing;
     this.verifyDataLink = verifyDataLink;
+    this.beforeRelease = beforeRelease;
   }
 
   async activate(value) {
@@ -41,6 +42,7 @@ class CellDataActivationGroup {
         await path.verifyOwned() && await this.verifyDataLink(path.interfaceName) === true))
         .then(results => results.every(Boolean));
     if (!await verified()) throw new Error('Cell data links are not all verified');
+    await this.beforeRelease(desired.interfaces);
     for (const path of this.dataPaths) {
       await path.releaseAfterRouting(verified);
     }

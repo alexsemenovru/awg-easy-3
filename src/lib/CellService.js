@@ -18,6 +18,7 @@ const { CellRoutingInbox } = require('./CellRoutingInbox');
 const { acknowledgeCellRoutingRevision } = require('./CellControlService');
 const { CellRoutingCoordinator } = require('./CellRoutingCoordinator');
 const { CellDataActivation } = require('./CellDataActivation');
+const { CellDockerTransit } = require('./CellDockerTransit');
 const { compileCellRouting } = require('./CellRoutingPolicy');
 const { verifyCellDataHandshake } = require('./CellDataHandshake');
 const { addressInSubnet } = require('./AddressAllocator');
@@ -138,6 +139,7 @@ async function openCellServiceHost({ config, bootstrapHost,
             table: 52000, priority: 20000 } }, panel: view.panel },
         geoDatabase: geoDatabase || geo.current?.database || {} });
       const activation = newDataActivation({ dataPath, routing,
+        beforeRelease: names => new CellDockerTransit({ runner }).ensure(names),
         verifyDataLink: () => probeData({
           interfaceName: dataPath.interfaceName,
           peerPublicKey: activeOffer.descriptor.controllerPublicKey, runner }) });
