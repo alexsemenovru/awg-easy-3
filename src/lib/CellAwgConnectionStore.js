@@ -5,7 +5,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { AwgKeyManager, validateKey } = require('./AwgKeyManager');
 const { decodeAwgBootstrapInvitation } = require('./CellAwgBootstrapInvitation');
-const { signAwgRegistration, verifyAwgRegistration,
+const { signAwgRegistration, renewAwgRegistration, verifyAwgRegistration,
   parseAwgRegistration } = require('./CellAwgRegistration');
 const { registerAwgOverTunnel } = require('./CellTunnelRegistrationTransport');
 const { validatePermanentDescriptor } = require('./CellAwgPermanentDescriptor');
@@ -148,12 +148,15 @@ class CellAwgConnectionStore {
       const state = await this.read();
       if (!state) throw new Error('No pending AWG cell connection');
       if (state.status === 'registered') return { status: 'registered' };
-      if (state.invitation.expiresAt <= this.now()) {
+      const now = this.now();
+      if (state.invitation.expiresAt <= now) {
         throw new Error('AWG cell invitation expired; operator action required');
       }
+      const identity = await this.identityStore.load('cell');
+      const request = renewAwgRegistration(state.request, identity.privateKey, now);
       const result = await this.connect({ address: state.invitation.controllerAddress,
         port: state.invitation.registrationPort, controllerKey: state.invitation.controllerKey,
-        request: state.request });
+        request });
       if (result.status !== 'registered'
         || result.controllerKey !== state.invitation.controllerKey
         || result.cellKey !== state.cellKey

@@ -12,6 +12,8 @@ cd "$script_dir"
 [ -r "$script_dir/lib/owned-rp-filter.sh" ] || die 'owned interface sysctl helper is missing'
 # shellcheck disable=SC1091
 . "$script_dir/lib/owned-rp-filter.sh"
+[ -r "$script_dir/lib/selinux-socket-watch.sh" ] || die 'SELinux compatibility helper is missing'
+. "$script_dir/lib/selinux-socket-watch.sh"
 [ -f docker-compose.yml ] && [ -f docker-compose.cells-main.yml ] \
   || die 'Main Node compose assets are missing'
 [ -f data/state.json ] || die 'an existing AWG-Easy 3 panel is required'
@@ -150,6 +152,7 @@ awg_cells_install_rp_filter main "$@" \
   || die 'cannot reserve loose rp_filter for Main-owned AWG interfaces'
 install -d -m 0700 cell-data cell-status
 info 'Starting the Main Node service without changing the running panel'
+awg_easy_install_selinux_socket_watch || die 'cannot install the AWG UAPI SELinux permission'
 started_at=$(date +%s)
 compose up -d --no-deps main-cell || die 'Main Node service could not be started'
 

@@ -51,9 +51,12 @@ test('disabled families and GeoIP remain enforced for cells', () => {
 });
 
 test('Linux nft validates generated headless rules in isolated network namespace',
-  { skip: process.env.AWG_TEST_WSL !== '1' }, () => {
+  { skip: process.env.AWG_TEST_WSL !== '1' && process.env.AWG_NFT_KERNEL_TEST !== '1' }, () => {
     const built = buildCellArtifacts(fixture());
-    const result = spawnSync('wsl.exe', ['-d', 'Ubuntu', '-u', 'root', '--', 'unshare', '-n',
-      'nft', '-c', '-f', '-'], { input: built.nftables, encoding: 'utf8', timeout: 20000 });
+    const command = process.platform === 'win32' ? 'wsl.exe' : 'unshare';
+    const args = process.platform === 'win32'
+      ? ['-d', 'Ubuntu', '-u', 'root', '--', 'unshare', '-n', 'nft', '-c', '-f', '-']
+      : ['-n', 'nft', '-c', '-f', '-'];
+    const result = spawnSync(command, args, { input: built.nftables, encoding: 'utf8', timeout: 20000 });
     assert.equal(result.status, 0, `${result.error || ''}\n${result.stderr}`);
   });

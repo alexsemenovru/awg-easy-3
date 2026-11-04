@@ -11,6 +11,8 @@ cd "$script_dir"
 [ -r "$script_dir/lib/owned-rp-filter.sh" ] || die 'owned interface sysctl helper is missing'
 # shellcheck disable=SC1091
 . "$script_dir/lib/owned-rp-filter.sh"
+[ -r "$script_dir/lib/selinux-socket-watch.sh" ] || die 'SELinux compatibility helper is missing'
+. "$script_dir/lib/selinux-socket-watch.sh"
 [ -f docker-compose.cells-cell.yml ] || die 'Cell compose file is missing'
 [ ! -e data/state.json ] && [ ! -e .env.cells-main ] \
   || die 'do not install a Cell over an existing Main panel'
@@ -153,6 +155,7 @@ compose config --quiet || die 'Cell compose configuration is invalid'
 awg_cells_install_rp_filter cell awgcellb0 awgcellc0 awgcellu0 awgdata0 \
   || die 'cannot reserve loose rp_filter for Cell-owned AWG interfaces'
 info 'Starting the headless Cell; the invitation is never printed'
+awg_easy_install_selinux_socket_watch || die 'cannot install the AWG UAPI SELinux permission'
 compose up -d cell || die 'Cell service did not start; private state was preserved'
 attempt=0
 while [ "$attempt" -lt 120 ]; do

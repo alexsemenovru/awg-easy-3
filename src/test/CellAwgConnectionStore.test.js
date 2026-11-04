@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const { ControlIdentityStore } = require('../lib/ControlIdentityStore');
 const { createAwgBootstrapInvitation } = require('../lib/CellAwgBootstrapInvitation');
 const { CellAwgConnectionStore } = require('../lib/CellAwgConnectionStore');
-const { signAwgReceipt, verifyAwgReceipt } = require('../lib/CellAwgRegistration');
+const { signAwgReceipt, verifyAwgReceipt, verifyAwgRegistration } = require('../lib/CellAwgRegistration');
 const { generateOfficialProfile } = require('../lib/Awg3Config');
 
 const key = () => crypto.randomBytes(32).toString('base64');
@@ -19,7 +19,7 @@ function permanent() {
     publicKey: Buffer.from(pair.publicKey.export({ format: 'jwk' }).x, 'base64url').toString('base64'),
     presharedKey: key() };
 }
-async function fixture(t) {
+async function fixture(t, lifetimeMs = 60000) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-cell-connection-'));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   const identities = new ControlIdentityStore(path.join(directory, 'cell-identity.json'));
@@ -32,7 +32,7 @@ async function fixture(t) {
     controllerAddress: '10.90.0.1', cellAddress: '10.90.0.2', serverPublicKey: key(),
     profile: generateOfficialProfile(), keyManager: { generatePeerKeys: async () => ({
       privateKey: key(), publicKey: key(), presharedKey: key(),
-    }) }, now: 1000, lifetimeMs: 60000 });
+    }) }, now: 1000, lifetimeMs });
   const permanentKeys = permanent();
   let now = 1002, attempts = 0;
   const file = path.join(directory, 'connection.json');
@@ -79,6 +79,34 @@ test('failed confirmation leaves an unchanged pending request for bounded retry'
   f.setNow(61000);
   await assert.rejects(f.store.resume(), /expired/);
   assert.deepEqual(await f.store.read(), before);
+});
+
+test('delayed enrollment renews its proof and preserves retry identity after a lost reply', async t => {
+  const f = await fixture(t, 900000);
+  await f.store.begin(f.issued.code);
+  const before = await f.store.read();
+  const connect = f.store.connect;
+  let sent;
+  f.setNow(601002);
+  assert.throws(() => verifyAwgRegistration(before.request, before.invitation.controllerKey, 601002));
+  f.store.connect = async options => {
+    sent = options.request;
+    verifyAwgRegistration(sent, options.controllerKey, 601002);
+    await connect(options); // Main consumed it; the reply did not reach Cell.
+    throw new Error('lost reply');
+  };
+  await assert.rejects(f.store.resume(), /lost reply/);
+  assert.equal(sent.requestId, before.request.requestId);
+  assert.equal(sent.issuedAt, 601002);
+  assert.equal(sent.awgPublicKey, before.permanent.publicKey);
+  assert.deepEqual(await f.store.read(), before);
+  f.setNow(602002);
+  f.store.connect = async options => {
+    assert.equal(options.request.requestId, sent.requestId);
+    verifyAwgRegistration(options.request, options.controllerKey, 602002);
+    return connect(options);
+  };
+  assert.deepEqual(await f.store.resume(), { status: 'registered' });
 });
 
 test('corrupt permanent key pair and repeated begin are refused without replacement', async t => {

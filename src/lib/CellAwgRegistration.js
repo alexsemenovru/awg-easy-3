@@ -62,6 +62,20 @@ function verifyAwgRegistration(request, controllerKey, now = Date.now()) {
     registrationValid: true };
 }
 
+// A pending request can outlive its short anti-replay time window while its
+// invitation is still valid. Preserve the id and keys for lost-reply recovery,
+// but prove fresh possession of the same Cell identity on every retry.
+function renewAwgRegistration(request, identityPrivateKey, now = Date.now()) {
+  verifyAwgRegistration(request, request.controllerKey, request.issuedAt);
+  const key = crypto.createPrivateKey(identityPrivateKey);
+  if (key.asymmetricKeyType !== 'ed25519'
+    || crypto.createPublicKey(key).export({ format: 'jwk' }).x !== request.cellKey
+    || !Number.isSafeInteger(now) || now < request.issuedAt) invalid();
+  const { signature, ...body } = request;
+  body.issuedAt = now;
+  return { ...body, signature: crypto.sign(null, requestMessage(body), key).toString('base64url') };
+}
+
 function parseAwgRegistration(bytes) {
   if (!Buffer.isBuffer(bytes) || bytes.length === 0 || bytes.length > 2048) invalid();
   let request;
@@ -130,5 +144,5 @@ function verifyAwgReceipt(receipt, request, controllerKey, now = Date.now()) {
     ...(receipt.version === 3 ? { permanent: validatePermanentDescriptor(receipt.permanent) } : {}) };
 }
 
-module.exports = { signAwgRegistration, verifyAwgRegistration, parseAwgRegistration,
+module.exports = { signAwgRegistration, renewAwgRegistration, verifyAwgRegistration, parseAwgRegistration,
   signAwgReceipt, verifyAwgReceipt };

@@ -624,6 +624,9 @@ chmod 0644 /etc/modules-load.d/awg-easy-3.conf
 install -d -m 0700 data
 
 info "Creating the first Home profile"
+[ -r "$SCRIPT_DIR/lib/selinux-socket-watch.sh" ] || die "SELinux compatibility helper is missing"
+. "$SCRIPT_DIR/lib/selinux-socket-watch.sh"
+awg_easy_install_selinux_socket_watch || die "unable to install the AWG UAPI SELinux permission"
 docker compose run --rm --no-deps \
   -e AWG_HOST="$AWG_HOST_VALUE" \
   -e AWG_PORT="$AWG_PORT_VALUE" \
