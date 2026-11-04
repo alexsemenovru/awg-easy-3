@@ -156,6 +156,11 @@ awg_cells_install_rp_filter cell awgcellb0 awgcellc0 awgcellu0 awgdata0 \
   || die 'cannot reserve loose rp_filter for Cell-owned AWG interfaces'
 info 'Starting the headless Cell; the invitation is never printed'
 awg_easy_install_selinux_socket_watch || die 'cannot install the AWG UAPI SELinux permission'
+[ -r "$script_dir/lib/firewalld.sh" ] || die 'firewalld compatibility helper is missing'
+. "$script_dir/lib/firewalld.sh"
+awg_easy_configure_firewalld "$(sed -n 's/^AWG_CELL_WAN_INTERFACE=//p' "$env_file")" \
+  "$(sed -n 's/^AWG_CELL_USER_PORT=//p' "$env_file")" awgcellb0 awgcellc0 awgcellu0 awgdata0 \
+  || die 'cannot configure firewalld for the reserved Cell interfaces'
 compose up -d cell || die 'Cell service did not start; private state was preserved'
 attempt=0
 while [ "$attempt" -lt 120 ]; do

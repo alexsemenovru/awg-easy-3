@@ -627,6 +627,11 @@ info "Creating the first Home profile"
 [ -r "$SCRIPT_DIR/lib/selinux-socket-watch.sh" ] || die "SELinux compatibility helper is missing"
 . "$SCRIPT_DIR/lib/selinux-socket-watch.sh"
 awg_easy_install_selinux_socket_watch || die "unable to install the AWG UAPI SELinux permission"
+[ -r "$SCRIPT_DIR/lib/firewalld.sh" ] || die "firewalld compatibility helper is missing"
+. "$SCRIPT_DIR/lib/firewalld.sh"
+awg_install_wan=$(ip -4 route get 1.1.1.1 | awk '{ for (i=1;i<=NF;i++) if ($i=="dev") { print $(i+1); exit } }')
+awg_easy_configure_firewalld "$awg_install_wan" "$AWG_PORT_VALUE" awg0 \
+  || die "unable to configure firewalld for AWG"
 docker compose run --rm --no-deps \
   -e AWG_HOST="$AWG_HOST_VALUE" \
   -e AWG_PORT="$AWG_PORT_VALUE" \

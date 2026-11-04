@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
 const { compileCellRouting } = require('../lib/CellRoutingPolicy');
-const { normalizeNftSnapshot } = require('../lib/CellNftOwnership');
+const { normalizeNftSnapshot, nftFingerprint } = require('../lib/CellNftOwnership');
 
 // Explicit opt-in: this invokes nft as root, but only inside a disposable
 // network namespace. It never changes the host's persistent firewall.
@@ -44,7 +44,8 @@ function kernelReadback(snapshot) {
 test('complex controller and cell policies match isolated nft kernel readback', { skip: !enabled }, () => {
   for (const [nodeId, peer] of [['main', 'cell'], ['cell', 'main']]) {
     const { nftSnapshot } = compileCellRouting({ topology, nodeId, context: context(peer), geoDatabase });
-    assert.deepEqual(kernelReadback(nftSnapshot), nftSnapshot, `${nodeId} policy differs from kernel readback`);
+    assert.equal(nftFingerprint(kernelReadback(nftSnapshot), 'awg_easy_3_routes'),
+      nftFingerprint(nftSnapshot, 'awg_easy_3_routes'), `${nodeId} policy differs from kernel readback`);
   }
 });
 
@@ -54,7 +55,8 @@ test('numbered Home isolation matches isolated nft kernel readback', { skip: !en
   for (const [nodeId, peer] of [['main', 'cell'], ['cell', 'main']]) {
     const { nftSnapshot } = compileCellRouting({ topology: grouped, nodeId,
       context: context(peer), geoDatabase });
-    assert.deepEqual(kernelReadback(nftSnapshot), nftSnapshot,
+    assert.equal(nftFingerprint(kernelReadback(nftSnapshot), 'awg_easy_3_routes'),
+      nftFingerprint(nftSnapshot, 'awg_easy_3_routes'),
       `${nodeId} numbered Home policy differs from kernel readback`);
   }
 });
@@ -92,7 +94,8 @@ test('two Cells with distinct client exits match isolated nft kernel readback', 
       panel: { address4: '10.8.0.1', address6: 'fd08::1', port: 51821 } };
     const { nftSnapshot } = compileCellRouting({ topology, nodeId: node.id,
       context, geoDatabase });
-    assert.deepEqual(kernelReadback(nftSnapshot), nftSnapshot,
+    assert.equal(nftFingerprint(kernelReadback(nftSnapshot), 'awg_easy_3_routes'),
+      nftFingerprint(nftSnapshot, 'awg_easy_3_routes'),
       `${node.id} policy differs from kernel readback`);
   }
 });

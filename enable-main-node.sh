@@ -150,9 +150,16 @@ while [ "$awg_data_slot" -lt 127 ]; do
 done
 awg_cells_install_rp_filter main "$@" \
   || die 'cannot reserve loose rp_filter for Main-owned AWG interfaces'
-install -d -m 0700 cell-data cell-status
+install -d -m 0700 cell-data cell-status cell-status/uapi
 info 'Starting the Main Node service without changing the running panel'
 awg_easy_install_selinux_socket_watch || die 'cannot install the AWG UAPI SELinux permission'
+[ -r "$script_dir/lib/firewalld.sh" ] || die 'firewalld compatibility helper is missing'
+. "$script_dir/lib/firewalld.sh"
+awg_main_wan=$(ip -4 route get 1.1.1.1 | awk '{ for (i=1;i<=NF;i++) if ($i=="dev") { print $(i+1); exit } }')
+awg_main_ports=$(sed -n -e 's/^AWG_MAIN_BOOTSTRAP_PORT=//p' -e 's/^AWG_MAIN_CONTROL_PORT=//p' "$env_file" | tr '\n' ' ')
+awg_easy_configure_firewalld "$awg_main_wan" "$awg_main_ports" \
+  "$(sed -n 's/^AWG_MAIN_USER_INTERFACE=//p' "$env_file")" "$@" \
+  || die 'cannot configure firewalld for the reserved Main interfaces'
 started_at=$(date +%s)
 compose up -d --no-deps main-cell || die 'Main Node service could not be started'
 
