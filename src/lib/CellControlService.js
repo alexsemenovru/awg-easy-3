@@ -1,8 +1,7 @@
 'use strict';
 const net = require('node:net');
 const { requireOwnedTunnelAddress } = require('./CellOwnedTunnel');
-const { verifyControl, signControl, signControlReply, verifyControlReply } = require('./CellControlProtocol');
-const { exchangeOverTls, createRegistrationServer } = require('./CellRegistrationTransport');
+const { verifyControl, signControl, signControlReply } = require('./CellControlProtocol');
 const { exchangeOverTunnel, listenControlOnTunnel } = require('./CellTunnelControlTransport');
 const { verifySettings } = require('./CellSettings');
 const { acknowledgeApplied } = require('./CellSettingsAck');
@@ -10,7 +9,6 @@ const { validateCellUserDescriptor } = require('./CellUserDescriptor');
 const { validateDataKeyAnnouncement } = require('./CellDataKeyStore');
 const { validatePublicDataOffer } = require('./CellDataOfferStore');
 const { verifyRoutingRevision } = require('./CellRoutingRevision');
-const PROTOCOL = 'awg-easy-3-control/1';
 
 class CellControlService {
   constructor({ identityStore, enrollmentStore, bootstrapStore, publisherForCell, descriptorForCell,
@@ -131,13 +129,6 @@ class CellControlService {
   }
 }
 
-async function prepareControlEndpoint({ identityStore, certificateStore, enrollmentStore, publisherForCell }) {
-  const identity = await identityStore.load('controller');
-  const cert = await certificateStore.ensure();
-  return createRegistrationServer({ key: identity.privateKey, cert, protocol: PROTOCOL,
-    handler: new CellControlService({ identityStore, enrollmentStore, publisherForCell }) });
-}
-
 // Never accept a merely private host address: prove it belongs to our ready,
 // unchanged inter-server AWG device immediately before opening the listener.
 async function listenTunnelControlEndpoint({ address, port, identityStore, bootstrapStore,
@@ -155,31 +146,21 @@ async function listenTunnelControlEndpoint({ address, port, identityStore, boots
 // One explicit sync, not a daemon. Control address supplied locally until installer
 // assigns the service port; the key must remain the registered controller's key.
 async function syncCellSettings({ connectionStore, identityStore, receiver, host, port,
-  transport = 'tls', userDescriptor, dataPublicKey }) {
+  transport, userDescriptor, dataPublicKey }) {
   const connection = await connectionStore.read();
   if (connection?.status !== 'registered') throw new Error('Cell is not registered');
-  if (connection.version !== 1 && connection.version !== 2) {
+  if (connection.version !== 2) {
     throw new Error('Unsupported cell connection version');
   }
-  if (connection.version === 2 && transport !== 'tunnel') {
+  if (transport !== 'tunnel') {
     throw new Error('AWG cell control requires the tunnel transport');
-  }
-  if (connection.version === 1 && transport !== 'tls') {
-    throw new Error('Legacy cell control requires the TLS transport');
   }
   const identity = await identityStore.load('cell');
   if (identity.publicKey !== connection.cellKey) throw new Error('Cell identity changed');
   const exchange = async (action, payload = null) => {
     const request = signControl({ controllerKey: connection.controllerKey, action, payload }, identity.privateKey);
-    if (transport === 'tunnel') {
-      return exchangeOverTunnel({ address: host, port, request,
-        controllerKey: connection.controllerKey });
-    }
-    if (transport !== 'tls') throw new TypeError('Unknown cell control transport');
-    return exchangeOverTls({ host, port, request, controllerKey: connection.controllerKey,
-      protocol: PROTOCOL, responseLimit: 2 * 1024 * 1024, verifyResponse: response => {
-        return verifyControlReply(response, connection.controllerKey, request.requestId);
-      } });
+    return exchangeOverTunnel({ address: host, port, request,
+      controllerKey: connection.controllerKey });
   };
   if (userDescriptor !== undefined) {
     if (transport !== 'tunnel') throw new Error('Cell descriptor requires AWG control');
@@ -257,6 +238,6 @@ async function acknowledgeCellRoutingRevision({ connectionStore, identityStore,
   return { applied: ack.revision };
 }
 
-module.exports = { CellControlService, prepareControlEndpoint,
+module.exports = { CellControlService,
   listenTunnelControlEndpoint, syncCellSettings, fetchCellDataOffer,
   fetchCellRoutingRevision, acknowledgeCellRoutingRevision };

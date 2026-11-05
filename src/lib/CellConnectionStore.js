@@ -6,12 +6,13 @@ const crypto = require('node:crypto');
 const { decodeInvitation } = require('./CellInvitation');
 const { signRegistration, verifyRegistration } = require('./CellRegistration');
 const { parseRegistration } = require('./CellRegistrationHandler');
-const { registerOverTls } = require('./CellRegistrationTransport');
+const { registerOverTunnel } = require('./CellTunnelRegistrationTransport');
 const queues = new Map();
 
 // Single service process; CLI must use that process, not independently write here.
 class CellConnectionStore {
-  constructor(filePath, identityStore, { connect = registerOverTls, io = fs } = {}) {
+  constructor(filePath, identityStore, { connect = options => registerOverTunnel({
+    ...options, address: options.host }), io = fs } = {}) {
     this.filePath = path.resolve(filePath);
     this.identityStore = identityStore;
     this.connect = connect;
