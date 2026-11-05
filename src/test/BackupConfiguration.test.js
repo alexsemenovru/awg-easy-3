@@ -284,6 +284,30 @@ test('restore CLI refuses non-private or excessive inputs before reserving outpu
   await assert.rejects(fs.stat(directory), { code: 'ENOENT' });
 });
 
+test('restore preparation supports standalone panels and Main Nodes with no enrolled Cells', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-restore-empty-main-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const target = { interfaceName: 'awg3', wanInterface: 'ens9', endpointHost: '198.51.100.44', listenPort: 55000, panelPort: 80 };
+  for (const main of [false, true]) {
+    const snapshot = await fixture();
+    snapshot.files = snapshot.files.filter(item => item.area === 'panel' || main
+      && ['identity.json', 'config.json', 'bootstrap.json'].includes(item.name));
+    if (main) {
+      snapshot.recovery = createRecoveryMaterial(7);
+      rewrite(snapshot, 'main/bootstrap.json', value => ({ ...value, invitations: [] }));
+    }
+    const sealed = sealBackup(Buffer.from(JSON.stringify(snapshot)));
+    const directory = path.join(root, main ? 'main' : 'panel');
+    const result = await prepareConfigurationRestore({ archive: sealed.archive,
+      recoveryKey: sealed.recoveryKey, target, directory });
+    assert.deepEqual(await inspectPreparedRestore(directory), result);
+    assert.equal(result.main, main);
+    assert.equal(result.cells, 0);
+    assert.equal(result.generation, main ? 7 : null);
+    assert.equal(result.bindings, null);
+  }
+});
+
 test('bad archive/key or conflicting new-host bindings cannot create an activatable restore workspace', async t => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-restore-reject-'));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
