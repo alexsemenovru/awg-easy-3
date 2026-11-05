@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const { CellDataActivation } = require('../lib/CellDataActivation');
 const { routingPolicySnapshot } = require('../lib/CellNftPolicyJson');
 
-function fixture({ phase = 'empty', probe = true, failRouting = false,
+function fixture({ phase = 'empty', probe = true, failRouting = false, foreignData = false,
   failFinalRelease = false } = {}) {
   const events = [];
   let dataGuard = false, routingGuard = false;
@@ -13,7 +13,7 @@ function fixture({ phase = 'empty', probe = true, failRouting = false,
     retainGuard: true, interfaceName: 'awgd0', lifecycle: { load: async () => ({ phase }) },
     initialize: async () => { events.push('data-init'); dataGuard = true; phase = 'ready'; },
     recover: async () => { events.push('data-recover'); dataGuard = true; },
-    verifyOwned: async () => dataGuard,
+    verifyOwned: async () => dataGuard && !foreignData,
     releaseAfterRouting: async verify => {
       events.push('data-check');
       if (!await verify()) throw new Error('data guard retained');
@@ -79,4 +79,22 @@ test('failed final release keeps the routing guard active', async () => {
   assert.equal(f.routingGuard, true);
   assert.ok(f.events.includes('data-release'));
   assert.ok(!f.events.includes('routing-release'));
+});
+
+test('replay of a signed previously applied policy restores local service with Main offline', async () => {
+  const f = fixture({ phase: 'ready', probe: false });
+  assert.deepEqual(await f.activation.activate(f.spec, { replayApplied: true }), { ready: true });
+  assert.equal(f.dataGuard, false);
+  assert.equal(f.routingGuard, false);
+  assert.deepEqual(f.events, ['data-recover', 'routing-recover', 'routing-apply',
+    'data-check', 'link-probe', 'data-release', 'routing-release']);
+});
+
+test('offline replay never bypasses ownership or policy readback', async () => {
+  for (const failure of [{ foreignData: true }, { failRouting: true }]) {
+    const f = fixture({ phase: 'ready', probe: false, ...failure });
+    await assert.rejects(f.activation.activate(f.spec, { replayApplied: true }), /guard retained/);
+    assert.equal(f.dataGuard, true);
+    assert.equal(f.routingGuard, true);
+  }
 });

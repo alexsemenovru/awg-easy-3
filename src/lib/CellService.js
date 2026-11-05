@@ -109,7 +109,7 @@ async function openCellServiceHost({ config, bootstrapHost, controlPath,
     controllerKey: connection.controllerKey, cellKey: connection.cellKey,
     nodeId: connection.invitationId,
     assignments: () => host.appliedAssignments(),
-    apply: async (view, _revision, geoDatabase) => {
+    apply: async (view, _revision, geoDatabase, { replayApplied = false } = {}) => {
       if (!view.panel || !addressInSubnet(view.panel.address4,
         activeOffer.descriptor.controllerClientSubnet4)
         || view.panel.address6 && (!activeOffer.descriptor.controllerClientSubnet6
@@ -147,13 +147,13 @@ async function openCellServiceHost({ config, bootstrapHost, controlPath,
       const spec = { version: 1,
         interfaces: [user.server.interfaceName, dataPath.interfaceName],
         commands: policy.commands, nftSnapshot: policy.nftSnapshot };
-      await activation.activate(spec);
+      await activation.activate(spec, { replayApplied });
       await host.releaseUserGuard(async () =>
         await host.verifyUserRuntime()
         && await routing.verifyOperational(spec)
         && await dataPath.verifyOperational()
-        && await probeData({ interfaceName: dataPath.interfaceName,
-          peerPublicKey: activeOffer.descriptor.controllerPublicKey, runner }));
+        && (replayApplied || await probeData({ interfaceName: dataPath.interfaceName,
+          peerPublicKey: activeOffer.descriptor.controllerPublicKey, runner })));
     },
   });
   let activeOffer = cachedOffer;
@@ -216,6 +216,11 @@ async function openCellServiceHost({ config, bootstrapHost, controlPath,
       acknowledgeCellRoutingRevision({ connectionStore: bootstrapHost.connectionStore,
         identityStore, routingInbox, host, port }),
     stageDataLink: cachedOffer ? () => stageOffer(cachedOffer) : undefined,
+    restoreUserRouting: async () => {
+      const restored = await routingInbox.restoreApplied();
+      routingActivated = restored.applied !== null;
+      return restored;
+    },
     retainUserGuard: true,
     geoDatabase: async () => geoCandidate || geo.current?.database || {} });
   // A missing cache may require a network download. Guard user traffic before
@@ -225,6 +230,11 @@ async function openCellServiceHost({ config, bootstrapHost, controlPath,
   const boot = await host.recoverBoot();
   if (boot.configured !== true) throw new Error('Permanent Cell path not configured');
   if (cachedOffer && typeof host.stageDataLink === 'function') await host.stageDataLink();
+  if (cachedOffer && typeof host.restoreUserRouting === 'function') {
+    // Keep the guard on invalid/mismatched cached state, but let authenticated
+    // control polling repair a partial settings/routing transaction.
+    await host.restoreUserRouting().catch(() => {});
+  }
   return { host, geo };
 }
 

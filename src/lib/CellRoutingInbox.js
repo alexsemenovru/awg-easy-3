@@ -118,7 +118,7 @@ class CellRoutingInbox {
       if (!state?.applied) return { applied: null };
       const prior = verifyRoutingRevision(state.applied, this.trust);
       const view = assertRoutingMatchesAssignments(prior.view, await this.assignments());
-      await this.apply(view, prior.revision);
+      await this.apply(view, prior.revision, undefined, { replayApplied: true });
       return { applied: prior.revision };
     });
   }
@@ -129,7 +129,7 @@ class CellRoutingInbox {
       if (!state?.applied) return { applied: null };
       const prior = verifyRoutingRevision(state.applied, this.trust);
       const view = assertRoutingMatchesAssignments(prior.view, await this.assignments());
-      await this.apply(view, prior.revision, geoDatabase);
+      await this.apply(view, prior.revision, geoDatabase, { replayApplied: true });
       return { applied: prior.revision };
     });
   }

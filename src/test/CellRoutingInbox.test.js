@@ -29,9 +29,11 @@ test('routing inbox persists applied proof, rejects replay and restores only las
   const controller = identity(), cell = identity();
   let fail = false;
   const applied = [];
+  const replayFlags = [];
   const options = { controllerKey: controller.publicKey, cellKey: cell.publicKey,
     nodeId: cellId, assignments: async () => ({ schema: 1, clients: [assignment] }),
-    apply: async (route, revision) => { if (fail) throw new Error('guard retained');
+    apply: async (route, revision, _geo, flags) => { replayFlags.push(flags?.replayApplied === true);
+      if (fail) throw new Error('guard retained');
       applied.push([revision, route.routes[0].exit]); } };
   const file = path.join(dir, 'routing.json');
   const inbox = new CellRoutingInbox(file, options);
@@ -54,6 +56,7 @@ test('routing inbox persists applied proof, rejects replay and restores only las
   assert.deepEqual(applied, [[1, 'main'], [1, 'main']]);
   await restarted.receive(second);
   assert.deepEqual(applied.at(-1), [2, cellId]);
+  assert.deepEqual(replayFlags, [false, false, true, false]);
 });
 
 test('routing inbox refuses a peer not in the applied assignment before any write', async t => {

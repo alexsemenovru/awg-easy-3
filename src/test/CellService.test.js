@@ -5,7 +5,7 @@ const path = require('node:path');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const test = require('node:test');
-const { startCellService, syncCellOnce } = require('../lib/CellService');
+const { startCellService, syncCellOnce, openCellServiceHost } = require('../lib/CellService');
 const { generateOfficialProfile } = require('../lib/Awg3Config');
 const { identity } = require('../lib/CellRegistration');
 const { routingViewFromTopology } = require('../lib/CellRoutingView');
@@ -204,7 +204,7 @@ test('Cell applies a received signed route only after data offer and assignments
     view }, controller.privateKey);
   let saved = null, applied = 0, installGeo, guardedAgain = false;
   const verifiedGeo = [];
-  await syncCellOnce({ config: { ...config(), stateDirectory: root },
+  const common = { config: { ...config(), stateDirectory: root },
     bootstrapHost: { connectionStore: { read: async () => ({ version: 2,
       status: 'registered', invitationId: cellId, controllerKey: controller.publicKey,
       cellKey: cell.publicKey, permanent: { privateKey: key(7) } }) },
@@ -250,7 +250,8 @@ test('Cell applies a received signed route only after data offer and assignments
         return { status: 'applied' };
       },
     }),
-  });
+  };
+  await syncCellOnce(common);
   assert.equal(applied, 2);
   await installGeo({ database: { RU: { ipv4: [], ipv6: [] } } }, async () => {});
   assert.equal(applied, 3);
@@ -261,4 +262,20 @@ test('Cell applies a received signed route only after data offer and assignments
     [[], [], [], [], ['RU'], ['RU'], ['RU'], ['RU'], [], []]);
   assert.equal(JSON.parse(await fs.readFile(path.join(root, 'routing-inbox.json'), 'utf8'))
     .applied.revision, 1);
+  const boot = [];
+  await openCellServiceHost({ ...common,
+    probeData: async () => false,
+    newDataActivation: () => ({ activate: async (_spec, flags) => {
+      assert.equal(flags.replayApplied, true); boot.push('replay-applied');
+    } }),
+    openRegistered: async supplied => ({
+      appliedAssignments: async () => ({ schema: 1, clients: [assignment] }),
+      verifyUserRuntime: async () => true,
+      protectUserTraffic: async () => { boot.push('guard'); },
+      recoverBoot: async () => { boot.push('user-restore'); return { configured: true }; },
+      stageDataLink: async () => { boot.push('data-stage'); await supplied.stageDataLink(); },
+      restoreUserRouting: async () => { boot.push('routing-restore'); await supplied.restoreUserRouting(); },
+      releaseUserGuard: async verify => { assert.equal(await verify(), true); boot.push('release'); },
+    }) });
+  assert.deepEqual(boot, ['guard', 'user-restore', 'data-stage', 'routing-restore', 'replay-applied', 'release']);
 });

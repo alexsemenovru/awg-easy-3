@@ -23,7 +23,8 @@ class CellDataActivation {
     this.beforeRelease = beforeRelease;
   }
 
-  async activate(value) {
+  async activate(value, { replayApplied = false } = {}) {
+    if (typeof replayApplied !== 'boolean') throw new TypeError('Explicit applied routing replay flag required');
     const desired = specification(value);
     if (!desired.interfaces.includes(this.dataPath.interfaceName)) {
       throw new TypeError('Routing revision omits the data link interface');
@@ -38,7 +39,13 @@ class CellDataActivation {
     await this.routing.recover();
     await this.routing.apply(desired, { retainGuard: true });
     await this.dataPath.releaseAfterRouting(async () => {
-      if (!await this.routing.verify(desired) || await this.verifyDataLink() !== true) return false;
+      if (!await this.routing.verify(desired)) return false;
+      const reachable = await this.verifyDataLink() === true;
+      // A previously APPLIED signed route may be reconstructed after reboot
+      // while Main is offline. Its exact owned data device still encrypts the
+      // unavailable path; routes/blackholes remain unchanged. New revisions
+      // always require a live probe before their first release.
+      if (!reachable && !(replayApplied && await this.dataPath.verifyOwned())) return false;
       await this.beforeRelease(desired.interfaces);
       return true;
     });
