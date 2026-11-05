@@ -46,8 +46,8 @@ jobs:
             --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
             -e AWG_NFT_KERNEL_TEST=1 \
             -v "$GITHUB_WORKSPACE:/work:ro" -w /work/src \
-            --entrypoint node awg-easy-3:cells-ci-tests \
-            --test --test-concurrency=2 test/*.test.js
+            --entrypoint sh awg-easy-3:cells-ci-tests \
+            -c 'node --test --test-concurrency=2 test/*.test.js'
       - name: Verify real encrypted control RPC through a relay
         shell: bash
         run: |
