@@ -38,7 +38,10 @@ function verifyControl(bytes, controllerKey, now = Date.now()) {
   const key = crypto.createPublicKey({ format: 'jwk', key: { kty: 'OKP', crv: 'Ed25519', x: request.cellKey } });
   if (!crypto.verify(null, data, key, Buffer.from(request.signature, 'base64url'))) throw new Error('Invalid control signature');
   const payload = JSON.parse(request.payload);
-  if (['poll', 'offer-data', 'route'].includes(request.action) && payload !== null) throw new Error('Invalid control poll');
+  if (['offer-data', 'route'].includes(request.action) && payload !== null) throw new Error('Invalid control poll');
+  if (request.action === 'poll' && payload !== null && (!payload || typeof payload !== 'object'
+    || Object.keys(payload).join(',') !== 'controlPath'
+    || !['direct', 'technical'].includes(payload.controlPath))) throw new Error('Invalid control observation');
   return { ...request, payload };
 }
 

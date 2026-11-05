@@ -38,3 +38,12 @@ test('Main Cell snapshot atomically distinguishes ready, stale and missing data'
     assert.equal(stat.mode & 0o777, 0o600);
   }
 });
+
+test('Cell control observation exports only a path and a bounded observation time', () => {
+  const current = { ...cell(), control: { path: 'technical', receivedAt: 150 } };
+  assert.equal(validateSnapshot({ version: 1, updatedAt: 200, cells: [current] }).cells[0].control.path, 'technical');
+  for (const control of [{ path: 'technical', receivedAt: 300 },
+    { path: 'technical', receivedAt: 150, address: 'private' }, { path: 'relay-key', receivedAt: 150 }]) {
+    assert.throws(() => validateSnapshot({ version: 1, updatedAt: 200, cells: [{ ...cell(), control }] }));
+  }
+});

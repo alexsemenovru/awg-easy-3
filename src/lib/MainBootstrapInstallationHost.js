@@ -29,6 +29,7 @@ const { MainBootstrapConfigStore } = require('./MainBootstrapConfigStore');
 const { CellAwgPermanentRevisionStore } = require('./CellAwgPermanentRevisionStore');
 const { CellSettingsPublisher } = require('./CellSettingsPublisher');
 const { CellUserDescriptorStore } = require('./CellUserDescriptorStore');
+const { CellObservedStatusStore } = require('./CellObservedStatusStore');
 const { CellDataKeyStore } = require('./CellDataKeyStore');
 const { CellDataOfferStore } = require('./CellDataOfferStore');
 const { allocateCellDataLink } = require('./CellDataLinkAllocator');
@@ -168,6 +169,8 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
     identityStore, cellKey);
   const descriptorForCell = cellKey => new CellUserDescriptorStore(
     file(path.join('cell-descriptors', `${crypto.createHash('sha256').update(cellKey).digest('hex')}.json`)));
+  const observedForCell = cellKey => new CellObservedStatusStore(
+    file(path.join('cell-observed', `${crypto.createHash('sha256').update(cellKey).digest('hex')}.json`)));
   const dataKeyForCell = cellKey => new CellDataKeyStore(
     file(path.join('cell-data-keys', `${crypto.createHash('sha256').update(cellKey).digest('hex')}.json`)));
   const dataOfferForCell = cellKey => new CellDataOfferStore(
@@ -647,6 +650,8 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
           phase: record.phase, createdAt: record.createdAt };
         if (record.status === 'consumed' && record.phase === 'closed') {
           publicRecord.settings = await publisherForCell(record.cellKey).status();
+          const observed = await observedForCell(record.cellKey).read().catch(() => null);
+          if (observed) publicRecord.control = { path: observed.controlPath, receivedAt: observed.receivedAt };
         }
         return publicRecord;
       }));
@@ -669,7 +674,7 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
       return listenTunnelControlEndpoint({ address: permanentControllerAddress,
         port: permanentControlPort, lifecycle: current.lifecycle,
         identityStore, bootstrapStore, publisherForCell, descriptorForCell,
-        dataKeyForCell, dataOfferForCell, routingForCell });
+        dataKeyForCell, dataOfferForCell, routingForCell, observedForCell });
     }),
     listen: async () => {
       const config = await verifiedConfig();

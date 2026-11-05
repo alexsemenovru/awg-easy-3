@@ -14,7 +14,7 @@ const { buildCellArtifacts } = require('./CellArtifacts');
 async function openRegisteredCellHost({ stateDirectory, runtimeDirectory,
   connectionStore, identityStore, bootstrap, temporaryInterfaceName,
   server, userDescriptor, dataPublicKey, receiveDataOffer, receiveRoutingRevision,
-  acknowledgeRoutingRevision,
+  acknowledgeRoutingRevision, controlPath,
   stageDataLink,
   geoDatabase, runner, retainUserGuard = false,
   openSettings = openCellSettingsRuntime,
@@ -43,7 +43,7 @@ async function openRegisteredCellHost({ stateDirectory, runtimeDirectory,
   const permanent = openPermanent({ stateDirectory: path.join(stateDirectory, 'permanent'),
     connectionStore, bootstrap, temporaryInterfaceName,
     receiver: settings.receiver, clientRuntime: settings.adapter, userDescriptor,
-    dataPublicKey, receiveDataOffer, receiveRoutingRevision, acknowledgeRoutingRevision,
+    dataPublicKey, receiveDataOffer, receiveRoutingRevision, acknowledgeRoutingRevision, controlPath,
     ...(runner ? { runner } : {}) });
   if (!permanent || !['recoverBoot', 'join', 'syncSettings']
     .every(name => typeof permanent[name] === 'function')) {

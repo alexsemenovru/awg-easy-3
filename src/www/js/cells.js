@@ -54,6 +54,27 @@ window.awgCells = ({ api, node, summary, list, translate, createPoller }) => {
         : cell.status === 'pending' ? 'cellsPending'
           : cell.phase === 'closed' ? 'cellsJoined' : 'cellsJoining');
       row.append(name, state);
+      if (cell.status === 'consumed' && cell.phase === 'closed') {
+        const fresh = cell.control && Number.isSafeInteger(cell.control.receivedAt)
+          && cell.control.receivedAt <= Date.now() + 30000 && Date.now() - cell.control.receivedAt <= 120000;
+        const label = translate(!fresh || !cell.control.path ? 'cellsControlUnknown'
+          : cell.control.path === 'technical' ? 'cellsControlTechnical' : 'cellsControlDirect');
+        // Native disclosure remains usable with keyboard and touch, unlike
+        // a hover-only title. Addresses, keys and client activity stay private.
+        const details = document.createElement('details');
+        details.className = 'cell-control';
+        const caption = document.createElement('summary');
+        caption.textContent = label;
+        const explanation = document.createElement('p');
+        explanation.textContent = translate('cellsControlHint');
+        details.append(caption, explanation);
+        if (cell.control?.receivedAt) {
+          const received = document.createElement('p');
+          received.textContent = translate('cellsLastControl', { time: new Date(cell.control.receivedAt).toLocaleString() });
+          details.append(received);
+        }
+        row.append(details);
+      }
       if (cell.settings) {
         const revision = document.createElement('span');
         revision.className = 'cell-revision';

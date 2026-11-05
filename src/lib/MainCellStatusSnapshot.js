@@ -21,7 +21,7 @@ function validateSnapshot(value) {
   const cells = value.cells.map(cell => {
     const registered = cell?.status === 'consumed' && cell?.phase === 'closed';
     if (!exact(cell, registered
-      ? ['id', 'status', 'phase', 'createdAt', 'settings']
+      ? ['id', 'status', 'phase', 'createdAt', 'settings', ...(cell.control === undefined ? [] : ['control'])]
       : ['id', 'status', 'phase', 'createdAt'])
       || !/^[a-f0-9]{32}$/.test(cell.id) || ids.has(cell.id)
       || !STATUS.has(cell.status) || !PHASE.has(cell.phase)
@@ -30,6 +30,10 @@ function validateSnapshot(value) {
       throw new Error('Invalid Main Cell status snapshot');
     }
     ids.add(cell.id);
+    if (cell.control !== undefined && (!registered || !exact(cell.control, ['path', 'receivedAt'])
+      || ![null, 'direct', 'technical'].includes(cell.control.path)
+      || !Number.isSafeInteger(cell.control.receivedAt) || cell.control.receivedAt < cell.createdAt
+      || cell.control.receivedAt > value.updatedAt)) throw new Error('Invalid Cell control observation');
     if (registered && (!exact(cell.settings,
       ['desiredRevision', 'confirmedRevision', 'awaitingAck'])
       || !revision(cell.settings.desiredRevision)
@@ -41,7 +45,8 @@ function validateSnapshot(value) {
       throw new Error('Invalid Main Cell status snapshot');
     }
     return registered ? { id: cell.id, status: cell.status, phase: cell.phase,
-      createdAt: cell.createdAt, settings: { ...cell.settings } }
+      createdAt: cell.createdAt, settings: { ...cell.settings },
+      ...(cell.control === undefined ? {} : { control: { ...cell.control } }) }
       : { id: cell.id, status: cell.status, phase: cell.phase,
         createdAt: cell.createdAt };
   });

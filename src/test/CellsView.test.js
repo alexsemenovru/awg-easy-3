@@ -64,3 +64,18 @@ test('Cell invitation is shown only on request and cleared when dialog closes', 
   assert.equal(code.value, '');
   view.stop();
 });
+
+test('technical control status is explicit and stale observations never appear connected', () => {
+  const context = { window: {}, document: { createElement: () => element() } };
+  vm.runInNewContext(script, context);
+  const list = element(); let poll;
+  context.window.awgCells({ api: {}, node: element(), summary: element(), list,
+    translate: key => key, createPoller: options => { poll = options; return { start() {}, stop() {} }; } });
+  const sample = receivedAt => ({ state: 'ready', cells: [{ id: 'a'.repeat(32),
+    status: 'consumed', phase: 'closed', control: { path: 'technical', receivedAt } }] });
+  poll.onData(sample(Date.now()));
+  assert.equal(list.children[0].children[2].children[0].textContent, 'cellsControlTechnical');
+  assert.equal(list.children[0].children[2].children[1].textContent, 'cellsControlHint');
+  poll.onData(sample(Date.now() - 120001));
+  assert.equal(list.children[0].children[2].children[0].textContent, 'cellsControlUnknown');
+});

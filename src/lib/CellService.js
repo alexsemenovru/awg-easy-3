@@ -28,7 +28,7 @@ const { createCellTechnicalFailover } = require('./CellTechnicalFailover');
 // The service deliberately starts from a registered, persistent Cell state.
 // Missing GeoIP data cannot silently disable a signed country policy:
 // CellRuntimeAdapter validation rejects the policy and leaves its guard on.
-async function openCellServiceHost({ config, bootstrapHost,
+async function openCellServiceHost({ config, bootstrapHost, controlPath,
   openRegistered = openRegisteredCellHost,
   newStore = (...args) => new CellUserConfigStore(...args),
   newGeoUpdater = options => new GeoIpUpdater(options),
@@ -193,7 +193,7 @@ async function openCellServiceHost({ config, bootstrapHost,
     identityStore: bootstrapHost.identityStore,
     bootstrap: bootstrapHost.bootstrap,
     temporaryInterfaceName: interfaceName,
-    server: user.server, userDescriptor,
+    server: user.server, userDescriptor, controlPath,
     dataPublicKey: dataIdentity.publicKey,
     receiveDataOffer: async offer => {
       await receivedDataOffer.reserve(offer);
@@ -236,9 +236,10 @@ async function syncCellOnce(options = {}) {
 async function startCellService({ onFatal = () => {}, discovery = null,
   newTechnical = createCellTechnicalFailover, ...options } = {}) {
   if (typeof onFatal !== 'function') throw new TypeError('Cell fatal error handler required');
-  const { host, geo } = await openCellServiceHost(options);
   let technical = null;
   let technicalState = 'direct';
+  const { host, geo } = await openCellServiceHost({ ...options,
+    controlPath: () => technical?.active ? 'technical' : 'direct' });
   if (discovery) {
     try {
       technical = newTechnical({ ...options, discovery });

@@ -12,7 +12,7 @@ const { verifyRoutingRevision } = require('./CellRoutingRevision');
 
 class CellControlService {
   constructor({ identityStore, enrollmentStore, bootstrapStore, publisherForCell, descriptorForCell,
-    dataKeyForCell, dataOfferForCell, routingForCell,
+    dataKeyForCell, dataOfferForCell, routingForCell, observedForCell,
     monotonicNow = () => performance.now() }) {
     if (enrollmentStore && bootstrapStore) {
       throw new TypeError('Control service cannot mix legacy and AWG cell enrollment');
@@ -25,6 +25,7 @@ class CellControlService {
     this.dataKeyForCell = dataKeyForCell;
     this.dataOfferForCell = dataOfferForCell;
     this.routingForCell = routingForCell;
+    this.observedForCell = observedForCell;
     this.inFlight = 0;
     this.monotonicNow = monotonicNow;
     this.tokens = 16;
@@ -121,6 +122,13 @@ class CellControlService {
         return signControlReply({ ok: true, requestId: request.requestId,
           applied: result.revision }, controller.privateKey);
       }
+      if (this.observedForCell) {
+        // Optional diagnostics never block settings on a full/unavailable disk.
+        try {
+          await this.observedForCell(request.cellKey).update(
+            request.payload?.controlPath ?? null, request.issuedAt);
+        } catch { /* Keep the last observation; continue authenticated settings. */ }
+      }
       const state = await publisher.load();
       return signControlReply({ ok: true, requestId: request.requestId,
         settings: state?.desired || null }, controller.privateKey);
@@ -133,20 +141,20 @@ class CellControlService {
 // unchanged inter-server AWG device immediately before opening the listener.
 async function listenTunnelControlEndpoint({ address, port, identityStore, bootstrapStore,
   lifecycle, publisherForCell, descriptorForCell, dataKeyForCell, dataOfferForCell,
-  routingForCell }) {
+  routingForCell, observedForCell }) {
   if (!bootstrapStore || typeof bootstrapStore.read !== 'function') {
     throw new TypeError('AWG bootstrap store required for tunnel control');
   }
   await requireOwnedTunnelAddress({ lifecycle, address });
   return listenControlOnTunnel({ address, port,
     handler: new CellControlService({ identityStore, bootstrapStore, publisherForCell,
-      descriptorForCell, dataKeyForCell, dataOfferForCell, routingForCell }) });
+      descriptorForCell, dataKeyForCell, dataOfferForCell, routingForCell, observedForCell }) });
 }
 
 // One explicit sync, not a daemon. Control address supplied locally until installer
 // assigns the service port; the key must remain the registered controller's key.
 async function syncCellSettings({ connectionStore, identityStore, receiver, host, port,
-  transport, userDescriptor, dataPublicKey }) {
+  transport, userDescriptor, dataPublicKey, controlPath }) {
   const connection = await connectionStore.read();
   if (connection?.status !== 'registered') throw new Error('Cell is not registered');
   if (connection.version !== 2) {
@@ -173,7 +181,7 @@ async function syncCellSettings({ connectionStore, identityStore, receiver, host
       version: 1, publicKey: dataPublicKey }));
     if (announced.announced !== true) throw new Error('Cell data key acknowledgement mismatch');
   }
-  const reply = await exchange('poll');
+  const reply = await exchange('poll', controlPath ? { controlPath: controlPath() } : null);
   if (reply.settings === null) return { status: 'no-settings' };
   verifySettings(reply.settings, connection);
   await receiver.receive(reply.settings);

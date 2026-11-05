@@ -73,7 +73,7 @@ async function child(file) {
     const options = { connectionStore: { read: async () => ({ version: 2, status: 'registered',
       controllerKey: data.mainKey, cellKey: data.cellIdentity.publicKey }) },
       identityStore: { load: async () => data.cellIdentity }, receiver: {},
-      host: '10.201.91.1', port: 54111, transport: 'tunnel' };
+      host: '10.201.91.1', port: 54111, transport: 'tunnel', controlPath: () => 'technical' };
     const result = await syncCellSettings(options);
     assert.equal(result.status, 'no-settings');
     assert(run('awg', ['show', 'techclient', 'endpoints']).trim().endsWith('198.18.91.1:53184'));
@@ -95,6 +95,7 @@ async function main() {
   let relay;
   let receiver;
   let control;
+  let observedPath = null;
   try {
     run('ip', ['netns', 'add', namespace]);
     run('ip', ['link', 'add', 'techroot', 'type', 'veth', 'peer', 'name', 'techpeer']);
@@ -116,7 +117,8 @@ async function main() {
       handler: new CellControlService({ identityStore: { load: async () => mainIdentity },
         bootstrapStore: { read: async () => ({ version: 2, invitations: [{ status: 'consumed', phase: 'closed',
           cellKey: cellIdentity.publicKey, awgPublicKey: client.publicKey, awgPresharedKey: psk }] }) },
-        publisherForCell: () => ({ load: async () => ({ desired: null }) }) }) });
+        publisherForCell: () => ({ load: async () => ({ desired: null }) }),
+        observedForCell: () => ({ update: async value => { observedPath = value; } }) }) });
     receiver = await new AwgTechnicalRelay({ identity: mainIdentity, kind: 'main', controlPort: 53184,
       allowedPeer: key => key === cellIdentity.publicKey, lookup: async () => null }).start(0, '127.0.0.1');
     relay = await new AwgTechnicalRelay({ identity: relayIdentity, kind: 'cell', controlPort: null,
@@ -130,6 +132,7 @@ async function main() {
     const result = await runProcess('ip', ['netns', 'exec', namespace, process.execPath,
       __filename, 'child', file], { timeoutMs: 45000, maxOutputBytes: 4096 });
     assert(relay.stats.forwardedBytes > 0);
+    assert.equal(observedPath, 'technical');
     console.log(result.stdout);
   } finally {
     if (relay) await relay.close();
