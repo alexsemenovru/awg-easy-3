@@ -8,7 +8,7 @@
     "init": "node server.js init",
     "reset-password": "node server.js reset-password",
     "test": "node --test test/*.test.js",
-    "check": "node --check server.js && node --check cli.js && node --check cell-cli.js && node --check link-agent.js && node --check main-cell-cli.js"
+    "check": "node --check server.js && node --check cli.js && node --check cell-cli.js && node --check link-agent.js && node --check main-cell-cli.js && node --check restore-cli.js"
   },
   "author": "alexsemenovru and AWG-Easy contributors",
   "license": "CC BY-NC-SA 4.0",

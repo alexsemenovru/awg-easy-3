@@ -57,6 +57,7 @@ const { GeoIpUpdater } = require('./GeoIpUpdater');
 const { MainBackupStore } = require('./MainBackupStore');
 const { MainBackupRecovery } = require('./MainBackupRecovery');
 const { createConfigurationBackup } = require('./ConfigurationBackup');
+const { verifyMainRestoreBootstrap, retireMainRestoreBootstrap } = require('./MainRestoreBootstrap');
 
 const validName = name => typeof name === 'string' && /^[a-zA-Z0-9_.-]{1,15}$/.test(name);
 const validPort = port => Number.isSafeInteger(port) && port >= 1 && port <= 65535;
@@ -338,7 +339,12 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
       const records = (await bootstrapStore.read()).invitations;
       if (life.phase === 'empty') {
         if (records.length) {
-          throw new Error('Main invitations exist without bootstrap device');
+          // Restore imports logical enrollment, never stale kernel journals.
+          // Do not treat arbitrary lost lifecycle state as a fresh install.
+          await verifyMainRestoreBootstrap({ root: stateDirectory, userStateFile, endpointHost,
+            userInterface: resources.userInterfaceNames[0], userPort: resources.userUdpPorts[0],
+            controlInterface: resources.interfaceNames[1], controlPort: permanentEndpointPort,
+            controlAddress: permanentControllerAddress, controlTcpPort: permanentControlPort });
         }
         // An interrupted first install can have persisted the fail-closed
         // guard before the lifecycle journal. Verify that guard from its own
@@ -361,6 +367,7 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
           userInterfaces: resources.userInterfaceNames,
           userUdpPorts: resources.userUdpPorts, runner });
         await provisioner.initialize(spec);
+        if (records.length) await retireMainRestoreBootstrap(stateDirectory);
       } else if (records.every(item => item.phase === 'closed')) {
         await provisioner.recover();
       } else {

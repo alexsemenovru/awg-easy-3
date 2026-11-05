@@ -9,6 +9,15 @@ const os = require('node:os');
 const { openMainBootstrapInstallationHost } = require('../lib/MainBootstrapInstallationHost');
 const { decodeConfiguration } = require('../lib/BackupSnapshot');
 const { MainBackupStore } = require('../lib/MainBackupStore');
+const { MainBackupRecovery } = require('../lib/MainBackupRecovery');
+const { CellBackupRecoveryStore } = require('../lib/CellBackupRecoveryStore');
+const { ControlIdentityStore } = require('../lib/ControlIdentityStore');
+const { createRecoveryMaterial } = require('../lib/BackupRecovery');
+const { sealBackup } = require('../lib/BackupEnvelope');
+const { prepareConfigurationRestore, inspectPreparedRestore } = require('../lib/ConfigurationRestore');
+const { runRestoreCli } = require('../lib/RestoreCli');
+const { verifyMainRestoreBootstrap } = require('../lib/MainRestoreBootstrap');
+const { StateStore } = require('../lib/StateStore');
 const { identity } = require('../lib/CellRegistration');
 const { deriveAwgPublicKey } = require('../lib/CellAwgConnectionStore');
 const { generateOfficialProfile } = require('../lib/Awg3Config');
@@ -19,7 +28,12 @@ const { CellAwgPermanentRevisionStore } = require('../lib/CellAwgPermanentRevisi
 const { controllerDataLinkPlan } = require('../lib/CellDataLinkPlan');
 const { signSettings } = require('../lib/CellSettings');
 const key = () => crypto.randomBytes(32).toString('base64');
-const pair = () => { const privateKey = key(); return { privateKey, publicKey: deriveAwgPublicKey(privateKey) }; };
+const pair = () => {
+  const bytes = crypto.randomBytes(32);
+  bytes[0] &= 248; bytes[31] &= 127; bytes[31] |= 64; // Same canonical X25519 scalar as `awg genkey`.
+  const privateKey = bytes.toString('base64');
+  return { privateKey, publicKey: deriveAwgPublicKey(privateKey) };
+};
 const keyManager = { derivePublicKey: async value => deriveAwgPublicKey(value),
   generateKeyPair: async () => pair(),
   generatePeerKeys: async () => ({ ...pair(), presharedKey: key() }) };
@@ -147,3 +161,181 @@ test('product Main creates a complete recoverable archive for its enrolled Cells
   assert.equal(second.generation, 2);
   assert.notEqual(saved.recoveryKey, second.recoveryKey);
 });
+
+test('restore workspace retains identities, prepares new-host bindings and fresh fenced recovery without touching a live installation', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-restore-workspace-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const snapshot = await fixture();
+  snapshot.recovery = createRecoveryMaterial(5);
+  const sealed = sealBackup(Buffer.from(JSON.stringify(snapshot)));
+  const before = JSON.stringify(snapshot);
+  const directory = path.join(root, 'prepared');
+  const target = { interfaceName: 'awg3', wanInterface: 'ens9', endpointHost: '198.51.100.44', listenPort: 55000, panelPort: 80 };
+  const result = await prepareConfigurationRestore({ archive: sealed.archive, recoveryKey: sealed.recoveryKey, target, directory });
+  assert.equal(result.prepared, true);
+  assert.equal(result.generation, 5);
+  assert.equal(result.cells, 2);
+  assert.equal(result.bindings.AWG_MAIN_CONTROL_ADDRESS, '10.91.8.1');
+  assert.equal(result.bindings.AWG_MAIN_ENDPOINT, target.endpointHost);
+  assert.equal(JSON.stringify(result).includes('PRIVATE KEY'), false);
+  assert.equal(JSON.stringify(snapshot), before);
+  const panel = await new StateStore(path.join(directory, 'panel/state.json')).load();
+  const originalPanel = JSON.parse(Buffer.from(snapshot.files.find(item => item.area === 'panel').data, 'base64'));
+  assert.equal(panel.server.privateKey, originalPanel.server.privateKey);
+  assert.equal(panel.clients[0].privateKey, originalPanel.clients[0].privateKey);
+  assert.equal(panel.server.endpointHost, target.endpointHost);
+  assert.notEqual(panel.auth.sessionSecret, originalPanel.auth.sessionSecret);
+  const controller = await new ControlIdentityStore(path.join(directory, 'main/identity.json')).load('controller');
+  const authority = await new ControlIdentityStore(path.join(directory, 'main/authority.json')).load('controller');
+  assert.notEqual(authority.publicKey, controller.publicKey);
+  const backupStore = new MainBackupStore(path.join(directory, 'main/backup-state.json'), controller.publicKey);
+  const state = await backupStore.read();
+  assert.equal(state.grant.generation, 5);
+  assert.equal(state.acks.length, 0);
+  assert.equal(state.recipients.length, 2);
+  const cell = new CellBackupRecoveryStore(path.join(root, 'cell-recovery.json'), {
+    controllerKey: controller.publicKey, cellKey: state.recipients[0] });
+  await cell.accept(state.grant);
+  const challenge = await cell.challenge();
+  const recovery = new MainBackupRecovery(path.join(directory, 'main/restore-recovery.json'), controller.publicKey);
+  const proof = await recovery.proof({ cellKey: state.recipients[0], challenge,
+    grant: state.grant, authority, endpointHost: target.endpointHost });
+  assert.deepEqual(await cell.consume(proof), { authorityKey: authority.publicKey, endpointHost: target.endpointHost });
+  const marker = JSON.parse(await fs.readFile(path.join(directory, 'restore-prepared.json')));
+  assert.equal(marker.phase, 'prepared');
+  assert.equal(marker.archiveHash, hash(sealed.archive));
+  assert.equal(JSON.stringify(marker).includes(snapshot.recovery.privateKey), false);
+  assert.deepEqual(await inspectPreparedRestore(directory), result);
+  const permitOptions = { root: path.join(directory, 'main'), userStateFile: path.join(directory, 'panel/state.json'),
+    endpointHost: target.endpointHost, userInterface: target.interfaceName, userPort: target.listenPort,
+    controlInterface: 'awgmainc0', controlPort: 53084, controlAddress: '10.91.8.1', controlTcpPort: 53083 };
+  assert.deepEqual(await verifyMainRestoreBootstrap(permitOptions), { verified: true });
+  for (const change of [{ controlPort: 53085 }, { userPort: 51820 }, { endpointHost: '198.51.100.99' },
+    { controlInterface: 'other0' }, { controlAddress: '10.91.9.1' }, { controlTcpPort: 55002 }]) {
+    await assert.rejects(verifyMainRestoreBootstrap({ ...permitOptions, ...change }));
+  }
+  // A verified import reaches the ordinary free-resource preflight; neither
+  // wrong bindings nor a missing permit may run even that host inspection.
+  let preflights = 0;
+  const host = await openMainBootstrapInstallationHost({ stateDirectory: permitOptions.root,
+    userStateFile: permitOptions.userStateFile, interfaceName: 'awgmainb0', controllerAddress: '10.90.8.1',
+    registrationPort: 53082, listenPort: 53081, endpointHost: target.endpointHost,
+    permanentEndpointPort: 53084, permanentControllerAddress: '10.91.8.1', permanentControlPort: 53083,
+    keyManager, prepareStateDirectory: async () => {}, withLock: async ({ work }) => work(),
+    preflight: async () => { preflights++; throw new Error('Reached ordinary free-resource preflight'); },
+    runner: async () => { throw new Error('No host mutation allowed'); },
+    resources: { interfaceNames: ['awgmainb0', 'awgmainc0'], udpPorts: [53081, 53084],
+      userInterfaceNames: [target.interfaceName], userUdpPorts: [target.listenPort],
+      nftTables: ['awg_easy_3_bootstrap', 'awg_easy_3_bootstrap_guard', 'awg_easy_3_control', 'awg_easy_3_control_guard'] } });
+  await assert.rejects(host.resume(), /Reached ordinary/);
+  assert.equal(preflights, 1);
+  await fs.unlink(path.join(permitOptions.root, 'restore-bootstrap.json'));
+  await assert.rejects(host.resume(), /No matching/);
+  assert.equal(preflights, 1);
+  await assert.rejects(prepareConfigurationRestore({ archive: sealed.archive, recoveryKey: sealed.recoveryKey, target, directory }), { code: 'EEXIST' });
+});
+
+test('restore CLI prepares and inspects a sealed Main archive without printing credentials, then rejects staged tampering', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-restore-cli-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const snapshot = await fixture();
+  snapshot.recovery = createRecoveryMaterial(3);
+  const sealed = sealBackup(Buffer.from(JSON.stringify(snapshot)));
+  const input = path.join(root, 'configuration.awgbackup'), keyFile = path.join(root, 'key.txt');
+  const targetFile = path.join(root, 'target.json'), directory = path.join(root, 'prepared');
+  const panel = JSON.parse(Buffer.from(snapshot.files.find(item => item.area === 'panel').data, 'base64'));
+  panel.server.endpointHost = '198.51.100.55';
+  await fs.writeFile(input, sealed.archive, { mode: 0o600 });
+  await fs.writeFile(keyFile, sealed.recoveryKey, { mode: 0o600 });
+  await fs.writeFile(targetFile, JSON.stringify(panel), { mode: 0o600 });
+  let stdout = '';
+  const output = { write: value => { stdout += value; } };
+  await runRestoreCli({ args: ['prepare', input, keyFile, targetFile, directory], output });
+  await runRestoreCli({ args: ['inspect', directory], output });
+  const expected = { prepared: true, activated: false, main: true, cells: 2, clients: 1, generation: 3 };
+  assert.deepEqual(stdout.trim().split('\n').map(line => JSON.parse(line)), [expected, expected]);
+  for (const secret of [sealed.recoveryKey, panel.server.privateKey, snapshot.recovery.privateKey]) assert.equal(stdout.includes(secret), false);
+  const markerFile = path.join(directory, 'restore-prepared.json');
+  const marker = JSON.parse(await fs.readFile(markerFile));
+  await fs.writeFile(markerFile, JSON.stringify({ ...marker, bindings: { ...marker.bindings, AWG_MAIN_ENDPOINT: '198.51.100.77' } }));
+  await assert.rejects(inspectPreparedRestore(directory), /incomplete/);
+  await fs.writeFile(markerFile, JSON.stringify(marker));
+  const stateFile = path.join(directory, 'main/backup-state.json');
+  const journal = JSON.parse(await fs.readFile(stateFile));
+  await fs.writeFile(stateFile, JSON.stringify({ ...journal, recipients: [journal.recipients[0], identity().publicKey] }));
+  await assert.rejects(inspectPreparedRestore(directory), /incomplete/);
+  await fs.writeFile(stateFile, JSON.stringify(journal));
+  await fs.appendFile(path.join(directory, 'panel/state.json'), ' ');
+  await assert.rejects(inspectPreparedRestore(directory), /changed/);
+  await assert.rejects(runRestoreCli({ args: ['prepare', input, keyFile, targetFile], output }), /Usage/);
+});
+
+test('restore CLI refuses non-private or excessive inputs before reserving output', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-restore-inputs-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const input = path.join(root, 'archive'), directory = path.join(root, 'prepared');
+  await fs.writeFile(input, Buffer.alloc(12 * 1024 * 1024 + 1), { mode: 0o600 });
+  await assert.rejects(runRestoreCli({ args: ['prepare', input, input, input, directory], output: { write() {} } }), /Unsafe/);
+  await fs.writeFile(input, 'short');
+  if (process.platform !== 'win32') {
+    await fs.chmod(input, 0o644);
+    await assert.rejects(runRestoreCli({ args: ['prepare', input, input, input, directory], output: { write() {} } }), /Unsafe/);
+  }
+  await assert.rejects(fs.stat(directory), { code: 'ENOENT' });
+});
+
+test('bad archive/key or conflicting new-host bindings cannot create an activatable restore workspace', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-restore-reject-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const snapshot = await fixture();
+  snapshot.recovery = createRecoveryMaterial(2);
+  const sealed = sealBackup(Buffer.from(JSON.stringify(snapshot)));
+  const target = { interfaceName: 'awg3', wanInterface: 'ens9', endpointHost: '198.51.100.44', listenPort: 55000, panelPort: 80 };
+  const directory = path.join(root, 'rejected');
+  await assert.rejects(prepareConfigurationRestore({ archive: sealed.archive,
+    recoveryKey: sealBackup(Buffer.from('different')).recoveryKey, target, directory }));
+  await assert.rejects(fs.stat(directory), { code: 'ENOENT' });
+  await assert.rejects(prepareConfigurationRestore({ archive: sealed.archive,
+    recoveryKey: sealed.recoveryKey, target: { ...target, listenPort: 53084 }, directory }), /conflict/);
+  await assert.rejects(fs.stat(directory), { code: 'ENOENT' });
+  await assert.rejects(prepareConfigurationRestore({ archive: sealed.archive,
+    recoveryKey: sealed.recoveryKey, target, directory, now: () => NaN }));
+  await assert.rejects(fs.stat(path.join(directory, 'restore-prepared.json')), { code: 'ENOENT' });
+});
+
+test('prepared Main reconstructs fresh real AWG bootstrap/control journals and resumes without replacing enrollment',
+  { skip: process.env.AWG_RESTORE_KERNEL_TEST !== '1' }, async t => {
+    assert.equal(process.platform, 'linux');
+    assert.equal(process.env.AWG_DISPOSABLE_NETWORK_TEST, '1');
+    await fs.access('/.dockerenv'); // Never execute this against a working host.
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-restore-kernel-'));
+    t.after(() => fs.rm(root, { recursive: true, force: true }));
+    const snapshot = await fixture();
+    snapshot.recovery = createRecoveryMaterial(4);
+    const sealed = sealBackup(Buffer.from(JSON.stringify(snapshot)));
+    const directory = path.join(root, 'prepared');
+    const target = { interfaceName: 'awg3', wanInterface: 'eth0', endpointHost: '198.51.100.88', listenPort: 55000, panelPort: 80 };
+    await prepareConfigurationRestore({ archive: sealed.archive, recoveryKey: sealed.recoveryKey, target, directory });
+    const stateDirectory = path.join(directory, 'main');
+    const host = await openMainBootstrapInstallationHost({ stateDirectory,
+      userStateFile: path.join(directory, 'panel/state.json'), interfaceName: 'awgmainb0', controllerAddress: '10.90.8.1',
+      registrationPort: 53082, listenPort: 53081, endpointHost: target.endpointHost,
+      permanentEndpointPort: 53084, permanentControllerAddress: '10.91.8.1', permanentControlPort: 53083,
+      resources: { interfaceNames: ['awgmainb0', 'awgmainc0'], udpPorts: [53081, 53084],
+        userInterfaceNames: [target.interfaceName], userUdpPorts: [target.listenPort],
+        nftTables: ['awg_easy_3_bootstrap', 'awg_easy_3_bootstrap_guard', 'awg_easy_3_control', 'awg_easy_3_control_guard'] } });
+    assert.deepEqual(await host.resume(), { ready: true, role: 'controller' });
+    assert.equal((await host.recoverPermanentBoot()).configured, true);
+    const first = await host.bootstrap.lifecycle.load();
+    assert.equal(first.phase, 'ready');
+    const { runProcess } = require('../lib/ProcessRunner');
+    const peers = (await runProcess('awg', ['show', 'awgmainc0', 'peers'])).stdout.trim().split(/\s+/);
+    assert.equal(peers.length, 2);
+    // Once journaled, normal reboot/restart recovery uses the new ownership,
+    // not the import permit or the archived owner UUIDs.
+    await assert.rejects(fs.stat(path.join(stateDirectory, 'restore-bootstrap.json')), { code: 'ENOENT' });
+    await host.resume();
+    assert.equal((await host.recoverPermanentBoot()).configured, true);
+    assert.deepEqual((await host.bootstrap.lifecycle.load()).spec.owner, first.spec.owner);
+    assert.equal((await host.bootstrapStore.read()).invitations.filter(item => item.status === 'consumed').length, 2);
+  });

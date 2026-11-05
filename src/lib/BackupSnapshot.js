@@ -178,4 +178,4 @@ async function stageConfiguration(snapshot, directory) {
   return { staged: true, files: snapshot.files.length };
 }
 module.exports = { captureConfiguration, decodeConfiguration, stageConfiguration,
-  prepareRestoredPanelState, validateSnapshot, allowedSnapshotFile: allowed };
+  prepareRestoredPanelState, validateSnapshot, allowedSnapshotFile: allowed, readSnapshotFile: readPrivate };
