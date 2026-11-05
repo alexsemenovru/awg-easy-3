@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Apply `--lang` to installer prompts, errors, help and completion instructions in all five panel languages, including the initial password and VPN-link output. Keep package-manager and Docker diagnostics unchanged. Recognize translated yes/no answers during installation and removal.
+
 ## v0.1.6 — 2026-09-12
 
 - Add per-client GeoIP off/block/allow policies for IPv4 and IPv6 internet traffic, including established connections in both directions, without changing VPN profiles or Home access. Country names and errors are localized in all five panel languages. This is IP filtering, not domain filtering or direct routing.

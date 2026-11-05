@@ -10,8 +10,9 @@ const installer = fs.readFileSync(path.join(__dirname, '..', '..', 'install.sh')
 const definitions = installer.slice(0, installer.indexOf('\nAWG_PORT_VALUE=${AWG_PORT-}'));
 const shell = process.env.AWG_TEST_SHELL || (process.platform === 'win32' ? null : 'sh');
 const shellOptions = { skip: !shell && 'Set AWG_TEST_SHELL to a POSIX sh executable on Windows' };
-const run = (body) => spawnSync(shell, ['-s'], {
-  input: `${definitions}\nAWG_HOST_VALUE=\n${body}\n`, encoding: 'utf8', timeout: 10_000,
+const run = (body) => spawnSync(shell, ['-c', `${definitions}\nAWG_HOST_VALUE=\n${body}\n`,
+  path.join(__dirname, '../../install.sh').replaceAll('\\', '/')], {
+  encoding: 'utf8', timeout: 10_000,
   env: { ...process.env, PATH: process.platform === 'win32' ? `${path.dirname(shell)};${process.env.PATH}` : process.env.PATH }, windowsHide: true,
 });
 

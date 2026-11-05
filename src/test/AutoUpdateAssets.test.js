@@ -46,7 +46,7 @@ test('all five READMEs identify the current version and link its release notes',
 
 test('installer enables boot update checks without asking and removes owned hooks on uninstall', () => {
   const enable = installer.indexOf('awg_easy_auto_update_enable');
-  const complete = installer.indexOf("printf '\\nInstallation complete");
+  const complete = installer.indexOf("message '\\nInstallation complete");
   const remove = installer.indexOf('awg_easy_auto_update_disable');
   const healthy = installer.lastIndexOf('awg_easy_wait_healthy');
   assert.ok(enable > 0 && enable < complete);

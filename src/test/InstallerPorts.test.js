@@ -25,8 +25,9 @@ delete environment.AWG_PANEL_PORT;
 delete environment.AWG_LANG;
 
 // Execute only pure function definitions and harmless stubs, never the installer.
-const run = (body, prefix = definitions + portFunctions, env = {}) => spawnSync(shell, ['-s'], {
-  input: `${prefix}\n${body}\n`, encoding: 'utf8', timeout: 10_000,
+const run = (body, prefix = definitions + portFunctions, env = {}) => spawnSync(shell, ['-c', `${prefix}\n${body}\n`,
+  path.join(__dirname, '../../install.sh').replaceAll('\\', '/')], {
+  encoding: 'utf8', timeout: 10_000,
   env: { ...environment, ...env }, windowsHide: true,
 });
 const succeeds = (result, output) => {

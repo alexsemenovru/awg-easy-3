@@ -24,6 +24,8 @@ cd awg-easy-3
 sudo ./install.sh --lang zh-cn
 ```
 
+`--lang` 设置安装程序语言及面板初始语言：`en`、`ru`、`fa`、`es` 或 `zh-cn`。Docker 和系统包管理器的输出可能仍使用这些程序自身的语言。
+
 交互式安装可选择检测到的公网 IPv4（推荐）、其他 IPv4 或域名。无人值守安装请使用 `--host 公网IP或域名`；如果无法检测公网 IP，则必须明确指定此参数。
 
 导入 `vpn://` 链接可使用 **[AmneziaVPN 5.0.0.5 或更高版本](https://github.com/amnezia-vpn/amnezia-client/releases)**，Android 版也可从 [Google Play](https://play.google.com/store/apps/details?id=org.amnezia.vpn) 获取。也可以将下载的 `.conf` 文件导入 **AmneziaWG 3.1**。下方兼容性章节列出了经过测试的 Android 版本、IPv6 面板访问情况及其他客户端。

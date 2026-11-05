@@ -17,6 +17,7 @@ const run = async (settings) => {
   };
   await vm.runInNewContext(cli, {
     require: (name) => {
+      if (name === './lib/InstallerI18n') return require('../lib/InstallerI18n');
       assert.equal(name, './lib/Application');
       return { Application: class { settings() { return settings(); } } };
     },

@@ -113,8 +113,8 @@ test('installer suggests ports interactively but keeps explicit options strict',
   assert.match(installer, /AWG_PANEL_PORT_EXPLICIT/);
   assert.match(installer, /next_free_port/);
   assert.match(installer, /Enter another port/);
-  assert.match(installer, /rerun with --\$option/);
-  assert.match(installer, /choose another value \(for example \$suggestion\)/);
+  assert.match(installer, /rerun with --%s %s/);
+  assert.match(installer, /choose another value \(for example %s\)/);
 });
 
 test('installer offers owned uninstall and clean reinstall without touching foreign infrastructure', () => {

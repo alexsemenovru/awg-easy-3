@@ -24,6 +24,8 @@ cd awg-easy-3
 sudo ./install.sh --lang es
 ```
 
+`--lang` selecciona el idioma del instalador y el idioma inicial del panel: `en`, `ru`, `fa`, `es` o `zh-cn`. Los mensajes de Docker y del gestor de paquetes pueden permanecer en el idioma de esos programas.
+
 En una instalación interactiva puede elegir la IPv4 pública detectada (recomendada), otra IPv4 o un dominio. Para instalaciones desatendidas, use `--host IP_PUBLICA_O_DOMINIO`; es obligatorio si no se detecta una IP pública.
 
 Para importar `vpn://`, use **[AmneziaVPN 5.0.0.5 o posterior](https://github.com/amnezia-vpn/amnezia-client/releases)**, también disponible para Android en [Google Play](https://play.google.com/store/apps/details?id=org.amnezia.vpn). Como alternativa, importe el archivo `.conf` descargado en **AmneziaWG 3.1**. La sección de compatibilidad detalla la versión Android probada, el acceso al panel por IPv6 y otros clientes.

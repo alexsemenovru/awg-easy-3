@@ -1,6 +1,7 @@
 'use strict';
 
 const { Application } = require('./lib/Application');
+const { installerMessage } = require('./lib/InstallerI18n');
 
 const command = process.argv[2] ?? 'serve';
 const application = new Application({
@@ -10,13 +11,14 @@ const application = new Application({
 });
 
 const printBootstrap = async (result) => {
+  const text = (key, ...values) => installerMessage(process.env.AWG_LANG || 'en', key, ...values);
   process.stdout.write([
     '',
-    'AWG-Easy 3 initialized successfully.',
-    `Panel after VPN connection: ${result.panelUrl}`,
-    `Panel password (shown once): ${result.bootstrapPassword}`,
+    text('AWG-Easy 3 initialized successfully.'),
+    text('Panel after VPN connection: %s', result.panelUrl),
+    text('Panel password (shown once): %s', result.bootstrapPassword),
     '',
-    'First Home profile for AmneziaVPN:',
+    text('First Home profile for AmneziaVPN:'),
     result.vpnLink,
     '',
   ].join('\n'));

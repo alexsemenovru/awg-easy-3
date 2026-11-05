@@ -1,8 +1,28 @@
 #!/bin/sh
 set -eu
 
-die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
-info() { printf '\n==> %s\n' "$*"; }
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+[ -r "$SCRIPT_DIR/lib/installer-i18n.sh" ] || {
+  printf 'Error: installer language support is missing; download the complete project.\n' >&2
+  exit 1
+}
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/lib/installer-i18n.sh"
+# Select the language before parsing other options (including help and errors).
+AWG_LANG_VALUE=${AWG_LANG:-en}
+installer_language() {
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --lang) if [ "$#" -ge 2 ]; then AWG_LANG_VALUE=${2#-}; shift 2; else shift; fi ;;
+      --host|--port|--panel-port) if [ "$#" -ge 2 ]; then shift 2; else shift; fi ;;
+      *) shift ;;
+    esac
+  done
+}
+installer_language "$@"
+
+die() { message 'Error: ' >&2; message "$@" >&2; printf '\n' >&2; exit 1; }
+info() { printf '\n==> '; message "$@"; printf '\n'; }
 valid_port() {
   case "$1" in ''|*[!0-9]*) return 1 ;; esac
   [ "$1" -ge 1 ] && [ "$1" -le 65535 ]
@@ -53,20 +73,20 @@ choose_endpoint_host() {
     return 0
   fi
   if [ -n "$detected" ]; then
-    printf 'Detected public IPv4: %s\n' "$detected" >&2
-    printf '  1) Use detected IP (recommended)\n  2) Enter another public IPv4\n  3) Enter a DNS name\n' >&2
-    printf 'Choose endpoint [1]: ' >&2
+    message 'Detected public IPv4: %s\n' "$detected" >&2
+    message '  1) Use detected IP (recommended)\n  2) Enter another public IPv4\n  3) Enter a DNS name\n' >&2
+    message 'Choose endpoint [1]: ' >&2
   else
-    printf 'Could not detect a public IPv4 on the default route.\n' >&2
-    printf '  2) Enter a public IPv4\n  3) Enter a DNS name\n' >&2
-    printf 'Choose endpoint [2]: ' >&2
+    message 'Could not detect a public IPv4 on the default route.\n' >&2
+    message '  2) Enter a public IPv4\n  3) Enter a DNS name\n' >&2
+    message 'Choose endpoint [2]: ' >&2
   fi
   read -r choice || die "endpoint selection was cancelled"
   case "$choice" in
     ''|1) [ -n "$detected" ] || die "no public IP was detected"; AWG_HOST_VALUE=$detected; return 0 ;;
-    2) printf 'Public IPv4 address: ' >&2; read -r AWG_HOST_VALUE || die "endpoint input was cancelled"
+    2) message 'Public IPv4 address: ' >&2; read -r AWG_HOST_VALUE || die "endpoint input was cancelled"
        is_public_ipv4 "$AWG_HOST_VALUE" || die "invalid public IPv4 address" ;;
-    3) printf 'DNS name: ' >&2; read -r AWG_HOST_VALUE || die "endpoint input was cancelled"
+    3) message 'DNS name: ' >&2; read -r AWG_HOST_VALUE || die "endpoint input was cancelled"
        valid_endpoint_host "$AWG_HOST_VALUE" || die "invalid DNS name"
        case "$AWG_HOST_VALUE" in *[!0-9.]*) ;; *) die "enter a DNS name, not an IPv4 address" ;; esac ;;
     *) die "invalid endpoint choice" ;;
@@ -75,7 +95,6 @@ choose_endpoint_host() {
 
 AWG_PORT_VALUE=${AWG_PORT-}
 AWG_PANEL_PORT_VALUE=${AWG_PANEL_PORT:-51821}
-AWG_LANG_VALUE=${AWG_LANG:-en}
 AWG_PORT_EXPLICIT=0
 AWG_PANEL_PORT_EXPLICIT=0
 INSTALL_ACTION=install
@@ -87,21 +106,21 @@ while [ "$#" -gt 0 ]; do
     --host) [ "$#" -ge 2 ] || die "--host requires an IPv4 address or DNS name"; AWG_HOST_VALUE=$2; shift 2 ;;
     --port) [ "$#" -ge 2 ] || die "--port requires a UDP port"; AWG_PORT_VALUE=$2; AWG_PORT_EXPLICIT=1; shift 2 ;;
     --panel-port) [ "$#" -ge 2 ] || die "--panel-port requires a TCP port"; AWG_PANEL_PORT_VALUE=$2; AWG_PANEL_PORT_EXPLICIT=1; shift 2 ;;
-    --lang) [ "$#" -ge 2 ] || die "--lang requires en, ru, fa, es or zh-cn"; AWG_LANG_VALUE=$2; shift 2 ;;
+    --lang) [ "$#" -ge 2 ] || die "--lang requires en, ru, fa, es or zh-cn"; AWG_LANG_VALUE=${2#-}; shift 2 ;;
     --uninstall) [ "$INSTALL_ACTION" = install ] || die "--uninstall and --reinstall cannot be used together"; INSTALL_ACTION=uninstall; shift ;;
     --reinstall) [ "$INSTALL_ACTION" = install ] || die "--uninstall and --reinstall cannot be used together"; INSTALL_ACTION=reinstall; shift ;;
     --help)
-      printf 'Usage: sudo ./install.sh [--host HOST] [--port UDP_PORT] [--panel-port TCP_PORT] [--lang en|ru|fa|es|zh-cn]\n'
-      printf '       sudo ./install.sh --uninstall\n'
-      printf '       sudo ./install.sh --reinstall [installation options]\n'
-      printf '\nMissing runtime packages are installed with the system package manager.\n'
-      printf 'Without --port or AWG_PORT, a random free UDP port from 20000 to 60000 is chosen.\n'
-       printf 'Without --host, interactive installation offers the detected public IPv4 or a custom IP/domain.\n'
-      printf 'When the default panel TCP port is occupied, an interactive terminal suggests a free alternative.\n'
-      printf 'Uninstall and reinstall permanently delete every AWG-Easy 3 client and setting.\n'
+      message 'Usage: sudo ./install.sh [--host HOST] [--port UDP_PORT] [--panel-port TCP_PORT] [--lang en|ru|fa|es|zh-cn]\n'
+      message '       sudo ./install.sh --uninstall\n'
+      message '       sudo ./install.sh --reinstall [installation options]\n'
+      message '\nMissing runtime packages are installed with the system package manager.\n'
+      message 'Without --port or AWG_PORT, a random free UDP port from 20000 to 60000 is chosen.\n'
+      message 'Without --host, interactive installation offers the detected public IPv4 or a custom IP/domain.\n'
+      message 'When the default panel TCP port is occupied, an interactive terminal suggests a free alternative.\n'
+      message 'Uninstall and reinstall permanently delete every AWG-Easy 3 client and setting.\n'
       exit 0
       ;;
-    *) die "unknown argument: $1" ;;
+    *) die "unknown argument: %s" "$1" ;;
   esac
 done
 
@@ -115,16 +134,15 @@ case "$AWG_LANG_VALUE" in en|ru|fa|es|zh-cn) ;; *) die "--lang must be en, ru, f
 case "$(uname -s)" in
   Linux) ;;
   FreeBSD|OpenBSD|NetBSD|Darwin)
-    die "AWG-Easy 3 currently supports Linux/amd64 only; $(uname -s) is unsupported because this release requires Docker Engine, Linux TUN networking and nftables"
+    die "AWG-Easy 3 currently supports Linux/amd64 only; %s is unsupported because this release requires Docker Engine, Linux TUN networking and nftables" "$(uname -s)"
     ;;
-  *) die "AWG-Easy 3 currently supports Linux/amd64 only; unsupported kernel: $(uname -s)" ;;
+  *) die "AWG-Easy 3 currently supports Linux/amd64 only; unsupported kernel: %s" "$(uname -s)" ;;
 esac
 if grep -qiE '(microsoft|wsl)' /proc/sys/kernel/osrelease /proc/version 2>/dev/null; then
   die "WSL is unsupported; install AWG-Easy 3 on a real Linux VPS with native TUN, forwarding and nftables"
 fi
 case "$(uname -m)" in x86_64|amd64) ;; *) die "only linux/amd64 is supported in this release" ;; esac
 
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$SCRIPT_DIR"
 [ -r "$SCRIPT_DIR/lib/auto-update.sh" ] || die "installer auto-update support is missing"
 # shellcheck disable=SC1091
@@ -151,7 +169,7 @@ choose_existing_install_action() {
   detect_existing_installation
   if [ -z "$EXISTING_INSTALL_DIR" ]; then
     if [ "$INSTALL_ACTION" = uninstall ]; then
-      printf 'AWG-Easy 3 is not installed in %s. Nothing to remove.\n' "$SCRIPT_DIR"
+      message 'AWG-Easy 3 is not installed in %s. Nothing to remove.\n' "$SCRIPT_DIR"
       exit 0
     fi
     return 0
@@ -162,14 +180,14 @@ choose_existing_install_action() {
   if ! is_interactive; then
     die "AWG-Easy 3 is already installed; rerun interactively, with --uninstall, or with --reinstall"
   fi
-  printf '\nAWG-Easy 3 is already installed in %s.\n' "$EXISTING_INSTALL_DIR"
-  printf '  1) Keep the current installation and exit\n'
-  printf '  2) Uninstall and permanently delete all clients and settings\n'
-  printf '  3) Reinstall from scratch and permanently delete all clients and settings\n'
-  printf 'Choose an action [1]: '
+  message '\nAWG-Easy 3 is already installed in %s.\n' "$EXISTING_INSTALL_DIR"
+  message '  1) Keep the current installation and exit\n'
+  message '  2) Uninstall and permanently delete all clients and settings\n'
+  message '  3) Reinstall from scratch and permanently delete all clients and settings\n'
+  message 'Choose an action [1]: '
   read -r answer
   case "$answer" in
-    ''|1) printf 'The existing installation was left unchanged.\n'; exit 0 ;;
+    ''|1) message 'The existing installation was left unchanged.\n'; exit 0 ;;
     2) INSTALL_ACTION=uninstall ;;
     3) INSTALL_ACTION=reinstall ;;
     *) die "invalid choice; the existing installation was left unchanged" ;;
@@ -181,15 +199,15 @@ confirm_data_removal() {
     return 0
   fi
   while :; do
-    printf 'This permanently deletes every AWG-Easy 3 client, key, password and setting. Continue? [y/N]: '
+    message 'This permanently deletes every AWG-Easy 3 client, key, password and setting. Continue? [y/N]: '
     if ! read -r answer; then
-      printf 'Confirmation input was closed; nothing was removed.\n' >&2
+      message 'Confirmation input was closed; nothing was removed.\n' >&2
       return 1
     fi
     case "$answer" in
-      y|Y|yes|YES|Yes|д|Д|да|ДА|Да) return 0 ;;
-      ''|n|N|no|NO|No|н|Н|нет|НЕТ|Нет) return 1 ;;
-      *) printf 'Please answer y/yes (or д/да) to continue, or n/no (or н/нет) to cancel.\n' >&2 ;;
+      y|Y|yes|YES|Yes|д|Д|да|ДА|Да|s|S|si|SI|Si|sí|SÍ|Sí|بله|是) return 0 ;;
+      ''|n|N|no|NO|No|н|Н|нет|НЕТ|Нет|خیر|否) return 1 ;;
+      *) message 'Please answer y/yes (or д/да) to continue, or n/no (or н/нет) to cancel.\n' >&2 ;;
     esac
   done
 }
@@ -215,10 +233,10 @@ is_nixos() {
 }
 
 show_nixos_runtime_instructions() {
+  message 'Error: ' >&2
+  message 'NixOS detected. Runtime services must be enabled declaratively.\n' >&2
+  message '\nCreate /etc/nixos/awg-easy-3-runtime.nix with:\n' >&2
   cat >&2 <<'EOF'
-Error: NixOS detected. Runtime services must be enabled declaratively.
-
-Create /etc/nixos/awg-easy-3-runtime.nix with:
 
   { pkgs, ... }:
   {
@@ -231,29 +249,27 @@ Create /etc/nixos/awg-easy-3-runtime.nix with:
     boot.kernelModules = [ "tun" ];
   }
 
-Then add this line inside the imports list in /etc/nixos/configuration.nix:
-
-    ./awg-easy-3-runtime.nix
-
-Apply the configuration and rerun this installer:
+EOF
+  message '\nThen add this line inside the imports list in /etc/nixos/configuration.nix:\n' >&2
+  printf '\n    ./awg-easy-3-runtime.nix\n' >&2
+  message '\nApply the configuration and rerun this installer:\n' >&2
+  cat >&2 <<'EOF'
 
   sudo nixos-rebuild switch --option max-jobs 1 --option cores 1
   cd /opt/awg-easy-3
-  sudo ./install.sh --host PUBLIC_IP_OR_DOMAIN --lang en
-
-The installer intentionally does not edit configuration.nix automatically.
-The single-job rebuild is intentional for low-memory VPS instances.
 EOF
+  printf '  sudo ./install.sh --host PUBLIC_IP_OR_DOMAIN --lang %s\n' "$AWG_LANG_VALUE" >&2
+  message '\nThe installer intentionally does not edit configuration.nix automatically.\nThe single-job rebuild is intentional for low-memory VPS instances.\n' >&2
 }
 
 confirm_dependency_install() {
   if ! is_interactive; then
     return 0
   fi
-  printf 'Required system packages are missing: %s\n' "$1"
-  printf 'Install them now? [Y/n]: '
+  message 'Required system packages are missing: %s\n' "$1"
+  message 'Install them now? [Y/n]: '
   read -r answer
-  case "$answer" in n|N|no|NO|No) return 1 ;; *) return 0 ;; esac
+  case "$answer" in n|N|no|NO|No|н|Н|нет|НЕТ|Нет|خیر|否) return 1 ;; *) return 0 ;; esac
 }
 
 apt_compose_package() {
@@ -305,7 +321,7 @@ install_runtime_dependencies() {
   [ "$need_nft" -eq 1 ] && missing="${missing} nftables"
   confirm_dependency_install "$missing" || die "required package installation was declined"
 
-  info "Installing missing runtime packages with $manager"
+  info "Installing missing runtime packages with %s" "$manager"
   case "$manager" in
     apt-get)
       apt-get update
@@ -432,7 +448,7 @@ remove_existing_installation() {
   rm -f -- /etc/modules-load.d/awg-easy-3.conf
   rm -f -- /usr/local/sbin/awg-easy-3 /etc/awg-easy-3-install-dir
   info "AWG-Easy 3 clients, settings and service were removed"
-  printf 'Host forwarding values were left unchanged to avoid disrupting other VPS services.\n'
+  message 'Host forwarding values were left unchanged to avoid disrupting other VPS services.\n'
 }
 
 install_management_command() {
@@ -445,7 +461,7 @@ install_management_command() {
 if [ -n "$EXISTING_INSTALL_DIR" ] && { [ "$INSTALL_ACTION" = uninstall ] || [ "$INSTALL_ACTION" = reinstall ]; }; then
   remove_existing_installation
   if [ "$INSTALL_ACTION" = uninstall ]; then
-    printf 'Uninstallation complete. The project files remain in %s so the installer can be run again.\n' "$EXISTING_INSTALL_DIR"
+    message 'Uninstallation complete. The project files remain in %s so the installer can be run again.\n' "$EXISTING_INSTALL_DIR"
     exit 0
   fi
 fi
@@ -455,7 +471,7 @@ if [ ! -c /dev/net/tun ]; then
 fi
 [ -c /dev/net/tun ] || die "/dev/net/tun is unavailable on this VPS"
 
-[ ! -e data/state.json ] || die "AWG-Easy 3 is already initialized in $SCRIPT_DIR/data"
+[ ! -e data/state.json ] || die "AWG-Easy 3 is already initialized in %s/data" "$SCRIPT_DIR"
 choose_endpoint_host
 
 port_in_use() {
@@ -553,24 +569,24 @@ choose_available_port() {
     printf '%s\n' "$current"
     return 0
   fi
-  suggestion=$(next_free_port "$protocol" "$((current + 1))") || die "no free $protocol port could be found"
+  suggestion=$(next_free_port "$protocol" "$((current + 1))") || die "no free %s port could be found" "$protocol"
   if [ "$explicit" -eq 1 ]; then
-    die "$label port $current is already in use; choose another value (for example $suggestion)"
+    die "%s port %s is already in use; choose another value (for example %s)" "$label" "$current" "$suggestion"
   fi
   if ! is_interactive; then
     if [ "$protocol" = udp ]; then option=port; else option=panel-port; fi
-    die "$label port $current is already in use; rerun with --$option $suggestion"
+    die "%s port %s is already in use; rerun with --%s %s" "$label" "$current" "$option" "$suggestion"
   fi
   while :; do
-    printf '%s port %s is already in use. Enter another port [%s]: ' "$label" "$current" "$suggestion" >&2
+    message '%s port %s is already in use. Enter another port [%s]: ' "$label" "$current" "$suggestion" >&2
     read -r selected
     [ -n "$selected" ] || selected=$suggestion
     if ! valid_port "$selected"; then
-      printf 'Port must be an integer between 1 and 65535.\n' >&2
+      message 'Port must be an integer between 1 and 65535.\n' >&2
       continue
     fi
     if port_in_use "$protocol" "$selected"; then
-      printf '%s port %s is also in use.\n' "$label" "$selected" >&2
+      message '%s port %s is also in use.\n' "$label" "$selected" >&2
       continue
     fi
     printf '%s\n' "$selected"
@@ -594,10 +610,10 @@ fi
 
 if [ "$AWG_PORT_EXPLICIT" -eq 0 ]; then
   AWG_PORT_VALUE=$(choose_random_udp_port)
-  info "Selected random AWG UDP port: $AWG_PORT_VALUE"
+  info "Selected random AWG UDP port: %s" "$AWG_PORT_VALUE"
 fi
-AWG_PORT_VALUE=$(choose_available_port udp "$AWG_PORT_VALUE" "$AWG_PORT_EXPLICIT" "AWG UDP")
-AWG_PANEL_PORT_VALUE=$(choose_available_port tcp "$AWG_PANEL_PORT_VALUE" "$AWG_PANEL_PORT_EXPLICIT" "Panel TCP")
+AWG_PORT_VALUE=$(choose_available_port udp "$AWG_PORT_VALUE" "$AWG_PORT_EXPLICIT" "$(message 'AWG UDP')")
+AWG_PANEL_PORT_VALUE=$(choose_available_port tcp "$AWG_PANEL_PORT_VALUE" "$AWG_PANEL_PORT_EXPLICIT" "$(message 'Panel TCP')")
 
 export AWG_HOST="$AWG_HOST_VALUE"
 export AWG_PORT="$AWG_PORT_VALUE"
@@ -662,20 +678,20 @@ else
   else
     auto_update_status=$?
     if [ "$auto_update_status" -eq 2 ]; then
-      printf 'The panel is installed, but this init system has no supported automatic-update hook.\n' >&2
+      message 'The panel is installed, but this init system has no supported automatic-update hook.\n' >&2
     else
       die "the panel is installed, but its automatic-update hook could not be enabled"
     fi
   fi
 fi
 
-printf '\nInstallation complete.\n'
-printf 'AWG endpoint: %s:%s/udp\n' "$AWG_HOST_VALUE" "$AWG_PORT_VALUE"
-printf 'Panel language: %s\n' "$AWG_LANG_VALUE"
-printf 'The panel has no public TCP listener. Connect the first Home profile, then open http://10.8.0.1:%s\n' "$AWG_PANEL_PORT_VALUE"
-printf 'If your provider has a cloud firewall, allow inbound UDP %s manually.\n' "$AWG_PORT_VALUE"
-printf 'Run sudo awg-easy-3 from any directory to manage, uninstall or reinstall the panel.\n'
+message '\nInstallation complete.\n'
+message 'AWG endpoint: %s:%s/udp\n' "$AWG_HOST_VALUE" "$AWG_PORT_VALUE"
+message 'Panel language: %s\n' "$AWG_LANG_VALUE"
+message 'The panel has no public TCP listener. Connect the first Home profile, then open http://10.8.0.1:%s\n' "$AWG_PANEL_PORT_VALUE"
+message 'If your provider has a cloud firewall, allow inbound UDP %s manually.\n' "$AWG_PORT_VALUE"
+message 'Run sudo awg-easy-3 from any directory to manage, uninstall or reinstall the panel.\n'
 if [ -z "${AWG_IMAGE:-}" ]; then
-  printf 'Automatic stable update checks are enabled when systemd or OpenRC is available.\n'
-  printf 'Disable them with: sudo awg-easy-3 auto-update disable\n'
+  message 'Automatic stable update checks are enabled when systemd or OpenRC is available.\n'
+  message 'Disable them with: sudo awg-easy-3 auto-update disable\n'
 fi

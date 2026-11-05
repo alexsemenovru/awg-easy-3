@@ -10,6 +10,13 @@ AWG_EASY_UPDATE_OPENRC_SERVICE=/etc/init.d/awg-easy-3-update
 AWG_EASY_UPDATE_OPENRC_RUNNER=/usr/local/libexec/awg-easy-3-update-on-boot
 AWG_EASY_UPDATE_LOCK=/run/lock/awg-easy-3-update.lock
 
+# The installer supplies its selected language; standalone update commands keep
+# their existing English diagnostics without requiring a translation runtime.
+awg_easy_update_message() {
+  if command -v message >/dev/null 2>&1; then message "$@"
+  else printf "$@"; fi
+}
+
 awg_easy_auto_update_backend() {
   if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
     printf '%s\n' systemd
@@ -62,7 +69,7 @@ EOF
     awg_easy_auto_update_disable
     return 1
   fi
-  printf 'Automatic stable update checks are enabled with systemd.\n'
+  awg_easy_update_message 'Automatic stable update checks are enabled with systemd.\n'
 }
 
 awg_easy_auto_update_enable_openrc() {
@@ -109,7 +116,7 @@ EOF
       return 1
     fi
   fi
-  printf 'Automatic stable update checks are enabled with OpenRC.\n'
+  awg_easy_update_message 'Automatic stable update checks are enabled with OpenRC.\n'
 }
 
 awg_easy_auto_update_enable() {
@@ -117,8 +124,8 @@ awg_easy_auto_update_enable() {
     systemd) awg_easy_auto_update_enable_systemd ;;
     openrc) awg_easy_auto_update_enable_openrc ;;
     unsupported)
-      printf 'Automatic updates are unavailable: no supported systemd or OpenRC boot mechanism was detected.\n' >&2
-      printf 'Use sudo awg-easy-3 update to check for stable updates manually.\n' >&2
+      awg_easy_update_message 'Automatic updates are unavailable: no supported systemd or OpenRC boot mechanism was detected.\n' >&2
+      awg_easy_update_message 'Use sudo awg-easy-3 update to check for stable updates manually.\n' >&2
       return 2
       ;;
   esac
@@ -141,7 +148,7 @@ awg_easy_auto_update_disable() {
     rc-update del awg-easy-3-update default >/dev/null 2>&1 || true
   fi
   rm -f -- "$AWG_EASY_UPDATE_OPENRC_SERVICE" "$AWG_EASY_UPDATE_OPENRC_RUNNER"
-  printf 'Automatic stable update checks are disabled.\n'
+  awg_easy_update_message 'Automatic stable update checks are disabled.\n'
 }
 
 awg_easy_auto_update_status() {

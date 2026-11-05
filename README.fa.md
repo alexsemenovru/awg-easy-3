@@ -24,6 +24,8 @@ cd awg-easy-3
 sudo ./install.sh --lang fa
 ```
 
+`--lang` زبان نصب‌کننده و زبان اولیهٔ پنل را تعیین می‌کند: `en`، `ru`، `fa`، `es` یا `zh-cn`. خروجی Docker و مدیر بستهٔ سیستم ممکن است به زبان خود آن برنامه‌ها باقی بماند.
+
 در نصب تعاملی می‌توانید IPv4 عمومی شناسایی‌شده (پیشنهادی)، یک IPv4 دیگر یا نام دامنه را انتخاب کنید. برای نصب غیرتعاملی از `--host PUBLIC_IP_OR_DOMAIN` استفاده کنید؛ اگر IP عمومی شناسایی نشود، این گزینه الزامی است.
 
 برای واردکردن `vpn://` از **[AmneziaVPN نسخهٔ 5.0.0.5 یا جدیدتر](https://github.com/amnezia-vpn/amnezia-client/releases)** استفاده کنید؛ نسخهٔ Android در [Google Play](https://play.google.com/store/apps/details?id=org.amnezia.vpn) نیز موجود است. راه دیگر، واردکردن فایل `.conf` دریافت‌شده در **AmneziaWG 3.1** است. نسخهٔ Android آزمایش‌شده، دسترسی IPv6 به پنل و سایر کلاینت‌ها در بخش سازگاری توضیح داده شده‌اند.
