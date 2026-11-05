@@ -49,7 +49,7 @@ AWG-Easy 3 management commands:
   awg-easy-3 diagnose        Show status and recent logs
   awg-easy-3 update          Install the newest stable release safely
   awg-easy-3 auto-update enable|disable|status|run
-                              Manage the check performed after OS boot
+                              Manage daily stable-release checks
   awg-easy-3 reset-password  Generate a new panel password
   awg-easy-3 export-client NAME
                               Export an existing client by name or ID

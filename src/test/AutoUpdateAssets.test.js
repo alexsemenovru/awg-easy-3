@@ -56,8 +56,9 @@ test('installer enables boot update checks without asking and removes owned hook
   assert.match(installer, /sudo awg-easy-3 auto-update disable/);
 });
 
-test('boot integration uses native one-shot mechanisms and no cron or extra container', () => {
+test('daily update integration uses native service mechanisms and no cron or extra container', () => {
   assert.match(updater, /OnActiveSec=5min/);
+  assert.match(updater, /OnUnitActiveSec=1d/);
   assert.match(updater, /RandomizedDelaySec=2min/);
   assert.match(updater, /Persistent=false/);
   assert.match(updater, /Type=oneshot/);
@@ -67,30 +68,25 @@ test('boot integration uses native one-shot mechanisms and no cron or extra cont
   assert.doesNotMatch(updater + installer, /\bcrontab\b|\/etc\/cron|docker run.*update/i);
 });
 
-for (const [status, ownPid] of [[0, true], [1, true], [0, false]]) {
-  test(`OpenRC worker preserves exit ${status} and only completes its own service (owned=${ownPid})`, shellOptions, () => {
+for (const status of [0, 1, 2]) {
+  test(`OpenRC worker continues daily after update status ${status}`, shellOptions, () => {
     const match = updater.match(/cat > "\$AWG_EASY_UPDATE_OPENRC_RUNNER" <<'EOF' \|\| return 1\n([\s\S]*?)\nEOF/);
     assert.ok(match, 'OpenRC worker heredoc');
     const runner = match[1]
       .replace('exec >> /var/log/awg-easy-3-update.log 2>&1', '')
-      .replace('/usr/local/sbin/awg-easy-3 auto-update run', 'run_test_update')
-      // dash rejects hyphens in function names; substitute only the mock command.
-      .replace('rc-service --nodeps', 'run_test_rc_service --nodeps')
-      .replace('pidfile=/run/awg-easy-3-update.pid', 'pidfile="$task_root/pid"');
+      .replace('/usr/local/sbin/awg-easy-3 auto-update run', 'run_test_update');
     const result = spawnSync(shell, ['-s'], {
-      input: `task_root=$(mktemp -d /tmp/awg-openrc-test.XXXXXX) || exit 90\n`
-        + `trap 'rm -rf -- "$task_root"' 0\n`
-        + `printf '%s\\n' ${ownPid ? '"$$"' : '99999999'} > "$task_root/pid"\n`
-        + `sleep() { [ "$1" = 300 ] || exit 91; }\n`
-        + `run_test_update() { return ${status}; }\n`
-        + `run_test_rc_service() { [ "$*" = '--nodeps awg-easy-3-update zap' ] || exit 92; printf 'ZAPPED\\n' >&3; }\n`
-        + `exec 3>&1\n${runner}\n`,
+      input: `checks=0\n`
+        + `sleep() { case "$1" in 300|86400) printf 'WAIT=%s\\n' "$1" ;; *) exit 91 ;; esac; }\n`
+        + `run_test_update() { checks=$((checks + 1)); [ "$checks" -lt 3 ] || exit 17; return ${status}; }\n`
+        + `${runner}\n`,
       encoding: 'utf8', timeout: 10_000, windowsHide: true,
     });
     assert.ifError(result.error);
-    assert.equal(result.status, status, result.stderr);
-    assert.match(result.stdout, new RegExp(`finished with exit status ${status}`));
-    assert.equal(result.stdout.includes('ZAPPED'), ownPid);
+    assert.equal(result.status, 17, result.stderr);
+    assert.equal(result.stdout.match(new RegExp(`finished with exit status ${status}`, 'g')).length, 2);
+    assert.equal(result.stdout.match(/WAIT=300/g).length, 1);
+    assert.equal(result.stdout.match(/WAIT=86400/g).length, 2);
   });
 }
 

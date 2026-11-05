@@ -58,10 +58,10 @@ host port mapping. nftables permits it from home peer addresses only.
 
 ## Stable update lifecycle
 
-New installations register one delayed update check after each OS boot using
-the host's existing systemd or OpenRC mechanism. It is enabled by default but
-can be removed and recreated explicitly; no cron entry, updater container or
-additional permanent daemon is introduced. Unsupported init systems keep the
+New installations check five minutes after service startup and every 24 hours
+using the host's existing systemd timer or a sleeping OpenRC service worker.
+It is enabled by default but can be removed and recreated explicitly; no cron
+entry or updater container is introduced. Unsupported init systems keep the
 same manual stable updater without acquiring a new init framework.
 
 Updates trust only exact stable semantic-version tags from the canonical

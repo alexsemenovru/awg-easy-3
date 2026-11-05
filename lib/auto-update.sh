@@ -48,10 +48,11 @@ TimeoutStopSec=3min
 EOF
   cat > "$AWG_EASY_UPDATE_TIMER" <<'EOF' || return 1
 [Unit]
-Description=Check for a stable AWG-Easy 3 update after boot
+Description=Check daily for a stable AWG-Easy 3 update
 
 [Timer]
 OnActiveSec=5min
+OnUnitActiveSec=1d
 RandomizedDelaySec=2min
 AccuracySec=1min
 Persistent=false
@@ -77,24 +78,29 @@ awg_easy_auto_update_enable_openrc() {
   cat > "$AWG_EASY_UPDATE_OPENRC_RUNNER" <<'EOF' || return 1
 #!/bin/sh
 exec >> /var/log/awg-easy-3-update.log 2>&1
-sleep 300
-update_status=0
-/usr/local/sbin/awg-easy-3 auto-update run || update_status=$?
-printf 'Boot update check finished with exit status %s.\n' "$update_status"
-# This worker intentionally exits after one check. Forget its running state so
-# OpenRC does not mistake successful completion for a crashed daemon. Never zap
-# a replacement worker that may have been started in the meantime.
-pidfile=/run/awg-easy-3-update.pid
-if [ -r "$pidfile" ] && [ "$(cat "$pidfile")" = "$$" ]; then
-  rc-service --nodeps awg-easy-3-update zap >/dev/null 2>&1 || true
-fi
-exit "$update_status"
+wait_pid=
+trap '[ -z "$wait_pid" ] || kill "$wait_pid" 2>/dev/null || true; exit 0' TERM INT
+wait_update_interval() {
+  sleep "$1" &
+  wait_pid=$!
+  wait "$wait_pid"
+  wait_pid=
+}
+wait_update_interval 300
+while :; do
+  update_status=0
+  /usr/local/sbin/awg-easy-3 auto-update run || update_status=$?
+  printf 'Daily update check finished with exit status %s.\n' "$update_status"
+  # A failed download/check never stops future daily checks. The updater itself
+  # keeps its installation lock and refuses unsafe Main/Cell replacement.
+  wait_update_interval 86400
+done
 EOF
   chmod 0755 "$AWG_EASY_UPDATE_OPENRC_RUNNER" || return 1
   openrc_run=$(command -v openrc-run) || return 1
   printf '#!%s\n' "$openrc_run" > "$AWG_EASY_UPDATE_OPENRC_SERVICE" || return 1
   cat >> "$AWG_EASY_UPDATE_OPENRC_SERVICE" <<'EOF' || return 1
-description="Check for a stable AWG-Easy 3 update after boot"
+description="Check daily for a stable AWG-Easy 3 update"
 command="/usr/local/libexec/awg-easy-3-update-on-boot"
 command_background="yes"
 pidfile="/run/awg-easy-3-update.pid"
@@ -163,7 +169,7 @@ awg_easy_auto_update_status() {
   fi
   if [ -x "$AWG_EASY_UPDATE_OPENRC_SERVICE" ] &&
      [ -e /etc/runlevels/default/awg-easy-3-update ]; then
-    printf 'Automatic stable update checks: enabled (OpenRC, after each boot)\n'
+    printf 'Automatic stable update checks: enabled (OpenRC, daily and after boot)\n'
     return 0
   fi
   printf 'Automatic stable update checks: disabled\n'
