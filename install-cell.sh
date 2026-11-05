@@ -123,6 +123,12 @@ else
   fi
 fi
 
+[ -r "$script_dir/lib/discovery-port.sh" ] || die 'discovery port helper is missing'
+. "$script_dir/lib/discovery-port.sh"
+awg_discovery_reserve_port "$env_file" AWG_CELL_DHT_PORT \
+  "$(sed -n 's/^AWG_CELL_USER_PORT=//p' "$env_file")" \
+  || die 'cannot reserve discovery UDP port'
+
 if [ ! -e cell-data/connection.json ] && [ ! -e cell-data/invitation ]; then
   if [ -t 0 ]; then
     printf 'Paste the one-time Cell invitation code: ' >&2
@@ -149,7 +155,7 @@ if [ ! -e cell-data/connection.json ] && [ ! -e cell-data/invitation ]; then
   trap - EXIT HUP INT TERM
 fi
 
-unset AWG_IMAGE AWG_CELL_WAN_INTERFACE AWG_CELL_USER_PORT AWG_CELL_ENDPOINT
+unset AWG_IMAGE AWG_CELL_WAN_INTERFACE AWG_CELL_USER_PORT AWG_CELL_ENDPOINT AWG_CELL_DHT_PORT
 compose() { docker compose --env-file "$env_file" -f docker-compose.cells-cell.yml "$@"; }
 compose config --quiet || die 'Cell compose configuration is invalid'
 awg_cells_install_rp_filter cell awgcellb0 awgcellc0 awgcellu0 awgdata0 \
@@ -159,7 +165,7 @@ awg_easy_install_selinux_socket_watch || die 'cannot install the AWG UAPI SELinu
 [ -r "$script_dir/lib/firewalld.sh" ] || die 'firewalld compatibility helper is missing'
 . "$script_dir/lib/firewalld.sh"
 awg_easy_configure_firewalld "$(sed -n 's/^AWG_CELL_WAN_INTERFACE=//p' "$env_file")" \
-  "$(sed -n 's/^AWG_CELL_USER_PORT=//p' "$env_file")" awgcellb0 awgcellc0 awgcellu0 awgdata0 \
+  "$(sed -n -e 's/^AWG_CELL_USER_PORT=//p' -e 's/^AWG_CELL_DHT_PORT=//p' "$env_file" | tr '\n' ' ')" awgcellb0 awgcellc0 awgcellu0 awgdata0 \
   || die 'cannot configure firewalld for the reserved Cell interfaces'
 compose up -d cell || die 'Cell service did not start; private state was preserved'
 attempt=0
@@ -171,6 +177,8 @@ while [ "$attempt" -lt 120 ]; do
         info 'Cell registered; awaiting or applying signed settings from the Main Node'
         printf 'Allow inbound UDP %s in the provider firewall for future clients.\n' \
           "$(sed -n 's/^AWG_CELL_USER_PORT=//p' "$env_file")"
+        printf 'Allow inbound UDP %s for public DHT discovery in the provider firewall.\n' \
+          "$(sed -n 's/^AWG_CELL_DHT_PORT=//p' "$env_file")"
         exit 0 ;;
     esac
   fi

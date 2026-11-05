@@ -16,8 +16,9 @@ source repositories are the authoritative terms for those components.
 
 ## JavaScript production dependencies
 
-The direct production dependencies are `bcryptjs` and `qrcode`, both under the
-MIT license. Their locked transitive production dependencies are:
+The direct production dependencies are `bcryptjs`, `qrcode`, `transliteration`
+and `bittorrent-dht` (pinned to `11.0.12`), under the MIT license.
+Their locked transitive production dependencies include:
 
 - MIT: `ansi-regex`, `ansi-styles`, `camelcase`, `color-convert`, `color-name`,
   `decamelize`, `dijkstrajs`, `emoji-regex`, `find-up`,
@@ -28,6 +29,14 @@ MIT license. Their locked transitive production dependencies are:
   `require-main-filename`, `set-blocking`, `which-module`, and `yargs-parser`.
 
 Exact versions and integrity hashes are recorded in `src/pnpm-lock.yaml`.
+
+The DHT component uses WebTorrent's `bittorrent-dht` implementation of the
+public BitTorrent discovery network, without loading or transferring torrents.
+Its additional locked dependencies include `bencode`, `debug`, `k-bucket`,
+`k-rpc`, `k-rpc-socket`, `last-one-wins`, `lru`, `randombytes`, `record-cache`,
+`safe-buffer`, `simple-sha1`, `speedometer`, `string2compact`, `ip`,
+`ip-address`, `ip-regex`, `ms` and `unordered-array-remove`. These packages
+retain their own license files in the installed dependency tree.
 
 ## Container base images
 

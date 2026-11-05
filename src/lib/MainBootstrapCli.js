@@ -5,6 +5,7 @@ const { openMainBootstrapInstallationHost } = require('./MainBootstrapInstallati
 const { MainCellStatusSnapshot } = require('./MainCellStatusSnapshot');
 const { MainCellEntrySnapshot } = require('./MainCellEntrySnapshot');
 const { listenInvitationSocket } = require('./MainCellInvitationSocket');
+const { openNodeDiscovery } = require('./NodeDiscoveryService');
 
 const NAME = /^[a-zA-Z0-9_.-]{1,15}$/;
 const PORT = /^\d{1,5}$/;
@@ -27,6 +28,7 @@ function configFromEnvironment(env) {
   const permanentEndpointPort = port(env.AWG_MAIN_CONTROL_PORT);
   const registrationPort = port(env.AWG_MAIN_REGISTRATION_PORT);
   const permanentControlPort = port(env.AWG_MAIN_CONTROL_TCP_PORT);
+  const dhtPort = port(env.AWG_MAIN_DHT_PORT || '49033');
   if (typeof stateDirectory !== 'string' || !path.isAbsolute(stateDirectory)
     || path.normalize(stateDirectory) !== stateDirectory
     || (userStateFile !== undefined && (typeof userStateFile !== 'string'
@@ -41,14 +43,15 @@ function configFromEnvironment(env) {
     || [listenPort, permanentEndpointPort, registrationPort, permanentControlPort, userPort]
       .some(value => !Number.isSafeInteger(value))
     || registrationPort === permanentControlPort
-    || new Set([listenPort, permanentEndpointPort, userPort]).size !== 3) {
+    || new Set([listenPort, permanentEndpointPort, userPort]).size !== 3
+    || !Number.isSafeInteger(dhtPort) || [listenPort, permanentEndpointPort, userPort].includes(dhtPort)) {
     throw new Error('Explicit Main state path, three distinct interfaces and five ports required');
   }
   return { stateDirectory, userStateFile, statusFile, invitationSocket, interfaceName,
     controllerAddress: env.AWG_MAIN_BOOTSTRAP_ADDRESS,
     registrationPort, listenPort, endpointHost: env.AWG_MAIN_ENDPOINT,
     permanentEndpointPort, permanentControllerAddress: env.AWG_MAIN_CONTROL_ADDRESS,
-    permanentControlPort,
+    permanentControlPort, dhtPort,
     resources: { interfaceNames: [interfaceName, permanentInterface],
       udpPorts: [listenPort, permanentEndpointPort],
       userInterfaceNames: [userInterface], userUdpPorts: [userPort], nftTables: [
@@ -76,6 +79,7 @@ async function readSettings(input) {
 
 async function runMainBootstrapCli({ args, env, input, output,
   openHost = openMainBootstrapInstallationHost,
+  startDiscovery = openNodeDiscovery,
   newStatusSnapshot = file => new MainCellStatusSnapshot(file),
   newEntrySnapshot = file => new MainCellEntrySnapshot(file) } = {}) {
   if (!Array.isArray(args) || !output || typeof output.write !== 'function'
@@ -132,6 +136,7 @@ async function runMainBootstrapCli({ args, env, input, output,
     const stagedData = new Set();
     let statusRefresh = Promise.resolve();
     let reconciliation = Promise.resolve();
+    let discovery;
     try {
       registration = await host.listen();
       if (boot.configured) {
@@ -203,9 +208,11 @@ async function runMainBootstrapCli({ args, env, input, output,
       if (config.invitationSocket) {
         invitationListener = await listenInvitationSocket(config.invitationSocket, () => host.issueAuto());
       }
+      discovery = await startDiscovery({ role: 'main', config, host });
       output.write(`${JSON.stringify({ status: 'serving',
         permanentConfigured: boot.configured === true })}\n`);
       return { close: async () => {
+        if (discovery) await discovery.close().catch(() => {});
         if (statusTimer) clearInterval(statusTimer);
         if (reconcileTimer) clearInterval(reconcileTimer);
         await statusRefresh.catch(() => {});
@@ -213,8 +220,9 @@ async function runMainBootstrapCli({ args, env, input, output,
         if (invitationListener) await invitationListener.close();
         try { if (control) await control.close(); }
         finally { await registration.close(); }
-      }, reconcile };
+      }, reconcile, discoveryStatus: () => discovery.status() };
     } catch (error) {
+      if (discovery) await discovery.close().catch(() => {});
       if (statusTimer) clearInterval(statusTimer);
       if (reconcileTimer) clearInterval(reconcileTimer);
       if (invitationListener) await invitationListener.close();

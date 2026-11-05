@@ -30,6 +30,8 @@ services:
       AWG_CELL_CONTROL_INTERFACE: ${AWG_CELL_CONTROL_INTERFACE:?Set a dedicated control interface}
       AWG_CELL_USER_INTERFACE: ${AWG_CELL_USER_INTERFACE:?Set a dedicated user interface}
       AWG_CELL_USER_PORT: ${AWG_CELL_USER_PORT:?Set the user UDP port}
+      AWG_CELL_ENDPOINT: ${AWG_CELL_ENDPOINT:-}
+      AWG_CELL_DHT_PORT: ${AWG_CELL_DHT_PORT:-49033}
     entrypoint:
       - /usr/bin/dumb-init
       - --

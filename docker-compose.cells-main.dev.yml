@@ -46,6 +46,7 @@ services:
       AWG_MAIN_BOOTSTRAP_ADDRESS: ${AWG_MAIN_BOOTSTRAP_ADDRESS:?Set a private bootstrap address}
       AWG_MAIN_CONTROL_ADDRESS: ${AWG_MAIN_CONTROL_ADDRESS:?Set a private control address}
       AWG_MAIN_ENDPOINT: ${AWG_MAIN_ENDPOINT:?Set a reachable public endpoint}
+      AWG_MAIN_DHT_PORT: ${AWG_MAIN_DHT_PORT:-49033}
     entrypoint:
       - /usr/bin/dumb-init
       - --

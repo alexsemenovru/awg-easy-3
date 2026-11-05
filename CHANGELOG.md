@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Start a bounded BitTorrent DHT discovery worker with Main/Cell services. Persist bootstrap contacts and verify signed role-specific locators; reserve a separate UDP port during installation. Discovery failures do not change VPN routing. Technical relay and backup/restore remain unfinished.
 - Apply `--lang` to installer prompts, errors, help and completion instructions in all five panel languages, including the initial password and VPN-link output. Keep package-manager and Docker diagnostics unchanged. Recognize translated yes/no answers during installation and removal.
 
 ## v0.1.6 — 2026-09-12

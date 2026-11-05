@@ -9,6 +9,7 @@ const { startCellService, syncCellOnce } = require('./CellService');
 const { readCellStatus } = require('./CellStatus');
 const { ensureCellUserBootstrap } = require('./CellUserBootstrap');
 const { validEndpointHost } = require('./CellAwgEndpointHost');
+const { openNodeDiscovery } = require('./NodeDiscoveryService');
 
 const INTERFACE = /^[a-zA-Z0-9_.-]{1,15}$/;
 const PORT = /^\d{1,5}$/;
@@ -24,6 +25,8 @@ function configFromEnvironment(env) {
   const endpointHost = env.AWG_CELL_ENDPOINT;
   const portText = env.AWG_CELL_USER_PORT;
   const userPort = PORT.test(portText || '') ? Number(portText) : NaN;
+  const dhtText = env.AWG_CELL_DHT_PORT || '49033';
+  const dhtPort = PORT.test(dhtText) ? Number(dhtText) : NaN;
   if (typeof stateDirectory !== 'string' || !path.isAbsolute(stateDirectory)
     || path.normalize(stateDirectory) !== stateDirectory
     || (invitationFile !== undefined && invitationFile !== path.join(stateDirectory, 'invitation'))
@@ -32,10 +35,11 @@ function configFromEnvironment(env) {
       || [interfaceName, controlInterface, userInterface].includes(wanInterface)))
     || (endpointHost !== undefined && !validEndpointHost(endpointHost))
     || new Set([interfaceName, controlInterface, userInterface]).size !== 3
-    || !Number.isInteger(userPort) || userPort < 1 || userPort > 65535) {
+    || !Number.isInteger(userPort) || userPort < 1 || userPort > 65535
+    || !Number.isInteger(dhtPort) || dhtPort < 1 || dhtPort > 65535 || dhtPort === userPort) {
     throw new Error('Explicit Cell state path, three distinct interfaces and user UDP port required');
   }
-  return { stateDirectory, invitationFile, wanInterface, endpointHost,
+  return { stateDirectory, invitationFile, wanInterface, endpointHost, dhtPort,
     interfaceName, runtimeDirectory: env.AWG_CELL_RUNTIME_DIR, resources: {
     interfaceNames: [interfaceName, controlInterface, userInterface],
     udpPorts: [userPort], nftTables: [
@@ -74,6 +78,7 @@ async function readPrivateInvitationFile(file) {
 
 async function runCellBootstrapCli({ args, env, input, output,
   openHost = openCellBootstrapInstallationHost,
+  startDiscovery = openNodeDiscovery,
   startService = startCellService,
   syncOnce = syncCellOnce,
   statusReader = readCellStatus,
@@ -165,8 +170,11 @@ async function runCellBootstrapCli({ args, env, input, output,
     if (config.wanInterface) await ensureUser({ config,
       connection: await host.connectionStore.read(), wanInterface: config.wanInterface });
     const service = await startService({ config, bootstrapHost: host });
+    const discovery = await startDiscovery({ role: 'cell', config, host });
     output.write('{"status":"serving","transport":"AWG"}\n');
-    return service;
+    return { ...service, discoveryStatus: () => discovery.status(), close: async () => {
+      try { await discovery.close().catch(() => {}); } finally { await service.close(); }
+    } };
   }
   if (args[0] === 'sync') {
     const result = await syncOnce({ config, bootstrapHost: host });

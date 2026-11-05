@@ -122,6 +122,14 @@ else
     || die 'Main Node installation record must be root-owned, private and unlinked'
 fi
 
+[ -r "$script_dir/lib/discovery-port.sh" ] || die 'discovery port helper is missing'
+. "$script_dir/lib/discovery-port.sh"
+awg_discovery_reserve_port "$env_file" AWG_MAIN_DHT_PORT \
+  "$(sed -n 's/^AWG_MAIN_USER_PORT=//p' "$env_file")" \
+  "$(sed -n 's/^AWG_MAIN_BOOTSTRAP_PORT=//p' "$env_file")" \
+  "$(sed -n 's/^AWG_MAIN_CONTROL_PORT=//p' "$env_file")" \
+  || die 'cannot reserve discovery UDP port'
+
 for directory in cell-data cell-status cell-status/uapi; do
   [ ! -L "$directory" ] || die "unsafe $directory symlink"
   if [ -e "$directory" ]; then
@@ -135,7 +143,7 @@ unset AWG_IMAGE AWG_HOST AWG_PORT AWG_PANEL_PORT AWG_MAIN_USER_INTERFACE \
   AWG_MAIN_USER_PORT AWG_MAIN_BOOTSTRAP_INTERFACE AWG_MAIN_CONTROL_INTERFACE \
   AWG_MAIN_BOOTSTRAP_PORT AWG_MAIN_CONTROL_PORT AWG_MAIN_REGISTRATION_PORT \
   AWG_MAIN_CONTROL_TCP_PORT AWG_MAIN_BOOTSTRAP_ADDRESS AWG_MAIN_CONTROL_ADDRESS \
-  AWG_MAIN_ENDPOINT
+  AWG_MAIN_ENDPOINT AWG_MAIN_DHT_PORT
 
 compose() {
   docker compose --env-file "$env_file" -f docker-compose.yml \
@@ -164,7 +172,7 @@ awg_easy_install_selinux_socket_watch || die 'cannot install the AWG UAPI SELinu
 [ -r "$script_dir/lib/firewalld.sh" ] || die 'firewalld compatibility helper is missing'
 . "$script_dir/lib/firewalld.sh"
 awg_main_wan=$(ip -4 route get 1.1.1.1 | awk '{ for (i=1;i<=NF;i++) if ($i=="dev") { print $(i+1); exit } }')
-awg_main_ports=$(sed -n -e 's/^AWG_MAIN_BOOTSTRAP_PORT=//p' -e 's/^AWG_MAIN_CONTROL_PORT=//p' "$env_file" | tr '\n' ' ')
+awg_main_ports=$(sed -n -e 's/^AWG_MAIN_BOOTSTRAP_PORT=//p' -e 's/^AWG_MAIN_CONTROL_PORT=//p' -e 's/^AWG_MAIN_DHT_PORT=//p' "$env_file" | tr '\n' ' ')
 awg_easy_configure_firewalld "$awg_main_wan" "$awg_main_ports" \
   "$(sed -n 's/^AWG_MAIN_USER_INTERFACE=//p' "$env_file")" "$@" \
   || die 'cannot configure firewalld for the reserved Main interfaces'
@@ -196,3 +204,5 @@ control_udp=$(sed -n 's/^AWG_MAIN_CONTROL_PORT=//p' "$env_file")
 printf 'If your provider has a cloud firewall, allow inbound UDP %s and %s for Cells.\n' \
   "$bootstrap_udp" "$control_udp"
 printf 'Stable auto-updates are held until coordinated Main/Cell updates are available.\n'
+printf 'Allow inbound UDP %s for public DHT discovery in the provider firewall.\n' \
+  "$(sed -n 's/^AWG_MAIN_DHT_PORT=//p' "$env_file")"

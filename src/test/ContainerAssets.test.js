@@ -37,7 +37,8 @@ test('bundled AWG source retains packet destination across UDP GRO splitting', (
 
 test('installs only the minimal Node runtime dependency set', () => {
   const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'src', 'package.json'), 'utf8'));
-  assert.deepEqual(Object.keys(packageJson.dependencies).sort(), ['bcryptjs', 'qrcode', 'transliteration']);
+  assert.deepEqual(Object.keys(packageJson.dependencies).sort(), ['bcryptjs', 'bittorrent-dht', 'qrcode', 'transliteration']);
+  assert.equal(packageJson.dependencies['bittorrent-dht'], '11.0.12');
   assert.equal(packageJson.devDependencies, undefined);
 });
 

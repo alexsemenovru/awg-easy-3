@@ -15,9 +15,9 @@ const rawKey = key => typeof key === 'string' && /^[A-Za-z0-9_-]{43}$/.test(key)
   && Buffer.from(key, 'base64url').length === 32
   && Buffer.from(key, 'base64url').toString('base64url') === key;
 
-function validateValue(value, now) {
+function validateValue(value, now, kind = 'cell') {
   if (!exact(value, ['version', 'kind', 'host', 'port', 'issuedAt', 'expiresAt'])
-    || value.version !== 1 || value.kind !== 'cell'
+    || value.version !== 1 || !['cell', 'main'].includes(kind) || value.kind !== kind
     || typeof value.host !== 'string' || !net.isIP(value.host)
     || !Number.isInteger(value.port) || value.port < 1 || value.port > 65535
     || !Number.isSafeInteger(value.issuedAt) || !Number.isSafeInteger(value.expiresAt)
@@ -41,13 +41,13 @@ function targetFor(cellKey) {
 
 function contactSalt() { return Buffer.from(SALT); }
 
-function createCellLocator({ privateKey, seq, host, port, now = Date.now() }) {
+function createCellLocator({ privateKey, seq, host, port, kind = 'cell', now = Date.now() }) {
   if (!Number.isSafeInteger(now) || now < 0 || !Number.isSafeInteger(seq) || seq < 1) fail();
   const key = crypto.createPrivateKey(privateKey);
   if (key.asymmetricKeyType !== 'ed25519') fail();
   const cellKey = crypto.createPublicKey(key).export({ format: 'jwk' }).x;
-  const value = validateValue({ version: 1, kind: 'cell', host, port,
-    issuedAt: now, expiresAt: now + MAX_LIFETIME_MS }, now);
+  const value = validateValue({ version: 1, kind, host, port,
+    issuedAt: now, expiresAt: now + MAX_LIFETIME_MS }, now, kind);
   const v = Buffer.from(JSON.stringify(value));
   if (v.length > MAX_VALUE_BYTES) fail();
   const k = Buffer.from(cellKey, 'base64url');
@@ -55,7 +55,7 @@ function createCellLocator({ privateKey, seq, host, port, now = Date.now() }) {
     sign: message => crypto.sign(null, message, key) });
 }
 
-function verifyCellLocator(item, { cellKey, minimumSeq = 0, now = Date.now() }) {
+function verifyCellLocator(item, { cellKey, minimumSeq = 0, kind = 'cell', now = Date.now() }) {
   if (!rawKey(cellKey) || !item || !Buffer.isBuffer(item.k)
     || !item.k.equals(Buffer.from(cellKey, 'base64url'))
     || !Buffer.isBuffer(item.salt) || !item.salt.equals(SALT)
@@ -69,10 +69,11 @@ function verifyCellLocator(item, { cellKey, minimumSeq = 0, now = Date.now() }) 
   if (!crypto.verify(null, signatureBody(item), publicKey, item.sig)) fail();
   let value;
   try { value = JSON.parse(item.v.toString('utf8')); } catch { fail(); }
-  validateValue(value, now);
+  validateValue(value, now, kind);
   if (!Buffer.from(JSON.stringify(value)).equals(item.v)) fail();
   return Object.freeze({ cellKey, seq: item.seq, host: value.host, port: value.port,
     expiresAt: value.expiresAt, target: targetFor(cellKey) });
 }
 
-module.exports = { contactSalt, targetFor, createCellLocator, verifyCellLocator };
+module.exports = { contactSalt, targetFor, createCellLocator, verifyCellLocator,
+  locatorSignatureBody: signatureBody };

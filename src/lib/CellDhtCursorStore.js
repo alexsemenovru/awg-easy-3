@@ -9,13 +9,15 @@ const queues = new Map();
 const validSeq = seq => Number.isSafeInteger(seq) && seq >= 0;
 
 class CellDhtCursorStore {
-  constructor(filePath, cellKey) {
+  constructor(filePath, cellKey, { kind = 'cell' } = {}) {
     if (typeof filePath !== 'string' || !path.isAbsolute(filePath)) {
       throw new TypeError('Absolute DHT cursor path required');
     }
     targetFor(cellKey);
+    if (!['cell', 'main'].includes(kind)) throw new TypeError('Invalid DHT identity role');
     this.filePath = path.resolve(filePath);
     this.cellKey = cellKey;
+    this.kind = kind;
   }
 
   exclusive(work) {
@@ -90,7 +92,7 @@ class CellDhtCursorStore {
     return this.exclusive(async () => {
       const last = await this.read();
       const locator = verifyCellLocator(item, { cellKey: this.cellKey,
-        minimumSeq: last, now });
+        minimumSeq: last, kind: this.kind, now });
       if (locator.seq > last) await this.write(locator.seq);
       return locator;
     });

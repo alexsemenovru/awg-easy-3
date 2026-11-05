@@ -118,13 +118,18 @@ test('Cell CLI configures a registered user tunnel without leaking key material'
 
 test('Cell CLI starts registered service with bounded readiness status', async () => {
   let printed = '';
-  const service = { close: async () => {}, running: new Promise(() => {}) };
-  assert.equal(await runCellBootstrapCli({ args: ['serve'], env: environment(),
+  const closed = [];
+  const service = { close: async () => { closed.push('vpn'); }, running: new Promise(() => {}) };
+  const started = await runCellBootstrapCli({ args: ['serve'], env: environment(),
     output: { write: value => { printed += value; } },
     openHost: async () => ({ connectionStore: { read: async () => ({ status: 'registered' }) },
       permanentPlanStore: { read: async () => ({ version: 1 }) },
       bootstrap: { lifecycle: { load: async () => ({ phase: 'empty' }) } } }),
-    startService: async () => service }), service);
+    startService: async () => service,
+    startDiscovery: async () => ({ close: async () => { closed.push('dht'); } }) });
+  assert.equal(started.running, service.running);
+  await started.close();
+  assert.deepEqual(closed, ['dht', 'vpn']);
   assert.equal(printed, '{"status":"serving","transport":"AWG"}\n');
 });
 
