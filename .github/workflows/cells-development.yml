@@ -1,0 +1,60 @@
+name: Cells development checks
+
+on:
+  push:
+    branches:
+      - codex/cells-foundation
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cells-development-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image-and-isolated-network:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the production Dockerfile without publishing
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          push: false
+          tags: awg-easy-3:cells-ci
+          cache-from: type=gha,scope=cells-development
+          cache-to: type=gha,mode=max,scope=cells-development
+      - name: Prepare isolated test tools and matching dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'FROM awg-easy-3:cells-ci\nRUN apk add --no-cache git util-linux\n' |
+            docker build -t awg-easy-3:cells-ci-tests -f - .
+          fixture=$(docker create awg-easy-3:cells-ci)
+          trap 'docker rm -f "$fixture" >/dev/null 2>&1 || true' EXIT
+          docker cp "$fixture:/app/node_modules" ./src/node_modules
+      - name: Run full Linux suite with nft kernel checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --cap-add NET_ADMIN --cap-add SYS_ADMIN \
+            --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
+            -e AWG_NFT_KERNEL_TEST=1 \
+            -v "$GITHUB_WORKSPACE:/work:ro" -w /work/src \
+            --entrypoint node awg-easy-3:cells-ci-tests \
+            --test --test-concurrency=2 test/*.test.js
+      - name: Verify real encrypted control RPC through a relay
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --cap-add NET_ADMIN --cap-add SYS_ADMIN \
+            --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
+            --device /dev/net/tun -e AWG_DISPOSABLE_NETWORK_TEST=1 \
+            -v "$GITHUB_WORKSPACE:/work:ro" -w /work \
+            --entrypoint node awg-easy-3:cells-ci-tests \
+            scripts/test-technical-control.cjs
