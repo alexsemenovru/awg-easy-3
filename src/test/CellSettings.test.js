@@ -75,6 +75,38 @@ test('default receiver enforces assignment schema before saving or applying', as
   await assert.rejects(receiver.load(), /Invalid settings state/);
 });
 
+test('restored authority starts a fresh revision epoch while failed application keeps the previous offline settings', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-settings-epoch-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const controller = identity(), cell = identity(), authority = identity();
+  const sign = revision => signSettings({ cellKey: cell.publicKey, revision,
+    settings: { schema: 1, clients: [] } }, controller.privateKey);
+  let epoch = null, failure = false;
+  const options = { controllerKey: controller.publicKey, cellKey: cell.publicKey,
+    authority: async () => epoch, apply: async () => { if (failure) throw new Error('apply failed'); } };
+  const file = path.join(dir, 'settings.json');
+  const receiver = new CellSettingsReceiver(file, options);
+  await receiver.receive(sign(10));
+  epoch = { key: authority.publicKey, generation: 2 };
+  failure = true;
+  await assert.rejects(receiver.receive(sign(1)), /apply failed/);
+  const pending = await receiver.load();
+  assert.equal(pending.receivedGeneration, 2);
+  assert.equal(pending.appliedGeneration, 0);
+  assert.equal(pending.applied.revision, 10);
+  failure = false;
+  const reopened = new CellSettingsReceiver(file, options);
+  assert.deepEqual(await reopened.restoreApplied(), { applied: 10 });
+  await reopened.receive(sign(1));
+  await reopened.receive(sign(2));
+  await assert.rejects(reopened.receive(sign(1)), /Stale/);
+  epoch = null;
+  await assert.rejects(reopened.receive(sign(99)), /control authority/);
+  epoch = { key: identity().publicKey, generation: 2 };
+  await assert.rejects(reopened.receive(sign(99)), /control authority/);
+  assert.equal((await reopened.load()).applied.revision, 2);
+});
+
 test('Linux receiver refuses linked state and a publicly accessible state directory',
   { skip: process.platform === 'win32' }, async t => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-settings-private-'));

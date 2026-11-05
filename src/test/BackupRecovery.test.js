@@ -11,6 +11,15 @@ const { createRecoveryMaterial, signBackupGrant, verifyBackupGrant,
   signBackupAck, signTakeover } = require('../lib/BackupRecovery');
 const { CellBackupRecoveryStore } = require('../lib/CellBackupRecoveryStore');
 const { MainBackupStore } = require('../lib/MainBackupStore');
+const { MainBackupRecovery } = require('../lib/MainBackupRecovery');
+const { CellSettingsReceiver } = require('../lib/CellSettingsReceiver');
+const { CellSettingsPublisher } = require('../lib/CellSettingsPublisher');
+const { signSettings } = require('../lib/CellSettings');
+const { epochFor } = require('../lib/CellControlAuthority');
+const { CellAwgConnectionStore } = require('../lib/CellAwgConnectionStore');
+const { CellAwgBootstrapStore } = require('../lib/CellAwgBootstrapStore');
+const { createAwgBootstrapInvitation } = require('../lib/CellAwgBootstrapInvitation');
+const { listenAwgRegistrationOnTunnel } = require('../lib/CellTunnelRegistrationTransport');
 const { signControl, signControlReply, signAuthorityReply } = require('../lib/CellControlProtocol');
 const { listenControlOnTunnel, exchangeOverTunnel } = require('../lib/CellTunnelControlTransport');
 const { CellControlService, syncCellSettings } = require('../lib/CellControlService');
@@ -84,6 +93,10 @@ test('takeover requires a fresh Cell challenge and latest archive; durable consu
   assert.equal((await restarted.read()).authority.proof.authorityKey, f.authority.publicKey);
   const nextChallenge = await restarted.challenge(2000);
   await assert.rejects(restarted.consume(f.proof(nextChallenge.nonce), 2001));
+  const lostJournal = new CellBackupRecoveryStore(path.join(f.directory, 'lost-recovery.json'),
+    { ...f.trust, authorityGeneration: 1 });
+  await lostJournal.accept(f.grant);
+  await assert.rejects(lostJournal.challenge(3000), /unavailable/);
 });
 test('fresh live authority is required over real TCP after takeover; old signing key alone cannot manage Cell', async t => {
   const f = await fixture(t);
@@ -123,6 +136,95 @@ test('registered Cell receives and acknowledges backup generation over the exist
   assert.equal(result.status, 'no-settings');
   assert.deepEqual(await f.mainStore.status(f.cell.publicKey), { generation: 1, confirmed: true });
   assert.equal((await f.store.read()).grant.archiveHash, f.grant.archiveHash);
+});
+
+test('Cell automatically proves takeover on real control RPC and rejects old Main replies and replayed old acknowledgements', async t => {
+  const f = await fixture(t);
+  await f.mainStore.commit(f.grant, [f.cell.publicKey]);
+  await f.store.accept(f.grant);
+  const oldAck = await f.store.acknowledgement(f.cell.privateKey);
+  const restoration = new MainBackupRecovery(path.join(f.directory, 'restore-recovery.json'), f.main.publicKey);
+  await restoration.journal.write({ version: 1, grant: f.grant, material: f.material });
+  let currentAuthority = f.authority;
+  const connectionStore = { filePath: path.join(f.directory, 'connection.json'),
+    read: async () => ({ ...f.trust, version: 2, status: 'registered' }) };
+  const receiver = new CellSettingsReceiver(path.join(f.directory, 'received-settings.json'), {
+    ...f.trust, authority: () => epochFor(connectionStore), apply: async () => {} });
+  await receiver.receive(signSettings({ cellKey: f.cell.publicKey, revision: 10,
+    settings: { schema: 1, clients: [] } }, f.main.privateKey));
+  const publisher = new CellSettingsPublisher(path.join(f.directory, 'published-settings.json'),
+    { load: async () => f.main }, f.cell.publicKey);
+  await publisher.publish({ schema: 1, clients: [] });
+  const service = new CellControlService({ identityStore: { load: async () => f.main },
+    bootstrapStore: { read: async () => ({ version: 2, invitations: [{ status: 'consumed', phase: 'closed',
+      cellKey: f.cell.publicKey, awgPublicKey: 'present', awgPresharedKey: 'present' }] }) },
+    publisherForCell: () => publisher, authorityIdentity: async () => currentAuthority,
+    recoveryForCell: (cellKey, challenge) => restoration.proof({ cellKey, challenge, grant: f.grant,
+      authority: f.authority, endpointHost: '198.51.100.50' }),
+    backupForCell: cellKey => ({ grant: () => f.mainStore.grant(cellKey),
+      acknowledge: ack => f.mainStore.acknowledge(cellKey, ack, f.authority.publicKey) }) });
+  const server = await listenControlOnTunnel({ address: '127.0.0.1', port: 0, handler: service });
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const options = { connectionStore, identityStore: { load: async () => f.cell }, receiver,
+    host: '127.0.0.1', port: server.address().port, transport: 'tunnel' };
+  assert.equal((await syncCellSettings(options)).status, 'applied');
+  assert.equal((await receiver.load()).applied.revision, 1);
+  assert.equal((await receiver.load()).appliedGeneration, 1);
+  assert.equal((await f.store.read()).authority.proof.authorityKey, f.authority.publicKey);
+  assert.equal((await f.mainStore.read()).acks[0].authorityKey, f.authority.publicKey);
+  await assert.rejects(f.mainStore.acknowledge(f.cell.publicKey, oldAck, f.authority.publicKey));
+  currentAuthority = null;
+  await assert.rejects(syncCellSettings(options), /rejected/);
+  assert.equal((await f.store.read()).authority.proof.authorityKey, f.authority.publicKey);
+  currentAuthority = f.authority;
+  assert.equal((await syncCellSettings(options)).status, 'applied');
+});
+
+test('a new Cell pins live authority from its signed AWG registration receipt and can immediately poll restored Main', async t => {
+  const f = await fixture(t);
+  const identityStore = { load: async () => f.cell };
+  const bootstrapStore = new CellAwgBootstrapStore(path.join(f.directory, 'bootstrap.json'));
+  const owned = { load: async () => ({ phase: 'ready', spec: {
+    owner: { interfaceName: 'testawg' }, addresses: ['127.0.0.1/32'] } }), verify: async () => ({ up: true }) };
+  const registration = await listenAwgRegistrationOnTunnel({ address: '127.0.0.1', port: 0,
+    lifecycle: owned, identityStore: { load: async () => f.main }, bootstrapStore,
+    authorityIdentity: async () => f.authority, bootstrapRuntime: { store: bootstrapStore,
+      lifecycle: owned, controllerAddress: '127.0.0.1', registrationPort: 0, verifyCurrent: async () => true } });
+  t.after(() => new Promise(resolve => registration.close(resolve)));
+  const profile = generateOfficialProfile();
+  const serverPublicKey = awgKeys().publicKey;
+  const issued = await createAwgBootstrapInvitation({ controllerKey: f.main.publicKey,
+    endpointHost: '198.51.100.1', endpointPort: 53081, registrationPort: registration.address().port,
+    controllerAddress: '10.90.0.1', cellAddress: '10.90.0.2', serverPublicKey,
+    profile, keyManager: { generatePeerKeys: async () => ({ ...awgKeys(), presharedKey: crypto.randomBytes(32).toString('base64') }) },
+    permanentDescriptor: { version: 1, endpointHost: '198.51.100.1', endpointPort: 53084,
+      controllerAddress: '10.91.0.1', cellAddress: '10.91.0.2', controlPort: 53083,
+      serverPublicKey, profile } });
+  await bootstrapStore.reserve(issued.record);
+  await bootstrapStore.markReady(issued.record.id);
+  // The invitation deliberately pins a private real loopback transport in the
+  // test. Production invitation validation disallows loopback, so use the
+  // standard adapter while selecting only its destination locally.
+  const { registerAwgOverTunnel } = require('../lib/CellTunnelRegistrationTransport');
+  const store = new CellAwgConnectionStore(path.join(f.directory, 'fresh-connection.json'), identityStore,
+    { keyManager: { generatePeerKeys: async () => ({ ...awgKeys(), presharedKey: crypto.randomBytes(32).toString('base64') }) },
+      connect: options => registerAwgOverTunnel({ ...options, address: '127.0.0.1' }) });
+  await store.begin(issued.code);
+  await store.resume();
+  assert.equal((await store.read()).authorityKey, f.authority.publicKey);
+  const service = new CellControlService({ identityStore: { load: async () => f.main },
+    bootstrapStore: { read: async () => ({ version: 2, invitations: [{ status: 'consumed', phase: 'closed',
+      cellKey: f.cell.publicKey, awgPublicKey: 'present', awgPresharedKey: 'present' }] }) },
+    publisherForCell: () => ({ load: async () => null }), authorityIdentity: async () => f.authority });
+  const control = await listenControlOnTunnel({ address: '127.0.0.1', port: 0, handler: service });
+  t.after(() => new Promise(resolve => control.close(resolve)));
+  assert.equal((await syncCellSettings({ connectionStore: store, identityStore, receiver: {},
+    host: '127.0.0.1', port: control.address().port, transport: 'tunnel' })).status, 'no-settings');
+  const nextAuthority = identity();
+  await store.pinAuthority(nextAuthority.publicKey, 2);
+  assert.deepEqual(await epochFor(store), { key: nextAuthority.publicKey, generation: 2 });
+  await assert.rejects(store.pinAuthority(f.authority.publicKey, 1), /Stale/);
+  await assert.rejects(store.pinAuthority(f.authority.publicKey, 2), /conflicting/);
 });
 test('backup files are durable before generation publication; only recovery material in encrypted archive can prove takeover', async t => {
   const f = await fixture(t);

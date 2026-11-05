@@ -40,15 +40,15 @@ class MainBackupStore {
       return this.journal.write({ version: 1, grant, acks: [], recipients });
     });
   }
-  acknowledge(cellKey, ack) {
+  acknowledge(cellKey, ack, authorityKey = null) {
     ack = structuredClone(ack);
     return this.journal.exclusive(async () => {
       const state = await this.read();
       if (!state) throw new Error('No published backup generation');
       if (!state.recipients.includes(cellKey)) throw new Error('Cell is not included in this backup');
-      verifyBackupAck(ack, state.grant, cellKey);
-      if (!state.acks.some(item => item.cellKey === cellKey)) {
-        await this.journal.write({ ...state, acks: [...state.acks, ack] });
+      verifyBackupAck(ack, state.grant, cellKey, authorityKey);
+      if (!state.acks.some(item => item.cellKey === cellKey && item.authorityKey === authorityKey)) {
+        await this.journal.write({ ...state, acks: [...state.acks.filter(item => item.cellKey !== cellKey), ack] });
       }
       return ack;
     });

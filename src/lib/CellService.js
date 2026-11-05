@@ -15,6 +15,8 @@ const { cellDataLinkPlan } = require('./CellDataLinkPlan');
 const { stageCellDataPlan } = require('./CellDataStage');
 const { normalizeAwgConfig } = require('./CellAwgSnapshot');
 const { CellRoutingInbox } = require('./CellRoutingInbox');
+const { epochFor } = require('./CellControlAuthority');
+const { createRestoredEndpoint } = require('./CellRestoredEndpoint');
 const { acknowledgeCellRoutingRevision } = require('./CellControlService');
 const { CellRoutingCoordinator } = require('./CellRoutingCoordinator');
 const { CellDataActivation } = require('./CellDataActivation');
@@ -75,6 +77,9 @@ async function openCellServiceHost({ config, bootstrapHost, controlPath,
     stateDirectory: path.join(stateDirectory, 'data-link'),
     policyTable: 'awg_easy_3_data_cell',
     guardTable: 'awg_easy_3_data_guard_cell', retainGuard: true, runner });
+  const restoredEndpoint = createRestoredEndpoint({ stateDirectory,
+    connectionStore: bootstrapHost.connectionStore,
+    permanentPlanStore: bootstrapHost.permanentPlanStore, dataDeployment, runner });
   let stagedInProcess = false;
   const stageOffer = async offer => {
     if (stagedInProcess) return { created: false, staged: true };
@@ -106,6 +111,7 @@ async function openCellServiceHost({ config, bootstrapHost, controlPath,
   let routingActivated = false;
   let geoCandidate = null;
   const routingInbox = new CellRoutingInbox(path.join(stateDirectory, 'routing-inbox.json'), {
+    authority: () => epochFor(bootstrapHost.connectionStore, connection),
     controllerKey: connection.controllerKey, cellKey: connection.cellKey,
     nodeId: connection.invitationId,
     assignments: () => host.appliedAssignments(),
@@ -195,6 +201,8 @@ async function openCellServiceHost({ config, bootstrapHost, controlPath,
     temporaryInterfaceName: interfaceName,
     server: user.server, userDescriptor, controlPath,
     dataPublicKey: dataIdentity.publicKey,
+    recoverEndpoint: options => restoredEndpoint.ensure(options),
+    clearEndpoint: options => restoredEndpoint.close(options),
     receiveDataOffer: async offer => {
       await receivedDataOffer.reserve(offer);
       await stageOffer(offer);
@@ -230,6 +238,7 @@ async function openCellServiceHost({ config, bootstrapHost, controlPath,
   const boot = await host.recoverBoot();
   if (boot.configured !== true) throw new Error('Permanent Cell path not configured');
   if (cachedOffer && typeof host.stageDataLink === 'function') await host.stageDataLink();
+  if (typeof host.restoreEndpoint === 'function') await host.restoreEndpoint();
   if (cachedOffer && typeof host.restoreUserRouting === 'function') {
     // Keep the guard on invalid/mismatched cached state, but let authenticated
     // control polling repair a partial settings/routing transaction.
@@ -270,7 +279,10 @@ async function startCellService({ onFatal = () => {}, discovery = null,
     technicalStatus: () => technical?.status || technicalState,
     close: async () => {
       try { await geo.stop(); } finally {
-        try { await poller.stop(); } finally { if (technical) await technical.close(); }
+        try { await poller.stop(); } finally {
+          try { if (technical) await technical.close(); }
+          finally { if (host.clearRestoredEndpoint) await host.clearRestoredEndpoint(); }
+        }
       }
     } });
 }

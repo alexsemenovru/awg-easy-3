@@ -58,3 +58,13 @@ jobs:
             -v "$GITHUB_WORKSPACE:/work:ro" -w /work \
             --entrypoint node awg-easy-3:cells-ci-tests \
             scripts/test-technical-control.cjs
+      - name: Verify restored Main address with real control and data AWG
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --cap-add NET_ADMIN --cap-add SYS_ADMIN \
+            --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
+            --device /dev/net/tun -e AWG_DISPOSABLE_NETWORK_TEST=1 \
+            -v "$GITHUB_WORKSPACE:/work:ro" -w /work \
+            --entrypoint node awg-easy-3:cells-ci-tests \
+            scripts/test-restored-endpoint.cjs

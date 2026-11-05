@@ -14,7 +14,7 @@ const { CellSettingsPoller } = require('./CellSettingsPoller');
 // owns the cross-process installation lock and the temporary AWG lifecycle.
 function createPermanentCellRuntime({ stateDirectory, connectionStore, bootstrap,
   temporaryInterfaceName, receiver, clientRuntime, userDescriptor, dataPublicKey,
-  receiveDataOffer, receiveRoutingRevision, acknowledgeRoutingRevision, controlPath,
+  receiveDataOffer, receiveRoutingRevision, acknowledgeRoutingRevision, controlPath, recoverEndpoint,
   runner, sync = syncCellSettings,
   fetchDataOffer = fetchCellDataOffer,
   fetchRoutingRevision = fetchCellRoutingRevision } = {}) {
@@ -25,6 +25,7 @@ function createPermanentCellRuntime({ stateDirectory, connectionStore, bootstrap
     || (receiveDataOffer !== undefined && typeof receiveDataOffer !== 'function')
     || (receiveRoutingRevision !== undefined && typeof receiveRoutingRevision !== 'function')
     || (acknowledgeRoutingRevision !== undefined && typeof acknowledgeRoutingRevision !== 'function')
+    || (recoverEndpoint !== undefined && typeof recoverEndpoint !== 'function')
     || typeof fetchDataOffer !== 'function' || typeof fetchRoutingRevision !== 'function') {
     throw new TypeError('Cell connection, bootstrap and settings receiver required');
   }
@@ -49,12 +50,14 @@ function createPermanentCellRuntime({ stateDirectory, connectionStore, bootstrap
       port: connection.controllerPath.controlPort, transport: 'tunnel',
       ...(userDescriptor ? { userDescriptor } : {}),
       ...(dataPublicKey ? { dataPublicKey } : {}), ...(controlPath ? { controlPath } : {}) });
+    if (recoverEndpoint) await recoverEndpoint();
     if (receiveDataOffer && dataPublicKey) {
       const offer = await fetchDataOffer({ connectionStore, identityStore,
         host: connection.controllerPath.controllerAddress,
         port: connection.controllerPath.controlPort });
       if (offer) {
         await receiveDataOffer(offer);
+        if (recoverEndpoint) await recoverEndpoint();
         if (receiveRoutingRevision) {
           const routing = await fetchRoutingRevision({ connectionStore, identityStore,
             host: connection.controllerPath.controllerAddress,

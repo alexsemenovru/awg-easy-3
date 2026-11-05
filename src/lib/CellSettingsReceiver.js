@@ -5,17 +5,19 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { verifySettings } = require('./CellSettings');
 const { validateCellSettings } = require('./CellSettingsSchema');
+const { validEpochJournal, receivingState, sameEpoch, appliedState } = require('./CellControlAuthority');
 const queues = new Map();
 
 // apply must be idempotent, transactional for VPN/firewall, and reject failures.
 // validate must check the complete supported settings schema before ANY disk change.
 class CellSettingsReceiver {
-  constructor(filePath, { controllerKey, cellKey, validate = validateCellSettings, apply }) {
+  constructor(filePath, { controllerKey, cellKey, validate = validateCellSettings, apply, authority = async () => null }) {
     if (typeof validate !== 'function' || typeof apply !== 'function') throw new TypeError('Settings adapters required');
     this.filePath = path.resolve(filePath);
     this.trust = Object.freeze({ controllerKey, cellKey });
     this.validate = validate;
     this.apply = apply;
+    this.authority = authority;
   }
 
   async load() {
@@ -38,17 +40,17 @@ class CellSettingsReceiver {
     } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
     const state = JSON.parse(raw);
     if (!state || typeof state !== 'object' || Array.isArray(state)
-      || Object.keys(state).sort().join(',') !== 'applied,received,version'
-      || state.version !== 1 || !state.received || (state.applied !== null
+      || !validEpochJournal(state) || !state.received || (state.applied !== null
         && (typeof state.applied !== 'object' || Array.isArray(state.applied)))) {
       throw new Error('Invalid settings state');
     }
     verifySettings(state.received, this.trust);
     if (state.applied) {
       verifySettings(state.applied, this.trust);
-      if (state.applied.revision > state.received.revision
+      if ((state.appliedGeneration ?? 0) === (state.receivedGeneration ?? 0)
+        && (state.applied.revision > state.received.revision
         || (state.applied.revision === state.received.revision
-          && state.applied.payload !== state.received.payload)) throw new Error('Invalid applied settings state');
+          && state.applied.payload !== state.received.payload))) throw new Error('Invalid applied settings state');
     }
     return state;
   }
@@ -94,18 +96,22 @@ class CellSettingsReceiver {
       const { settings, hash } = verifySettings(envelope, this.trust);
       const validated = await this.validate(settings);
       const state = await this.load();
-      if (state) {
+      const authority = await this.authority();
+      if (state && sameEpoch(state, authority)) {
         if (envelope.revision < state.received.revision) throw new Error('Stale settings revision');
         if (envelope.revision === state.received.revision
           && hash !== verifySettings(state.received, this.trust).hash) throw new Error('Conflicting settings revision');
-        if (envelope.revision === state.applied?.revision) {
+        if (envelope.revision === state.applied?.revision && sameEpoch(state, authority, true)) {
           return { received: envelope.revision, applied: envelope.revision };
         }
       }
-      const next = { version: 1, received: envelope, applied: state?.applied || null };
+      // Only a reply verified under the pinned live authority reaches receive().
+      // Its first revision starts a new monotonic epoch after explicit takeover.
+      // Keep the old applied envelope until the replacement actually succeeds.
+      const next = receivingState(state, envelope, authority);
       await this.save(next);
       await this.apply(validated === undefined ? settings : validated);
-      await this.save({ ...next, applied: envelope });
+      await this.save(appliedState(next, envelope, authority));
       return { received: envelope.revision, applied: envelope.revision };
     });
   }

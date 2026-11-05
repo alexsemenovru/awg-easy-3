@@ -55,6 +55,7 @@ const { verifyMainUserTunnel } = require('./MainUserTunnelVerifier');
 const { verifyMainRoutingInterfaceSet } = require('./MainRoutingInterfaceVerifier');
 const { GeoIpUpdater } = require('./GeoIpUpdater');
 const { MainBackupStore } = require('./MainBackupStore');
+const { MainBackupRecovery } = require('./MainBackupRecovery');
 const { createConfigurationBackup } = require('./ConfigurationBackup');
 
 const validName = name => typeof name === 'string' && /^[a-zA-Z0-9_.-]{1,15}$/.test(name);
@@ -170,11 +171,18 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
     (await identityStore.load('controller')).publicKey);
   const backupForCell = cellKey => ({
     grant: async () => (await backupStore()).grant(cellKey),
-    acknowledge: async ack => (await backupStore()).acknowledge(cellKey, ack),
+    acknowledge: async ack => (await backupStore()).acknowledge(cellKey, ack,
+      (await authorityIdentity())?.publicKey ?? null),
   });
   const authorityIdentity = async () => {
     try { return await new ControlIdentityStore(file('authority.json')).load('controller'); }
     catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+  };
+  const recoveryForCell = async (cellKey, challenge) => {
+    const controller = await identityStore.load('controller');
+    return new MainBackupRecovery(file('restore-recovery.json'), controller.publicKey).proof({
+      cellKey, challenge, grant: await (await backupStore()).grant(cellKey),
+      authority: await authorityIdentity(), endpointHost });
   };
   const publisherForCell = cellKey => new CellSettingsPublisher(
     file(path.join('cell-settings', `${crypto.createHash('sha256').update(cellKey).digest('hex')}.json`)),
@@ -272,6 +280,16 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
       await verifiedConfig();
       const enrollment = await bootstrapStore.read();
       const identity = await identityStore.load('controller');
+      const recovery = await new MainBackupRecovery(file('restore-recovery.json'), identity.publicKey).journal.read();
+      if (recovery) {
+        const current = await (await backupStore()).read();
+        const authority = await authorityIdentity();
+        if (!current || !authority || current.grant.generation === recovery.grant.generation
+          && current.recipients.some(key => !current.acks.some(ack => ack.cellKey === key
+            && ack.authorityKey === authority.publicKey))) {
+          throw new Error('Wait for Cell recovery confirmations before creating a new backup');
+        }
+      }
       return createConfigurationBackup({ panelDirectory: path.dirname(userStateFile),
         mainDirectory: stateDirectory, outputDirectory: file('backups'),
         identity, generationStore: new MainBackupStore(file('backup-state.json'), identity.publicKey),
@@ -702,14 +720,14 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
         port: permanentControlPort, lifecycle: current.lifecycle,
         identityStore, bootstrapStore, publisherForCell, descriptorForCell,
         dataKeyForCell, dataOfferForCell, routingForCell, observedForCell,
-        backupForCell, authorityIdentity, serializeOperation: locked });
+        backupForCell, recoveryForCell, authorityIdentity, serializeOperation: locked });
     }),
     listen: async () => {
       const config = await verifiedConfig();
       const { runtime } = await coordinator(config);
       return listenAwgRegistrationOnTunnel({ address: controllerAddress,
         port: registrationPort, lifecycle, identityStore,
-        bootstrapStore, bootstrapRuntime: runtime, serializeOperation: locked });
+        bootstrapStore, bootstrapRuntime: runtime, serializeOperation: locked, authorityIdentity });
     },
   });
 }

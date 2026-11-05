@@ -51,9 +51,12 @@ function redirectSnapshot(input) {
 // AWG manifest/key/alias/ports before every mutation. Only one original UDP
 // tuple is redirected; the configured AWG endpoint and data-link never change.
 class CellControlRedirect {
-  constructor({ directory, verifyOwned, runner = runProcess }) {
+  constructor({ directory, verifyOwned, runner = runProcess, table = TABLE,
+    validateContext = context, makeSnapshot = redirectSnapshot }) {
     if (!path.isAbsolute(directory) || typeof verifyOwned !== 'function') throw new TypeError('Private control redirect directory and verifier required');
-    Object.assign(this, { directory, verifyOwned, runner });
+    if (![TABLE, 'awg_easy_3_restore_control', 'awg_easy_3_restore_data'].includes(table)
+      || typeof validateContext !== 'function' || typeof makeSnapshot !== 'function') throw new TypeError('Invalid owned endpoint table');
+    Object.assign(this, { directory, verifyOwned, runner, table, validateContext, makeSnapshot });
     this.file = path.join(directory, 'redirect.json');
   }
   async prepare() {
@@ -71,7 +74,7 @@ class CellControlRedirect {
     const state = JSON.parse(await fs.readFile(this.file, 'utf8'));
     if (state?.version !== 1 || !['prepared', 'active', 'removing'].includes(state.phase)
       || Object.keys(state).sort().join(',') !== 'context,phase,version') throw new Error('Invalid control redirect journal');
-    context(state.context);
+    this.validateContext(state.context);
     return state;
   }
   async save(state) {
@@ -92,8 +95,8 @@ class CellControlRedirect {
   async current() {
     const tables = JSON.parse((await this.runner('nft', ['-j', 'list', 'tables'])).stdout);
     if (!Array.isArray(tables?.nftables)) throw new Error('Technical NAT inventory unavailable');
-    if (!tables.nftables.some(item => item.table?.family === 'ip' && item.table.name === TABLE)) return null;
-    return JSON.parse((await this.runner('nft', ['-j', 'list', 'table', 'ip', TABLE])).stdout);
+    if (!tables.nftables.some(item => item.table?.family === 'ip' && item.table.name === this.table)) return null;
+    return JSON.parse((await this.runner('nft', ['-j', 'list', 'table', 'ip', this.table])).stdout);
   }
   async assertOwner(value, recovering = false) {
     if (await this.verifyOwned(value, { recovering }) !== true) throw new Error('Control AWG ownership is unproven');
@@ -122,23 +125,23 @@ class CellControlRedirect {
     if (!saved) { if (current !== null) throw new Error('Unowned technical NAT table'); return; }
     await this.assertOwner(saved.context, true);
     await this.runner('conntrack', ['--version'], { timeoutMs: 5000, maxOutputBytes: 1024 });
-    if (current && normalize(current) !== normalize(redirectSnapshot(saved.context))) throw new Error('Technical NAT table was changed externally');
+    if (current && normalize(current) !== normalize(this.makeSnapshot(saved.context))) throw new Error('Technical NAT table was changed externally');
     await this.save({ ...saved, phase: 'removing' });
-    if (current) await this.runner('nft', ['delete', 'table', 'ip', TABLE]);
+    if (current) await this.runner('nft', ['delete', 'table', 'ip', this.table]);
     await this.clearFlow(saved.context);
     await fs.unlink(this.file);
     await this.syncDirectory();
   }
   recover() { return this.exclusive(() => this.removeInner()); }
   apply(input) {
-    const value = context(input);
+    const value = this.validateContext(input);
     return this.exclusive(async () => {
       await this.prepare();
       await this.removeInner();
       await this.assertOwner(value);
       await this.runner('conntrack', ['--version'], { timeoutMs: 5000, maxOutputBytes: 1024 });
       await this.save({ version: 1, phase: 'prepared', context: value });
-      const snapshot = redirectSnapshot(value);
+      const snapshot = this.makeSnapshot(value);
       await runNftBatch(this.runner, JSON.stringify({ nftables: snapshot.nftables.map(item => ({ add: item })) }), this.directory);
       if (normalize(await this.current()) !== normalize(snapshot)) throw new Error('Technical NAT readback mismatch');
       await this.clearFlow(value);

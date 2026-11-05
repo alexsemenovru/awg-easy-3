@@ -1,7 +1,6 @@
 'use strict';
 const net = require('node:net');
-const path = require('node:path');
-const { CellBackupRecoveryStore } = require('./CellBackupRecoveryStore');
+const { recoveryStoreFor, authorityFor } = require('./CellControlAuthority');
 const { requireOwnedTunnelAddress } = require('./CellOwnedTunnel');
 const { verifyControl, signControl, signControlReply, signAuthorityReply } = require('./CellControlProtocol');
 const { verifyBackupGrant } = require('./BackupRecovery');
@@ -15,7 +14,7 @@ const { verifyRoutingRevision } = require('./CellRoutingRevision');
 
 class CellControlService {
   constructor({ identityStore, enrollmentStore, bootstrapStore, publisherForCell, descriptorForCell,
-    dataKeyForCell, dataOfferForCell, routingForCell, observedForCell, backupForCell,
+    dataKeyForCell, dataOfferForCell, routingForCell, observedForCell, backupForCell, recoveryForCell,
     authorityIdentity = async () => null, serializeOperation = work => work(),
     monotonicNow = () => performance.now() }) {
     if (enrollmentStore && bootstrapStore) {
@@ -31,6 +30,7 @@ class CellControlService {
     this.routingForCell = routingForCell;
     this.observedForCell = observedForCell;
     this.backupForCell = backupForCell;
+    this.recoveryForCell = recoveryForCell;
     this.authorityIdentity = authorityIdentity;
     this.serializeOperation = serializeOperation;
     this.inFlight = 0;
@@ -90,6 +90,15 @@ class CellControlService {
         && item.cellKey === request.cellKey);
     if (!allowed) {
       throw new Error('Unknown cell');
+    }
+    if (request.action === 'recover') {
+      if (!this.bootstrapStore) throw new Error('Backup recovery unavailable');
+      const recovery = this.recoveryForCell
+        ? await this.recoveryForCell(request.cellKey, request.payload) : null;
+      // This one envelope is verified by the pinned historical identity first,
+      // then by the Cell's separate recovery grant and fresh local challenge.
+      // It cannot authorize a settings/routing reply without the live authority.
+      return signControlReply({ ok: true, requestId: request.requestId, recovery }, controller.privateKey);
     }
     if (request.action === 'backup') {
       if (!this.bootstrapStore) throw new Error('Backup generations unavailable');
@@ -165,19 +174,11 @@ class CellControlService {
   }
 }
 
-function recoveryStoreFor(connectionStore, connection) {
-  return connectionStore.filePath ? new CellBackupRecoveryStore(
-    path.join(path.dirname(connectionStore.filePath), 'backup-recovery.json'), connection) : null;
-}
-async function authorityFor(connectionStore, connection) {
-  return (await recoveryStoreFor(connectionStore, connection)?.read())?.authority?.proof.authorityKey ?? null;
-}
-
 // Never accept a merely private host address: prove it belongs to our ready,
 // unchanged inter-server AWG device immediately before opening the listener.
 async function listenTunnelControlEndpoint({ address, port, identityStore, bootstrapStore,
   lifecycle, publisherForCell, descriptorForCell, dataKeyForCell, dataOfferForCell,
-  routingForCell, observedForCell, backupForCell, authorityIdentity, serializeOperation }) {
+  routingForCell, observedForCell, backupForCell, recoveryForCell, authorityIdentity, serializeOperation }) {
   if (!bootstrapStore || typeof bootstrapStore.read !== 'function') {
     throw new TypeError('AWG bootstrap store required for tunnel control');
   }
@@ -185,7 +186,7 @@ async function listenTunnelControlEndpoint({ address, port, identityStore, boots
   return listenControlOnTunnel({ address, port,
     handler: new CellControlService({ identityStore, bootstrapStore, publisherForCell,
       descriptorForCell, dataKeyForCell, dataOfferForCell, routingForCell, observedForCell,
-      backupForCell, authorityIdentity, serializeOperation }) });
+      backupForCell, recoveryForCell, authorityIdentity, serializeOperation }) });
 }
 
 // One explicit sync, not a daemon. Control address supplied locally until installer
@@ -202,18 +203,39 @@ async function syncCellSettings({ connectionStore, identityStore, receiver, host
   }
   const identity = await identityStore.load('cell');
   if (identity.publicKey !== connection.cellKey) throw new Error('Cell identity changed');
+  const recovery = recoveryStoreFor(connectionStore, connection);
+  const recovered = (await recovery?.read())?.authority;
+  if (recovered && connectionStore.pinAuthority) {
+    await connectionStore.pinAuthority(recovered.proof.authorityKey, recovered.grant.generation);
+  }
+  let recoveryAttempted = false;
   const exchange = async (action, payload = null) => {
     const request = signControl({ controllerKey: connection.controllerKey, action, payload }, identity.privateKey);
-    return exchangeOverTunnel({ address: host, port, request,
+    const send = async () => exchangeOverTunnel({ address: host, port, request,
       controllerKey: connection.controllerKey, authorityKey: await authorityFor(connectionStore, connection) });
+    try { return await send(); }
+    catch (error) {
+      const prior = await recovery?.read();
+      if (recoveryAttempted || !prior || prior.takeover) throw error;
+      recoveryAttempted = true;
+      const challenge = await recovery.challenge();
+      const probe = signControl({ controllerKey: connection.controllerKey,
+        action: 'recover', payload: challenge }, identity.privateKey);
+      const reply = await exchangeOverTunnel({ address: host, port, request: probe,
+        controllerKey: connection.controllerKey });
+      if (!reply.recovery) throw error;
+      await recovery.consume(reply.recovery);
+      if (connectionStore.pinAuthority) await connectionStore.pinAuthority(reply.recovery.authorityKey,
+        reply.recovery.generation);
+      return send();
+    }
   };
-  const recovery = recoveryStoreFor(connectionStore, connection);
   if (recovery) {
     const reply = await exchange('backup');
     if (reply.backup !== null) {
       verifyBackupGrant(reply.backup, connection.controllerKey);
       await recovery.accept(reply.backup);
-      const ack = await recovery.acknowledgement(identity.privateKey);
+      const ack = await recovery.acknowledgement(identity.privateKey, connection.authorityKey ?? null);
       const accepted = await exchange('backup-ack', ack);
       if (accepted.applied !== ack.generation) throw new Error('Backup acknowledgement mismatch');
     }

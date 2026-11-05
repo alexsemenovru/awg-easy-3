@@ -65,28 +65,29 @@ function verifyBackupGrant(grant, controllerKey) {
 }
 function ackBody(ack) {
   if (!exact(ack, ['version', 'controllerKey', 'cellKey', 'generation', 'backupId',
-    'archiveHash', 'signature']) || ack.version !== 1
+    'archiveHash', 'authorityKey', 'signature']) || ack.version !== 1
     || !token(ack.controllerKey, 32) || !token(ack.cellKey, 32)
     || !Number.isSafeInteger(ack.generation) || ack.generation < 1
-    || !token(ack.backupId, 16) || !/^[a-f0-9]{64}$/.test(ack.archiveHash)) invalid();
+    || !token(ack.backupId, 16) || !/^[a-f0-9]{64}$/.test(ack.archiveHash)
+    || ack.authorityKey !== null && !token(ack.authorityKey, 32)) invalid();
   return Buffer.from(JSON.stringify(['awg-easy-3/backup-ack/v1', ack.controllerKey,
-    ack.cellKey, ack.generation, ack.backupId, ack.archiveHash]));
+    ack.cellKey, ack.generation, ack.backupId, ack.archiveHash, ack.authorityKey]));
 }
-function signBackupAck(grant, cellPrivateKey) {
+function signBackupAck(grant, cellPrivateKey, authorityKey = null) {
   verifyBackupGrant(grant, grant.controllerKey);
   const key = signingKey(cellPrivateKey);
   const ack = { version: 1, controllerKey: grant.controllerKey, cellKey: keyId(key),
-    generation: grant.generation, backupId: grant.backupId, archiveHash: grant.archiveHash, signature: '' };
+    generation: grant.generation, backupId: grant.backupId, archiveHash: grant.archiveHash, authorityKey, signature: '' };
   ack.signature = crypto.sign(null, ackBody(ack), key).toString('base64url');
   return ack;
 }
-function verifyBackupAck(ack, grant, cellKey) {
+function verifyBackupAck(ack, grant, cellKey, authorityKey = ack.authorityKey) {
   try {
     verifyBackupGrant(grant, grant.controllerKey);
     const body = ackBody(ack);
     if (ack.controllerKey !== grant.controllerKey || ack.cellKey !== cellKey
       || ack.generation !== grant.generation || ack.backupId !== grant.backupId
-      || ack.archiveHash !== grant.archiveHash) invalid();
+      || ack.archiveHash !== grant.archiveHash || ack.authorityKey !== authorityKey) invalid();
     signatureValid(body, ack.signature, cellKey);
     return structuredClone(ack);
   } catch { invalid(); }

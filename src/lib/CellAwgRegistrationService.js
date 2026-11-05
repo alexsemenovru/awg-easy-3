@@ -5,13 +5,14 @@ const { signAwgReceipt } = require('./CellAwgRegistration');
 // The v2 service is never attached to a public listener. Its caller must use
 // the private AWG registration address and verified bootstrap firewall.
 class CellAwgRegistrationService {
-  constructor(identityStore, bootstrapStore) {
+  constructor(identityStore, bootstrapStore, { authorityIdentity = async () => null } = {}) {
     if (!identityStore || typeof identityStore.load !== 'function'
       || !bootstrapStore || typeof bootstrapStore.completeAwgSigned !== 'function') {
       throw new TypeError('AWG registration identity and store required');
     }
     this.identityStore = identityStore;
     this.bootstrapStore = bootstrapStore;
+    this.authorityIdentity = authorityIdentity;
   }
 
   async register(input, now = Date.now()) {
@@ -21,7 +22,9 @@ class CellAwgRegistrationService {
     if (result.status !== 'consumed' || result.awgPublicKey !== request.awgPublicKey) {
       throw new Error('Permanent AWG registration was not committed');
     }
-    return signAwgReceipt(request, controller.privateKey, now, result.permanentDescriptor);
+    const authority = await this.authorityIdentity();
+    return signAwgReceipt(request, controller.privateKey, now, result.permanentDescriptor,
+      authority?.publicKey);
   }
 }
 

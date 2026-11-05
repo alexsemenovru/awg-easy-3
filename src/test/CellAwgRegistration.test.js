@@ -78,3 +78,18 @@ test('v2 proof rejects malformed keys, extra fields and expired or future timest
   assert.throws(() => signAwgRegistration(f.invitation, f.cell.privateKey,
     { publicKey: key(), presharedKey: 'bad' }, 100000));
 });
+
+test('signed v4 registration pins a restored Main live authority for a newly enrolled Cell', () => {
+  const f = fixture();
+  const authority = identity();
+  const permanent = { version: 1, endpointHost: 'controller.example', endpointPort: 53084,
+    controllerAddress: '10.91.8.1', cellAddress: '10.91.8.2', controlPort: 53083,
+    serverPublicKey: key(), profile: generateOfficialProfile() };
+  const receipt = signAwgReceipt(f.request, f.controller.privateKey, 100002, permanent, authority.publicKey);
+  assert.equal(receipt.version, 4);
+  assert.equal(verifyAwgReceipt(receipt, f.request, f.controller.publicKey, 100003).authorityKey, authority.publicKey);
+  assert.throws(() => verifyAwgReceipt({ ...receipt, authorityKey: identity().publicKey },
+    f.request, f.controller.publicKey, 100003));
+  assert.throws(() => verifyAwgReceipt({ ...receipt, version: 3 }, f.request, f.controller.publicKey, 100003));
+  assert.throws(() => signAwgReceipt(f.request, f.controller.privateKey, 100002, permanent, f.controller.publicKey));
+});

@@ -15,7 +15,7 @@ async function openRegisteredCellHost({ stateDirectory, runtimeDirectory,
   connectionStore, identityStore, bootstrap, temporaryInterfaceName,
   server, userDescriptor, dataPublicKey, receiveDataOffer, receiveRoutingRevision,
   acknowledgeRoutingRevision, controlPath,
-  stageDataLink, restoreUserRouting,
+  stageDataLink, restoreUserRouting, recoverEndpoint, clearEndpoint,
   geoDatabase, runner, retainUserGuard = false,
   openSettings = openCellSettingsRuntime,
   openPermanent = createPermanentCellRuntime,
@@ -44,6 +44,7 @@ async function openRegisteredCellHost({ stateDirectory, runtimeDirectory,
     connectionStore, bootstrap, temporaryInterfaceName,
     receiver: settings.receiver, clientRuntime: settings.adapter, userDescriptor,
     dataPublicKey, receiveDataOffer, receiveRoutingRevision, acknowledgeRoutingRevision, controlPath,
+    ...(recoverEndpoint ? { recoverEndpoint: () => recoverEndpoint({ protect: () => settings.adapter.prepareBoot() }) } : {}),
     ...(runner ? { runner } : {}) });
   if (!permanent || !['recoverBoot', 'join', 'syncSettings']
     .every(name => typeof permanent[name] === 'function')) {
@@ -74,6 +75,10 @@ async function openRegisteredCellHost({ stateDirectory, runtimeDirectory,
     userGuardActive: () => settings.adapter.userGuardActive(),
     stageDataLink: stageDataLink ? () => locked(stageDataLink) : undefined,
     restoreUserRouting: restoreUserRouting ? () => locked(restoreUserRouting) : undefined,
+    restoreEndpoint: recoverEndpoint ? () => locked(() => recoverEndpoint({
+      protect: () => settings.adapter.prepareBoot() })) : undefined,
+    clearRestoredEndpoint: clearEndpoint ? () => locked(() => clearEndpoint({
+      protect: () => settings.adapter.prepareBoot() })) : undefined,
     createPoller: options => new CellSettingsPoller({ ...options, sync }),
     requiresGeoDatabase: () => locked(async () => {
       const applied = (await settings.receiver.load())?.applied;

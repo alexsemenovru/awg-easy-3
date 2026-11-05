@@ -73,6 +73,33 @@ test('routing inbox refuses a peer not in the applied assignment before any writ
   assert.equal(await inbox.load(), null);
 });
 
+test('routing revision can rebase only in a newer pinned authority generation and preserves the last applied route on failure', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-routing-epoch-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const controller = identity(), cell = identity(), authority = identity();
+  let epoch = null, fail = false;
+  const file = path.join(dir, 'routing.json');
+  const inbox = new CellRoutingInbox(file, { controllerKey: controller.publicKey,
+    cellKey: cell.publicKey, nodeId: cellId, authority: async () => epoch,
+    assignments: async () => ({ schema: 1, clients: [assignment] }),
+    apply: async () => { if (fail) throw new Error('route apply failed'); } });
+  const sign = revision => signRoutingRevision({ cellKey: cell.publicKey, revision,
+    view: view() }, controller.privateKey);
+  await inbox.receive(sign(8));
+  epoch = { key: authority.publicKey, generation: 3 };
+  fail = true;
+  await assert.rejects(inbox.receive(sign(1)), /route apply failed/);
+  assert.equal((await inbox.load()).applied.revision, 8);
+  fail = false;
+  assert.deepEqual(await inbox.restoreApplied(), { applied: 8 });
+  await inbox.receive(sign(1));
+  await inbox.receive(sign(2));
+  await assert.rejects(inbox.receive(sign(1)), /Stale/);
+  epoch = { key: authority.publicKey, generation: 2 };
+  await assert.rejects(inbox.receive(sign(9)), /control authority/);
+  assert.equal((await inbox.load()).applied.revision, 2);
+});
+
 test('GeoIP refresh reapplies the signed view without advancing its revision', async t => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-routing-geo-'));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));

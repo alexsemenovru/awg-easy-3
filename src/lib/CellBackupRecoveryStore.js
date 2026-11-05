@@ -7,13 +7,15 @@ const exact = (value, fields) => value && typeof value === 'object' && !Array.is
   && Object.keys(value).sort().join(',') === fields.sort().join(',');
 const fail = () => { throw new Error('Invalid Cell backup recovery state'); };
 class CellBackupRecoveryStore {
-  constructor(filePath, { controllerKey, cellKey }) {
+  constructor(filePath, { controllerKey, cellKey, authorityGeneration = 0 }) {
     this.controllerKey = controllerKey;
     this.cellKey = cellKey;
+    this.minimumGeneration = authorityGeneration;
     this.journal = new BackupJournal(filePath, value => {
       if (!exact(value, ['version', 'cellKey', 'grant', 'challenge', 'takeover', 'authority'])
         || value.version !== 1 || value.cellKey !== cellKey) fail();
       verifyBackupGrant(value.grant, controllerKey);
+      if (value.grant.generation < authorityGeneration) fail();
       if (value.challenge !== null && (!exact(value.challenge, ['nonce', 'expiresAt'])
         || !/^[A-Za-z0-9_-]{43}$/.test(value.challenge.nonce)
         || Buffer.from(value.challenge.nonce, 'base64url').toString('base64url') !== value.challenge.nonce
@@ -53,10 +55,11 @@ class CellBackupRecoveryStore {
         grant, challenge: null, takeover: null, authority: prior?.authority ?? null });
     });
   }
-  async acknowledgement(cellPrivateKey) {
+  async acknowledgement(cellPrivateKey, initialAuthorityKey = null) {
     const state = await this.read();
     if (!state) throw new Error('No accepted backup generation');
-    const ack = signBackupAck(state.grant, cellPrivateKey);
+    const ack = signBackupAck(state.grant, cellPrivateKey,
+      state.authority?.proof.authorityKey ?? initialAuthorityKey);
     if (ack.cellKey !== this.cellKey) fail();
     return ack;
   }
@@ -64,7 +67,7 @@ class CellBackupRecoveryStore {
     return this.journal.exclusive(async () => {
       if (!Number.isSafeInteger(now) || now < 0 || now > Number.MAX_SAFE_INTEGER - 60000) fail();
       const state = await this.read();
-      if (!state || state.takeover) throw new Error('Backup takeover is unavailable');
+      if (!state || state.takeover || state.grant.generation <= this.minimumGeneration) throw new Error('Backup takeover is unavailable');
       const challenge = state.challenge && state.challenge.expiresAt > now
         ? state.challenge : { nonce: crypto.randomBytes(32).toString('base64url'), expiresAt: now + 60000 };
       await this.journal.write({ ...state, challenge });
@@ -79,7 +82,7 @@ class CellBackupRecoveryStore {
     proof = structuredClone(proof);
     return this.journal.exclusive(async () => {
       const state = await this.read();
-      if (!state || state.takeover || !state.challenge
+      if (!state || state.takeover || state.grant.generation <= this.minimumGeneration || !state.challenge
         || !Number.isSafeInteger(now) || now < 0 || state.challenge.expiresAt <= now) {
         throw new Error('Backup takeover challenge expired or consumed');
       }

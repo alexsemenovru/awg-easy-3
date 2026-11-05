@@ -77,6 +77,14 @@ class CellAwgConnectionStore {
         validatePermanentDescriptor(state.controllerPath);
         fields.push('controllerPath');
       }
+      if (Object.hasOwn(state, 'authorityKey')) {
+        if (!token(state.authorityKey) || state.authorityKey === state.controllerKey) invalid();
+        fields.push('authorityKey');
+      }
+      if (Object.hasOwn(state, 'authorityGeneration')) {
+        if (!state.authorityKey || !Number.isSafeInteger(state.authorityGeneration) || state.authorityGeneration < 1) invalid();
+        fields.push('authorityGeneration');
+      }
       if (Object.keys(state).sort().join(',') !== fields.sort().join(',')
         || typeof state.invitationId !== 'string' || !/^[a-f0-9]{32}$/.test(state.invitationId)
         || !token(state.controllerKey)) invalid();
@@ -143,6 +151,20 @@ class CellAwgConnectionStore {
     });
   }
 
+  pinAuthority(authorityKey, generation) {
+    return this.exclusive(async () => {
+      const state = await this.read();
+      if (state?.status !== 'registered' || !token(authorityKey) || authorityKey === state.controllerKey
+        || !Number.isSafeInteger(generation) || generation < 1) invalid();
+      const prior = state.authorityGeneration ?? 0;
+      if (generation < prior || generation === prior && authorityKey !== state.authorityKey) {
+        throw new Error('Stale or conflicting permanent Cell authority');
+      }
+      if (generation === prior) return;
+      await this.save({ ...state, authorityKey, authorityGeneration: generation });
+    });
+  }
+
   resume() {
     return this.exclusive(async () => {
       const state = await this.read();
@@ -166,7 +188,8 @@ class CellAwgConnectionStore {
       await this.save({ version: 2, status: 'registered', cellKey: state.cellKey,
         controllerKey: state.invitation.controllerKey,
         invitationId: state.invitation.id, permanent: state.permanent,
-        ...(result.permanent ? { controllerPath: validatePermanentDescriptor(result.permanent) } : {}) });
+        ...(result.permanent ? { controllerPath: validatePermanentDescriptor(result.permanent) } : {}),
+        ...(result.authorityKey ? { authorityKey: result.authorityKey } : {}) });
       return { status: 'registered' };
     });
   }

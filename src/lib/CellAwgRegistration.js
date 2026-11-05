@@ -92,40 +92,45 @@ const requestHash = request => crypto.createHash('sha256').update(requestMessage
 function receiptMessage(receipt) {
   const basic = ['version', 'status', 'invitationId', 'requestId', 'cellKey',
     'controllerKey', 'requestHash', 'issuedAt'];
-  const permanent = receipt.version === 3
+  const permanent = [3, 4].includes(receipt.version)
     ? validatePermanentDescriptor(receipt.permanent) : null;
-  if (!exact(receipt, permanent ? [...basic, 'permanent'] : basic)
-    || ![2, 3].includes(receipt.version) || receipt.status !== 'registered'
+  if (!exact(receipt, [...basic, ...(permanent ? ['permanent'] : []),
+    ...(receipt.version === 4 ? ['authorityKey'] : [])])
+    || ![2, 3, 4].includes(receipt.version) || receipt.status !== 'registered'
     || !id(receipt.invitationId) || !id(receipt.requestId)
     || !token(receipt.cellKey, 32) || !token(receipt.controllerKey, 32)
     || !token(receipt.requestHash, 32)
-    || !Number.isSafeInteger(receipt.issuedAt) || receipt.issuedAt < 0) invalid();
+    || !Number.isSafeInteger(receipt.issuedAt) || receipt.issuedAt < 0
+    || receipt.version === 4 && (!token(receipt.authorityKey, 32)
+      || receipt.authorityKey === receipt.controllerKey)) invalid();
   return Buffer.from(JSON.stringify([`awg-easy-3/cell-awg-registration-receipt/v${receipt.version}`,
     receipt.invitationId, receipt.requestId, receipt.controllerKey, receipt.cellKey,
     receipt.requestHash, receipt.status, receipt.issuedAt,
-    ...(permanent ? [permanent] : [])]));
+    ...(permanent ? [permanent] : []), ...(receipt.version === 4 ? [receipt.authorityKey] : [])]));
 }
 
-function signAwgReceipt(request, identityPrivateKey, now = Date.now(), permanentDescriptor) {
+function signAwgReceipt(request, identityPrivateKey, now = Date.now(), permanentDescriptor, authorityKey) {
   let key;
   try { key = crypto.createPrivateKey(identityPrivateKey); }
   catch { invalid(); }
   if (key.asymmetricKeyType !== 'ed25519') invalid();
   const controllerKey = crypto.createPublicKey(key).export({ format: 'jwk' }).x;
   verifyAwgRegistration(request, controllerKey, now);
-  const receipt = { version: permanentDescriptor ? 3 : 2, status: 'registered', invitationId: request.invitationId,
+  const receipt = { version: authorityKey ? 4 : permanentDescriptor ? 3 : 2, status: 'registered', invitationId: request.invitationId,
     requestId: request.requestId, cellKey: request.cellKey, controllerKey,
     requestHash: requestHash(request), issuedAt: now };
   if (permanentDescriptor) receipt.permanent = validatePermanentDescriptor(permanentDescriptor);
+  if (authorityKey) receipt.authorityKey = authorityKey;
   return { ...receipt, signature: crypto.sign(null, receiptMessage(receipt), key).toString('base64url') };
 }
 
 function verifyAwgReceipt(receipt, request, controllerKey, now = Date.now()) {
   verifyAwgRegistration(request, controllerKey, now);
-  if (!receipt || ![2, 3].includes(receipt.version)
+  if (!receipt || ![2, 3, 4].includes(receipt.version)
     || !exact(receipt, ['version', 'status', 'invitationId', 'requestId', 'cellKey',
       'controllerKey', 'requestHash', 'issuedAt', 'signature',
-      ...(receipt.version === 3 ? ['permanent'] : [])])
+      ...([3, 4].includes(receipt.version) ? ['permanent'] : []),
+      ...(receipt.version === 4 ? ['authorityKey'] : [])])
     || !token(receipt.signature, 64)) invalid();
   const body = { ...receipt }; delete body.signature;
   const bytes = receiptMessage(body);
@@ -141,7 +146,8 @@ function verifyAwgReceipt(receipt, request, controllerKey, now = Date.now()) {
   if (!crypto.verify(null, bytes, key, Buffer.from(receipt.signature, 'base64url'))) invalid();
   return { controllerKey, cellKey: receipt.cellKey,
     invitationId: receipt.invitationId, status: 'registered',
-    ...(receipt.version === 3 ? { permanent: validatePermanentDescriptor(receipt.permanent) } : {}) };
+    ...([3, 4].includes(receipt.version) ? { permanent: validatePermanentDescriptor(receipt.permanent) } : {}),
+    ...(receipt.version === 4 ? { authorityKey: receipt.authorityKey } : {}) };
 }
 
 module.exports = { signAwgRegistration, renewAwgRegistration, verifyAwgRegistration, parseAwgRegistration,

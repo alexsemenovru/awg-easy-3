@@ -3,6 +3,7 @@
 const path = require('node:path');
 const { CellRuntimeAdapter } = require('./CellRuntimeAdapter');
 const { CellSettingsReceiver } = require('./CellSettingsReceiver');
+const { epochFor } = require('./CellControlAuthority');
 
 // Assemble only from a validated, registered Cell connection. The same
 // durable directory anchors the settings journal and the traffic guard.
@@ -27,6 +28,7 @@ async function openCellSettingsRuntime({ connectionStore, stateDirectory,
     ...(geoDatabase ? { geoDatabase } : {}), ...(runner ? { runner } : {}) });
   const receiver = new CellSettingsReceiver(path.join(stateDirectory, 'settings.json'), {
     controllerKey: connection.controllerKey, cellKey: connection.cellKey,
+    authority: () => epochFor(connectionStore),
     validate: settings => adapter.validate(settings),
     apply: settings => adapter.apply(settings),
   });

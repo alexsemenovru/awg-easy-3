@@ -5,6 +5,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { verifyRoutingRevision } = require('./CellRoutingRevision');
 const { assertRoutingMatchesAssignments } = require('./CellRoutingView');
+const { validEpochJournal, receivingState, sameEpoch, appliedState } = require('./CellControlAuthority');
 
 const queues = new Map();
 const MAX_FILE = 3 * 1024 * 1024;
@@ -13,7 +14,7 @@ const MAX_FILE = 3 * 1024 * 1024;
 // records what has been received and what was actually applied; an unsuccessful
 // revision is never acknowledged or replayed in place of the last good one.
 class CellRoutingInbox {
-  constructor(filePath, { controllerKey, cellKey, nodeId, assignments, apply }) {
+  constructor(filePath, { controllerKey, cellKey, nodeId, assignments, apply, authority = async () => null }) {
     if (typeof filePath !== 'string' || !path.isAbsolute(filePath)
       || typeof assignments !== 'function' || typeof apply !== 'function') {
       throw new TypeError('Private routing journal and adapters required');
@@ -22,6 +23,7 @@ class CellRoutingInbox {
     this.trust = { controllerKey, cellKey, nodeId };
     this.assignments = assignments;
     this.apply = apply;
+    this.authority = authority;
   }
 
   exclusive(work) {
@@ -49,15 +51,15 @@ class CellRoutingInbox {
       raw = await fs.readFile(this.filePath, 'utf8');
     } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
     const state = JSON.parse(raw);
-    if (!state || state.version !== 1 || !state.received
-      || Object.keys(state).sort().join(',') !== 'applied,received,version') {
+    if (!validEpochJournal(state) || !state.received) {
       throw new Error('Invalid routing journal');
     }
     const received = verifyRoutingRevision(state.received, this.trust);
     if (state.applied !== null) {
       const applied = verifyRoutingRevision(state.applied, this.trust);
-      if (applied.revision > received.revision
-        || applied.revision === received.revision && applied.hash !== received.hash) {
+      if ((state.appliedGeneration ?? 0) === (state.receivedGeneration ?? 0)
+        && (applied.revision > received.revision
+          || applied.revision === received.revision && applied.hash !== received.hash)) {
         throw new Error('Routing journal revision conflict');
       }
     }
@@ -94,20 +96,21 @@ class CellRoutingInbox {
       const incoming = verifyRoutingRevision(envelope, this.trust);
       const view = assertRoutingMatchesAssignments(incoming.view, await this.assignments());
       const state = await this.load();
-      if (state) {
+      const authority = await this.authority();
+      if (state && sameEpoch(state, authority)) {
         const prior = verifyRoutingRevision(state.received, this.trust);
         if (incoming.revision < prior.revision) throw new Error('Stale routing revision');
         if (incoming.revision === prior.revision && incoming.hash !== prior.hash) {
           throw new Error('Conflicting routing revision');
         }
-        if (state.applied?.revision === incoming.revision) {
+        if (state.applied?.revision === incoming.revision && sameEpoch(state, authority, true)) {
           return { received: incoming.revision, applied: incoming.revision };
         }
       }
-      const next = { version: 1, received: envelope, applied: state?.applied || null };
+      const next = receivingState(state, envelope, authority);
       await this.save(next);
       await this.apply(view, incoming.revision);
-      await this.save({ ...next, applied: envelope });
+      await this.save(appliedState(next, envelope, authority));
       return { received: incoming.revision, applied: incoming.revision };
     });
   }
