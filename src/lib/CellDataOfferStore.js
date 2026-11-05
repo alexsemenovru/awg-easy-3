@@ -108,4 +108,4 @@ class CellDataOfferStore {
   }
 }
 
-module.exports = { CellDataOfferStore, validatePublicDataOffer };
+module.exports = { CellDataOfferStore, validatePublicDataOffer, validateStoredOffer };

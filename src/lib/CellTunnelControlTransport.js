@@ -1,7 +1,7 @@
 'use strict';
 
 const net = require('node:net');
-const { verifyControlReply } = require('./CellControlProtocol');
+const { verifyControlReply, verifyAuthorityReply } = require('./CellControlProtocol');
 
 const REQUEST_LIMIT = 2304;
 const RESPONSE_LIMIT = 2 * 1024 * 1024;
@@ -90,7 +90,7 @@ async function listenControlOnTunnel({ address, port, handler, timeoutMs = 10000
   }
 }
 
-function exchangeOverTunnel({ address, port, request, controllerKey, timeoutMs = 10000 }) {
+function exchangeOverTunnel({ address, port, request, controllerKey, authorityKey = null, timeoutMs = 10000 }) {
   requireTunnelAddress(address);
   validPort(port);
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 100) throw new TypeError('Invalid control timeout');
@@ -112,7 +112,7 @@ function exchangeOverTunnel({ address, port, request, controllerKey, timeoutMs =
     socket.on('close', () => finish(new Error('Control connection closed')));
     readLine(socket, RESPONSE_LIMIT, frame => {
       try {
-        const reply = JSON.parse(frame.toString('utf8'));
+        const reply = verifyAuthorityReply(JSON.parse(frame.toString('utf8')), authorityKey);
         if (reply.ok !== true) throw new Error('Control request rejected');
         finish(null, verifyControlReply(reply, controllerKey, request.requestId));
       } catch { finish(new Error('Control reply rejected')); }

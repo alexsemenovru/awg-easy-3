@@ -73,4 +73,4 @@ class ControlIdentityStore {
   }
 }
 
-module.exports = { ControlIdentityStore };
+module.exports = { ControlIdentityStore, validateControlIdentity: validate };

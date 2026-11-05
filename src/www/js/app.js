@@ -35,6 +35,7 @@
   let clients = [];
   let selectedClient;
   let pendingDelete;
+  let pendingRename;
   let lastDiagnostics = [];
   let geoCountries = [];
   let authMode = 'password';
@@ -80,6 +81,7 @@
     if (timeout) showNotice.timer = setTimeout(() => notice.classList.add('hidden'), timeout);
   };
   const showLogin = () => {
+    backupView?.stop();
     clearTimeout(pendingEntryTimer);
     geoStatus?.stop();
     cellsView?.stop();
@@ -93,6 +95,7 @@
     loginView.classList.remove('hidden'); appView.classList.add('hidden'); logout.classList.add('hidden');
   };
   const showApp = () => {
+    backupView?.refresh();
     geoStatus?.start();
     cellsView?.start();
     loginView.classList.add('hidden'); appView.classList.remove('hidden'); logout.classList.remove('hidden');
@@ -248,6 +251,12 @@
       profileButton.setAttribute('aria-label', t('cellProfilePending'));
     } else profileButton.addEventListener('click', () => openProfile(client));
     node.querySelector('.delete-client').addEventListener('click', () => askDelete(client));
+    node.querySelector('.rename-client').addEventListener('click', () => {
+      pendingRename = client;
+      $('#rename-client-name').value = client.name;
+      $('#rename-dialog').showModal();
+      $('#rename-client-name').select();
+    });
     window.awgGeoClient?.attach({ node, client, codes: () => geoCountries,
       language: () => languageSelect.value || 'en', t,
       save: async geoPolicy => {
@@ -411,6 +420,24 @@
       showNotice(t('passwordChanged'));
     } catch {}
   });
+  $('#rename-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const client = pendingRename;
+    if (!client) return;
+    const button = event.target.querySelector('[type="submit"]');
+    button.disabled = true;
+    try {
+      const saved = await guarded(() => api.updateClient(client.id, { name: $('#rename-client-name').value.trim() }));
+      clients = clients.map(item => item.id === saved.id ? saved : item);
+      clientsNode.replaceChildren(...clients.map(renderClient));
+      lastDiagnostics.forEach(paintDiagnostics);
+      $('#rename-dialog').close();
+      showNotice(t('clientRenamed'));
+    } catch (error) {
+      if (error.status === 409) showNotice(t('duplicateName'), true);
+    } finally { button.disabled = false; }
+  });
+  $('#rename-dialog').addEventListener('close', () => { pendingRename = null; $('#rename-form').reset(); });
   $('#totp-start-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     try {
@@ -449,6 +476,7 @@
       showNotice(t('authModeChanged'));
     } catch (error) { if (error.status === 429) showNotice(t('tooManyAttempts'), true); }
   });
+  const backupView = window.awgBackup?.({ api, t, authMode: () => authMode, showNotice });
   const connection = window.awgConnection({
     load: (signal) => api.session(signal),
     createPoller,
@@ -475,7 +503,7 @@
   retryConnection.addEventListener('click', () => connection.retry());
   window.addEventListener('online', () => connection.retry());
   window.addEventListener('pageshow', (event) => { if (event.persisted) connection.start(); });
-  window.addEventListener('pagehide', () => { clearTimeout(pendingEntryTimer); connection.stop(); geoStatus?.stop(); cellsView?.stop(); });
+  window.addEventListener('pagehide', () => { clearTimeout(pendingEntryTimer); connection.stop(); geoStatus?.stop(); cellsView?.stop(); backupView?.stop(); });
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
       connection.start();

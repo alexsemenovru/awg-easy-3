@@ -54,6 +54,8 @@ const { verifyCellDataHandshake } = require('./CellDataHandshake');
 const { verifyMainUserTunnel } = require('./MainUserTunnelVerifier');
 const { verifyMainRoutingInterfaceSet } = require('./MainRoutingInterfaceVerifier');
 const { GeoIpUpdater } = require('./GeoIpUpdater');
+const { MainBackupStore } = require('./MainBackupStore');
+const { createConfigurationBackup } = require('./ConfigurationBackup');
 
 const validName = name => typeof name === 'string' && /^[a-zA-Z0-9_.-]{1,15}$/.test(name);
 const validPort = port => Number.isSafeInteger(port) && port >= 1 && port <= 65535;
@@ -164,6 +166,16 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
   const gate = new CellAwgPermanentRetirementGate({ deployment, keyManager });
   const lockPath = file('install.lock');
   const locked = work => withLock({ lockPath, work });
+  const backupStore = async () => new MainBackupStore(file('backup-state.json'),
+    (await identityStore.load('controller')).publicKey);
+  const backupForCell = cellKey => ({
+    grant: async () => (await backupStore()).grant(cellKey),
+    acknowledge: async ack => (await backupStore()).acknowledge(cellKey, ack),
+  });
+  const authorityIdentity = async () => {
+    try { return await new ControlIdentityStore(file('authority.json')).load('controller'); }
+    catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+  };
   const publisherForCell = cellKey => new CellSettingsPublisher(
     file(path.join('cell-settings', `${crypto.createHash('sha256').update(cellKey).digest('hex')}.json`)),
     identityStore, cellKey);
@@ -253,6 +265,20 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
   }
   await prepareStateDirectory(stateDirectory);
   return Object.freeze({ bootstrapStore, identityStore, configStore, bootstrap, deployment,
+    // The panel holds its shared state-writer queue until this call returns.
+    // Control/registration and reconciliation share the installation flock.
+    createBackup: () => locked(async () => {
+      if (!userStateFile) throw new Error('Main user state required for backup');
+      await verifiedConfig();
+      const enrollment = await bootstrapStore.read();
+      const identity = await identityStore.load('controller');
+      return createConfigurationBackup({ panelDirectory: path.dirname(userStateFile),
+        mainDirectory: stateDirectory, outputDirectory: file('backups'),
+        identity, generationStore: new MainBackupStore(file('backup-state.json'), identity.publicKey),
+        recipients: enrollment.invitations.filter(record => record.status === 'consumed'
+          && record.phase === 'closed').map(record => record.cellKey),
+        withQuiesced: work => work() });
+    }),
     isPristine: async () => {
       const [config, life, records, permanent, guardState] = await Promise.all([
         configStore.read(), lifecycle.load(), bootstrapStore.read(),
@@ -652,6 +678,7 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
           publicRecord.settings = await publisherForCell(record.cellKey).status();
           const observed = await observedForCell(record.cellKey).read().catch(() => null);
           if (observed) publicRecord.control = { path: observed.controlPath, receivedAt: observed.receivedAt };
+          publicRecord.backup = await (await backupStore()).status(record.cellKey);
         }
         return publicRecord;
       }));
@@ -674,14 +701,15 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
       return listenTunnelControlEndpoint({ address: permanentControllerAddress,
         port: permanentControlPort, lifecycle: current.lifecycle,
         identityStore, bootstrapStore, publisherForCell, descriptorForCell,
-        dataKeyForCell, dataOfferForCell, routingForCell, observedForCell });
+        dataKeyForCell, dataOfferForCell, routingForCell, observedForCell,
+        backupForCell, authorityIdentity, serializeOperation: locked });
     }),
     listen: async () => {
       const config = await verifiedConfig();
       const { runtime } = await coordinator(config);
       return listenAwgRegistrationOnTunnel({ address: controllerAddress,
         port: registrationPort, lifecycle, identityStore,
-        bootstrapStore, bootstrapRuntime: runtime });
+        bootstrapStore, bootstrapRuntime: runtime, serializeOperation: locked });
     },
   });
 }

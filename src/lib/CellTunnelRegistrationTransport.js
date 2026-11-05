@@ -17,7 +17,7 @@ function listenRegistrationOnTunnel({ address, port, handler, timeoutMs = 10000 
 // v2 entry point: only bind after both the owned AWG device and the caller's
 // bootstrap peer/firewall readback are ready. Legacy v1 uses the generic helper.
 async function listenAwgRegistrationOnTunnel({ address, port, lifecycle, identityStore,
-  bootstrapStore, bootstrapRuntime, timeoutMs = 10000 }) {
+  bootstrapStore, bootstrapRuntime, timeoutMs = 10000, serializeOperation = work => work() }) {
   if (!bootstrapStore || typeof bootstrapStore.completeAwgSigned !== 'function'
     || !identityStore || typeof identityStore.load !== 'function'
     || !bootstrapRuntime || typeof bootstrapRuntime.verifyCurrent !== 'function') {
@@ -30,7 +30,8 @@ async function listenAwgRegistrationOnTunnel({ address, port, lifecycle, identit
   await requireOwnedTunnelAddress({ lifecycle, address });
   if (await bootstrapRuntime.verifyCurrent() !== true) throw new Error('AWG bootstrap path is not verified');
   const handler = new CellRegistrationHandler(
-    new CellAwgRegistrationService(identityStore, bootstrapStore),
+    { register: request => serializeOperation(() =>
+      new CellAwgRegistrationService(identityStore, bootstrapStore).register(request)) },
     { parse: parseAwgRegistration });
   return listenRegistrationOnTunnel({ address, port, handler, timeoutMs });
 }

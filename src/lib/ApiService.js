@@ -55,7 +55,7 @@ const exportFileName = (name) => {
 class ApiService {
   constructor({ store, passwordManager, sessionManager, clientManager, diagnostics,
     geoStatus = () => ({}), cellStatus = async () => ({ state: 'unavailable', updatedAt: null, cells: [] }),
-    cellInvitationIssuer = null,
+    cellInvitationIssuer = null, backupCreator = null,
     cellEntryDetails = async () => ({}),
     qrGenerator = defaultQrGenerator, clock = () => Date.now() } = {}) {
     if (!store || typeof store.load !== 'function') throw new TypeError('store must provide load');
@@ -82,6 +82,9 @@ class ApiService {
     this.geoStatus = geoStatus;
     this.cellStatus = cellStatus;
     this.cellInvitationIssuer = cellInvitationIssuer;
+    this.backupCreator = backupCreator;
+    this.backupQueue = Promise.resolve();
+    this.lastBackupAt = -Infinity;
     this.cellEntryDetails = cellEntryDetails;
     this.cellInvitationQueue = Promise.resolve();
     this.lastCellInvitationAt = -Infinity;
@@ -132,6 +135,28 @@ class ApiService {
 
   async authorize(token) {
     if (!(await this.sessionManager.verify(token))) throw new ApiError(401, 'Authentication required');
+  }
+
+  async createBackup(token, credentials) {
+    await this.authorize(token);
+    if (!this.backupCreator) throw new ApiError(503, 'Configuration backup unavailable');
+    if (!credentials || Object.keys(credentials).some(key => !['password', 'code'].includes(key))) {
+      throw new ApiError(400, 'Invalid backup credentials');
+    }
+    const task = this.backupQueue.then(async () => {
+      await this.authorize(token);
+      if (this.clock() - this.lastBackupAt < 60000) throw new ApiError(429, 'Too many attempts. Try again later.');
+      await this.limitedAuth(async () => {
+        const valid = this.passwordManager.authenticate
+          ? await this.passwordManager.authenticate(credentials.password, credentials.code)
+          : await this.passwordManager.verify(credentials.password);
+        if (!valid) throw new ApiError(403, 'Invalid credentials');
+      });
+      this.lastBackupAt = this.clock();
+      return this.backupCreator();
+    });
+    this.backupQueue = task.catch(() => {});
+    return task;
   }
 
   async session(token) {
@@ -199,6 +224,12 @@ class ApiService {
           desiredRevision: cell.settings.desiredRevision,
           confirmedRevision: cell.settings.confirmedRevision,
           awaitingAck: cell.settings.awaitingAck,
+        } } : {}),
+        ...(cell.control ? { control: {
+          path: cell.control.path, receivedAt: cell.control.receivedAt,
+        } } : {}),
+        ...(cell.backup ? { backup: {
+          generation: cell.backup.generation, confirmed: cell.backup.confirmed,
         } } : {}),
       })) : [] });
   }

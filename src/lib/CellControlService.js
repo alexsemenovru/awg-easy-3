@@ -1,7 +1,10 @@
 'use strict';
 const net = require('node:net');
+const path = require('node:path');
+const { CellBackupRecoveryStore } = require('./CellBackupRecoveryStore');
 const { requireOwnedTunnelAddress } = require('./CellOwnedTunnel');
-const { verifyControl, signControl, signControlReply } = require('./CellControlProtocol');
+const { verifyControl, signControl, signControlReply, signAuthorityReply } = require('./CellControlProtocol');
+const { verifyBackupGrant } = require('./BackupRecovery');
 const { exchangeOverTunnel, listenControlOnTunnel } = require('./CellTunnelControlTransport');
 const { verifySettings } = require('./CellSettings');
 const { acknowledgeApplied } = require('./CellSettingsAck');
@@ -12,7 +15,8 @@ const { verifyRoutingRevision } = require('./CellRoutingRevision');
 
 class CellControlService {
   constructor({ identityStore, enrollmentStore, bootstrapStore, publisherForCell, descriptorForCell,
-    dataKeyForCell, dataOfferForCell, routingForCell, observedForCell,
+    dataKeyForCell, dataOfferForCell, routingForCell, observedForCell, backupForCell,
+    authorityIdentity = async () => null, serializeOperation = work => work(),
     monotonicNow = () => performance.now() }) {
     if (enrollmentStore && bootstrapStore) {
       throw new TypeError('Control service cannot mix legacy and AWG cell enrollment');
@@ -26,6 +30,9 @@ class CellControlService {
     this.dataOfferForCell = dataOfferForCell;
     this.routingForCell = routingForCell;
     this.observedForCell = observedForCell;
+    this.backupForCell = backupForCell;
+    this.authorityIdentity = authorityIdentity;
+    this.serializeOperation = serializeOperation;
     this.inFlight = 0;
     this.monotonicNow = monotonicNow;
     this.tokens = 16;
@@ -60,95 +67,125 @@ class CellControlService {
     budget.tokens--;
     this.inFlight++;
     try {
-      const controller = await this.identityStore.load('controller');
-      const request = verifyControl(bytes, controller.publicKey);
-      const enrollment = await (this.bootstrapStore || this.enrollmentStore).read();
-      const allowed = this.bootstrapStore
-        ? enrollment.version === 2 && enrollment.invitations.some(item =>
-          item.status === 'consumed' && item.phase === 'closed'
-          && item.cellKey === request.cellKey && item.awgPublicKey && item.awgPresharedKey)
-        : enrollment.invitations.some(item => item.status === 'consumed'
-          && item.cellKey === request.cellKey);
-      if (!allowed) {
-        throw new Error('Unknown cell');
-      }
-      if (request.action === 'announce') {
-        if (!this.bootstrapStore || !this.descriptorForCell) {
-          throw new Error('Cell descriptor announcements unavailable');
-        }
-        await this.descriptorForCell(request.cellKey).update(
-          validateCellUserDescriptor(request.payload));
-        return signControlReply({ ok: true, requestId: request.requestId,
-          announced: true }, controller.privateKey);
-      }
-      if (request.action === 'announce-data') {
-        if (!this.bootstrapStore || !this.dataKeyForCell) {
-          throw new Error('Cell data key announcements unavailable');
-        }
-        await this.dataKeyForCell(request.cellKey).reserve(
-          validateDataKeyAnnouncement(request.payload));
-        return signControlReply({ ok: true, requestId: request.requestId,
-          announced: true }, controller.privateKey);
-      }
-      if (request.action === 'offer-data') {
-        if (!this.bootstrapStore || !this.dataKeyForCell || !this.dataOfferForCell) {
-          throw new Error('Cell data offers unavailable');
-        }
-        const key = await this.dataKeyForCell(request.cellKey).read();
-        const offer = key ? await this.dataOfferForCell(request.cellKey)
-          .publicOffer(key.publicKey) : null;
-        return signControlReply({ ok: true, requestId: request.requestId,
-          offer }, controller.privateKey);
-      }
-      if (request.action === 'route') {
-        if (!this.bootstrapStore || !this.routingForCell) {
-          throw new Error('Cell routing revisions unavailable');
-        }
-        const routing = await this.routingForCell(request.cellKey).load();
-        return signControlReply({ ok: true, requestId: request.requestId,
-          routing }, controller.privateKey);
-      }
-      if (request.action === 'route-ack') {
-        if (!this.bootstrapStore || !this.routingForCell) {
-          throw new Error('Cell routing acknowledgements unavailable');
-        }
-        const result = await this.routingForCell(request.cellKey).acknowledge(request.payload);
-        return signControlReply({ ok: true, requestId: request.requestId,
-          applied: result.revision }, controller.privateKey);
-      }
-      const publisher = this.publisherForCell(request.cellKey);
-      if (request.action === 'ack') {
-        const result = await publisher.acknowledge(request.payload);
-        return signControlReply({ ok: true, requestId: request.requestId,
-          applied: result.revision }, controller.privateKey);
-      }
-      if (this.observedForCell) {
-        // Optional diagnostics never block settings on a full/unavailable disk.
-        try {
-          await this.observedForCell(request.cellKey).update(
-            request.payload?.controlPath ?? null, request.issuedAt);
-        } catch { /* Keep the last observation; continue authenticated settings. */ }
-      }
-      const state = await publisher.load();
-      return signControlReply({ ok: true, requestId: request.requestId,
-        settings: state?.desired || null }, controller.privateKey);
+      return await this.serializeOperation(() => this.respond(bytes));
     } catch { return { ok: false, error: 'control_unavailable' }; }
     finally { this.inFlight--; }
   }
+
+  async reply(reply, privateKey) {
+    const signed = signControlReply(reply, privateKey);
+    const authority = await this.authorityIdentity();
+    return authority ? signAuthorityReply(signed, authority.privateKey) : signed;
+  }
+
+  async respond(bytes) {
+    const controller = await this.identityStore.load('controller');
+    const request = verifyControl(bytes, controller.publicKey);
+    const enrollment = await (this.bootstrapStore || this.enrollmentStore).read();
+    const allowed = this.bootstrapStore
+      ? enrollment.version === 2 && enrollment.invitations.some(item =>
+        item.status === 'consumed' && item.phase === 'closed'
+        && item.cellKey === request.cellKey && item.awgPublicKey && item.awgPresharedKey)
+      : enrollment.invitations.some(item => item.status === 'consumed'
+        && item.cellKey === request.cellKey);
+    if (!allowed) {
+      throw new Error('Unknown cell');
+    }
+    if (request.action === 'backup') {
+      if (!this.bootstrapStore) throw new Error('Backup generations unavailable');
+      return this.reply({ ok: true, requestId: request.requestId,
+        backup: this.backupForCell ? await this.backupForCell(request.cellKey).grant() : null }, controller.privateKey);
+    }
+    if (request.action === 'backup-ack') {
+      if (!this.bootstrapStore || !this.backupForCell) throw new Error('Backup acknowledgements unavailable');
+      const ack = await this.backupForCell(request.cellKey).acknowledge(request.payload);
+      return this.reply({ ok: true, requestId: request.requestId,
+        applied: ack.generation }, controller.privateKey);
+    }
+    if (request.action === 'announce') {
+      if (!this.bootstrapStore || !this.descriptorForCell) {
+        throw new Error('Cell descriptor announcements unavailable');
+      }
+      await this.descriptorForCell(request.cellKey).update(
+        validateCellUserDescriptor(request.payload));
+      return this.reply({ ok: true, requestId: request.requestId,
+        announced: true }, controller.privateKey);
+    }
+    if (request.action === 'announce-data') {
+      if (!this.bootstrapStore || !this.dataKeyForCell) {
+        throw new Error('Cell data key announcements unavailable');
+      }
+      await this.dataKeyForCell(request.cellKey).reserve(
+        validateDataKeyAnnouncement(request.payload));
+      return this.reply({ ok: true, requestId: request.requestId,
+        announced: true }, controller.privateKey);
+    }
+    if (request.action === 'offer-data') {
+      if (!this.bootstrapStore || !this.dataKeyForCell || !this.dataOfferForCell) {
+        throw new Error('Cell data offers unavailable');
+      }
+      const key = await this.dataKeyForCell(request.cellKey).read();
+      const offer = key ? await this.dataOfferForCell(request.cellKey)
+        .publicOffer(key.publicKey) : null;
+      return this.reply({ ok: true, requestId: request.requestId,
+        offer }, controller.privateKey);
+    }
+    if (request.action === 'route') {
+      if (!this.bootstrapStore || !this.routingForCell) {
+        throw new Error('Cell routing revisions unavailable');
+      }
+      const routing = await this.routingForCell(request.cellKey).load();
+      return this.reply({ ok: true, requestId: request.requestId,
+        routing }, controller.privateKey);
+    }
+    if (request.action === 'route-ack') {
+      if (!this.bootstrapStore || !this.routingForCell) {
+        throw new Error('Cell routing acknowledgements unavailable');
+      }
+      const result = await this.routingForCell(request.cellKey).acknowledge(request.payload);
+      return this.reply({ ok: true, requestId: request.requestId,
+        applied: result.revision }, controller.privateKey);
+    }
+    const publisher = this.publisherForCell(request.cellKey);
+    if (request.action === 'ack') {
+      const result = await publisher.acknowledge(request.payload);
+      return this.reply({ ok: true, requestId: request.requestId,
+        applied: result.revision }, controller.privateKey);
+    }
+    if (this.observedForCell) {
+      // Optional diagnostics never block settings on a full/unavailable disk.
+      try {
+        await this.observedForCell(request.cellKey).update(
+          request.payload?.controlPath ?? null, request.issuedAt);
+      } catch { /* Keep the last observation; continue authenticated settings. */ }
+    }
+    const state = await publisher.load();
+    return this.reply({ ok: true, requestId: request.requestId,
+      settings: state?.desired || null }, controller.privateKey);
+  }
+}
+
+function recoveryStoreFor(connectionStore, connection) {
+  return connectionStore.filePath ? new CellBackupRecoveryStore(
+    path.join(path.dirname(connectionStore.filePath), 'backup-recovery.json'), connection) : null;
+}
+async function authorityFor(connectionStore, connection) {
+  return (await recoveryStoreFor(connectionStore, connection)?.read())?.authority?.proof.authorityKey ?? null;
 }
 
 // Never accept a merely private host address: prove it belongs to our ready,
 // unchanged inter-server AWG device immediately before opening the listener.
 async function listenTunnelControlEndpoint({ address, port, identityStore, bootstrapStore,
   lifecycle, publisherForCell, descriptorForCell, dataKeyForCell, dataOfferForCell,
-  routingForCell, observedForCell }) {
+  routingForCell, observedForCell, backupForCell, authorityIdentity, serializeOperation }) {
   if (!bootstrapStore || typeof bootstrapStore.read !== 'function') {
     throw new TypeError('AWG bootstrap store required for tunnel control');
   }
   await requireOwnedTunnelAddress({ lifecycle, address });
   return listenControlOnTunnel({ address, port,
     handler: new CellControlService({ identityStore, bootstrapStore, publisherForCell,
-      descriptorForCell, dataKeyForCell, dataOfferForCell, routingForCell, observedForCell }) });
+      descriptorForCell, dataKeyForCell, dataOfferForCell, routingForCell, observedForCell,
+      backupForCell, authorityIdentity, serializeOperation }) });
 }
 
 // One explicit sync, not a daemon. Control address supplied locally until installer
@@ -168,8 +205,19 @@ async function syncCellSettings({ connectionStore, identityStore, receiver, host
   const exchange = async (action, payload = null) => {
     const request = signControl({ controllerKey: connection.controllerKey, action, payload }, identity.privateKey);
     return exchangeOverTunnel({ address: host, port, request,
-      controllerKey: connection.controllerKey });
+      controllerKey: connection.controllerKey, authorityKey: await authorityFor(connectionStore, connection) });
   };
+  const recovery = recoveryStoreFor(connectionStore, connection);
+  if (recovery) {
+    const reply = await exchange('backup');
+    if (reply.backup !== null) {
+      verifyBackupGrant(reply.backup, connection.controllerKey);
+      await recovery.accept(reply.backup);
+      const ack = await recovery.acknowledgement(identity.privateKey);
+      const accepted = await exchange('backup-ack', ack);
+      if (accepted.applied !== ack.generation) throw new Error('Backup acknowledgement mismatch');
+    }
+  }
   if (userDescriptor !== undefined) {
     if (transport !== 'tunnel') throw new Error('Cell descriptor requires AWG control');
     const announced = await exchange('announce', validateCellUserDescriptor(userDescriptor));
@@ -203,7 +251,7 @@ async function fetchCellDataOffer({ connectionStore, identityStore, host, port }
   const request = signControl({ controllerKey: connection.controllerKey,
     action: 'offer-data' }, identity.privateKey);
   const reply = await exchangeOverTunnel({ address: host, port, request,
-    controllerKey: connection.controllerKey });
+    controllerKey: connection.controllerKey, authorityKey: await authorityFor(connectionStore, connection) });
   return reply.offer === null ? null : validatePublicDataOffer(reply.offer);
 }
 
@@ -219,7 +267,7 @@ async function fetchCellRoutingRevision({ connectionStore, identityStore, host, 
   const request = signControl({ controllerKey: connection.controllerKey,
     action: 'route' }, identity.privateKey);
   const reply = await exchangeOverTunnel({ address: host, port, request,
-    controllerKey: connection.controllerKey });
+    controllerKey: connection.controllerKey, authorityKey: await authorityFor(connectionStore, connection) });
   if (reply.routing === null) return null;
   verifyRoutingRevision(reply.routing, { controllerKey: connection.controllerKey,
     cellKey: connection.cellKey, nodeId: connection.invitationId });
@@ -241,7 +289,7 @@ async function acknowledgeCellRoutingRevision({ connectionStore, identityStore,
   const request = signControl({ controllerKey: connection.controllerKey,
     action: 'route-ack', payload: ack }, identity.privateKey);
   const reply = await exchangeOverTunnel({ address: host, port, request,
-    controllerKey: connection.controllerKey });
+    controllerKey: connection.controllerKey, authorityKey: await authorityFor(connectionStore, connection) });
   if (reply.applied !== ack.revision) throw new Error('Routing acknowledgement mismatch');
   return { applied: ack.revision };
 }

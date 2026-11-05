@@ -8,6 +8,7 @@ const { TextDecoder } = require('node:util');
 const { validateState } = require('./StateStore');
 const { sealBackup, openBackup } = require('./BackupEnvelope');
 const { validEndpointHost } = require('./CellAwgEndpointHost');
+const { validateRecoveryMaterial } = require('./BackupRecovery');
 
 const LIMIT = 8 * 1024 * 1024;
 const FILE_LIMIT = 4 * 1024 * 1024;
@@ -25,9 +26,10 @@ function allowed(area, name) {
     || /^data-links\/[a-f0-9]{64}\/plan\.json$/.test(name));
 }
 function validateSnapshot(value) {
-  if (!exact(value, ['version', 'kind', 'createdAt', 'files']) || value.version !== 1 || value.kind !== KIND
+  if (!exact(value, ['version', 'kind', 'createdAt', 'files', ...(value?.recovery === undefined ? [] : ['recovery'])]) || value.version !== 1 || value.kind !== KIND
     || !Number.isSafeInteger(value.createdAt) || value.createdAt < 0 || !Array.isArray(value.files)
     || !value.files.length || value.files.length > MAX_FILES) fail();
+  if (value.recovery !== undefined) validateRecoveryMaterial(value.recovery);
   const names = new Set();
   let total = 0;
   for (const file of value.files) {
@@ -82,7 +84,7 @@ async function readPrivate(root, name) {
 // A second pass detects accidental changes; it does not replace quiescence or
 // Cell generation/fencing, and is not exposed as a finished product backup.
 async function captureConfiguration({ panelDirectory, mainDirectory = null, files,
-  withQuiesced, now = Date.now }) {
+  withQuiesced, now = Date.now, recovery }) {
   if (!path.isAbsolute(panelDirectory) || mainDirectory !== null && !path.isAbsolute(mainDirectory)
     || typeof withQuiesced !== 'function' || !Array.isArray(files) || files.length > MAX_FILES) {
     throw new TypeError('Explicit snapshot roots, file inventory and quiesced coordinator required');
@@ -100,7 +102,8 @@ async function captureConfiguration({ panelDirectory, mainDirectory = null, file
       captured.push({ ...item, sha256: hash(bytes), data: bytes.toString('base64') });
       if (Buffer.byteLength(JSON.stringify(captured)) > LIMIT) fail();
     }
-    const snapshot = validateSnapshot({ version: 1, kind: KIND, createdAt: now(), files: captured });
+    const snapshot = validateSnapshot({ version: 1, kind: KIND, createdAt: now(), files: captured,
+      ...(recovery === undefined ? {} : { recovery: validateRecoveryMaterial(recovery) }) });
     for (const item of captured) {
       if (hash(await readPrivate(roots[item.area], item.name)) !== item.sha256) throw new Error('Backup source changed before snapshot commit');
     }
@@ -175,4 +178,4 @@ async function stageConfiguration(snapshot, directory) {
   return { staged: true, files: snapshot.files.length };
 }
 module.exports = { captureConfiguration, decodeConfiguration, stageConfiguration,
-  prepareRestoredPanelState, validateSnapshot };
+  prepareRestoredPanelState, validateSnapshot, allowedSnapshotFile: allowed };

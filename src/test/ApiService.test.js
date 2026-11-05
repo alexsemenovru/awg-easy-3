@@ -61,7 +61,8 @@ test('Cell inventory is authenticated and never exposes unvalidated private fiel
   const { service } = fixture();
   const cell = { id: 'a'.repeat(32), status: 'consumed', phase: 'closed',
     createdAt: 100, settings: { desiredRevision: 2,
-      confirmedRevision: 1, awaitingAck: true } };
+      confirmedRevision: 1, awaitingAck: true }, control: { path: 'technical', receivedAt: 150 },
+    backup: { generation: 1, confirmed: false } };
   await assert.rejects(service.cellsInfo('wrong'), error => error.statusCode === 401);
   assert.deepEqual(await service.cellsInfo('signed-token'),
     { state: 'unavailable', updatedAt: null, cells: [] });
@@ -103,6 +104,25 @@ test('logs in with a generic failure and an HTTP-only cookie', async () => {
     cookie: 'session=signed-token; HttpOnly',
   });
   await assert.rejects(service.login('wrong'), (error) => error.statusCode === 401 && /Invalid credentials/.test(error.message));
+});
+
+test('backup requires a live session and fresh credentials, bounds frequency and serializes duplicate requests', async () => {
+  const { service } = fixture();
+  let captures = 0;
+  service.backupCreator = async () => { captures++; await new Promise(setImmediate); return { archive: 'encrypted' }; };
+  await assert.rejects(service.createBackup('wrong', { password: 'correct-password' }), error => error.statusCode === 401);
+  await assert.rejects(service.createBackup('signed-token', { password: 'incorrect' }), error => error.statusCode === 403);
+  assert.equal(captures, 0);
+  const results = await Promise.allSettled([service.createBackup('signed-token', { password: 'correct-password' }),
+    service.createBackup('signed-token', { password: 'correct-password' })]);
+  assert.equal(results.filter(item => item.status === 'fulfilled').length, 1);
+  assert.equal(captures, 1);
+  assert.equal(results.find(item => item.status === 'rejected').reason.statusCode, 429);
+  service.lastBackupAt = -Infinity;
+  service.passwordManager.authenticate = async (password, code) => password === 'correct-password' && code === '123456';
+  await assert.rejects(service.createBackup('signed-token', { password: 'correct-password', code: '000000' }), error => error.statusCode === 403);
+  await service.createBackup('signed-token', { password: 'correct-password', code: '123456' });
+  assert.equal(captures, 2);
 });
 
 test('limits repeated authentication failures without disclosing a code or password', async () => {

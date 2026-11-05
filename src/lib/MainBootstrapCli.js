@@ -206,7 +206,8 @@ async function runMainBootstrapCli({ args, env, input, output,
         statusTimer.unref();
       }
       if (config.invitationSocket) {
-        invitationListener = await listenInvitationSocket(config.invitationSocket, () => host.issueAuto());
+        invitationListener = await listenInvitationSocket(config.invitationSocket, () => host.issueAuto(),
+          { createBackup: () => host.createBackup() });
       }
       discovery = await startDiscovery({ role: 'main', config, host });
       output.write(`${JSON.stringify({ status: 'serving',

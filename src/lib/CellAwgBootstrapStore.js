@@ -281,4 +281,4 @@ class CellAwgBootstrapStore {
   }
 }
 
-module.exports = { CellAwgBootstrapStore };
+module.exports = { CellAwgBootstrapStore, validateBootstrapState: validateState };

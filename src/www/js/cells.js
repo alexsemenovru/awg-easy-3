@@ -84,6 +84,12 @@ window.awgCells = ({ api, node, summary, list, translate, createPoller }) => {
         });
         row.append(revision);
       }
+      if (cell.backup?.generation) {
+        const backup = document.createElement('span');
+        backup.textContent = translate(cell.backup.confirmed ? 'backupCellConfirmed' : 'backupCellPending',
+          { generation: cell.backup.generation });
+        row.append(backup);
+      }
       list.append(row);
     }
   };

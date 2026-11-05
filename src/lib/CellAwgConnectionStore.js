@@ -172,4 +172,4 @@ class CellAwgConnectionStore {
   }
 }
 
-module.exports = { CellAwgConnectionStore };
+module.exports = { CellAwgConnectionStore, deriveAwgPublicKey: publicFromPrivate };

@@ -18,7 +18,8 @@ const { SessionManager } = require('./SessionManager');
 const { StateStore } = require('./StateStore');
 const { MainCellStatusSnapshot } = require('./MainCellStatusSnapshot');
 const { MainCellEntrySnapshot } = require('./MainCellEntrySnapshot');
-const { requestInvitation } = require('./MainCellInvitationSocket');
+const { requestInvitation, requestBackup } = require('./MainCellInvitationSocket');
+const { createConfigurationBackup } = require('./ConfigurationBackup');
 const { assignmentFromClient, assignmentFingerprint } = require('./CellAssignedSettings');
 
 class Application {
@@ -159,6 +160,10 @@ class Application {
           : { state: 'unavailable', updatedAt: null, cells: [] },
         cellInvitationIssuer: this.mainCellInvitationSocket
           ? () => requestInvitation(this.mainCellInvitationSocket) : null,
+        backupCreator: () => serializeOperation(() => this.mainCellInvitationSocket
+          ? requestBackup(this.mainCellInvitationSocket)
+          : createConfigurationBackup({ panelDirectory: this.dataDirectory,
+            outputDirectory: path.join(this.dataDirectory, 'backups'), withQuiesced: work => work() })),
         cellEntryDetails: this.entryDetails });
       this.http = this.httpFactory({ api, publicDirectory: this.publicDirectory });
       const listening = await this.http.listen({ host: state.server.address4, port: state.server.panelPort });

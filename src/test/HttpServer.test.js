@@ -52,6 +52,11 @@ const fixture = async (t) => {
       calls.push(['issueCellInvitation']);
       return { code: 'private-invitation' };
     },
+    createBackup: async (token, proof) => {
+      if (token !== 'valid') throw Object.assign(new Error('Authentication required'), { statusCode: 401 });
+      calls.push(['createBackup', proof]);
+      return { id: 'test-archive', archive: 'encrypted', recoveryKey: 'separate-key' };
+    },
     createClient: async (token, input) => ({ client: { id: 'new', ...input }, vpnLink: 'vpn://share' }),
     updateClient: async (token, id, input) => ({ id, ...input }),
     deleteClient: async () => ({ success: true }),
@@ -131,6 +136,20 @@ test('supports policy mutation and explicit export routes', async (t) => {
   assert.equal(native.headers['cache-control'], 'no-store');
   assert.equal(native.headers['x-content-type-options'], 'nosniff');
   assert.equal(exported.headers['content-type'], 'text/plain; charset=utf-8');
+});
+
+test('backup export is a same-origin authenticated POST, never a cacheable URL', async t => {
+  const { port, calls } = await fixture(t);
+  assert.equal((await request(port, 'POST', '/api/v1/backups', { body: { password: 'test' } })).status, 401);
+  assert.equal((await request(port, 'POST', '/api/v1/backups', { cookie: 'awg_easy_3_session=valid',
+    headers: { Origin: 'https://other.invalid' }, body: { password: 'test' } })).status, 403);
+  assert.equal((await request(port, 'GET', '/api/v1/backups', { cookie: 'awg_easy_3_session=valid' })).status, 404);
+  const saved = await request(port, 'POST', '/api/v1/backups', { cookie: 'awg_easy_3_session=valid',
+    body: { password: 'test', code: '123456' } });
+  assert.equal(saved.status, 201);
+  assert.equal(saved.headers['cache-control'], 'no-store');
+  assert.deepEqual(calls.filter(call => call[0] === 'createBackup'),
+    [['createBackup', { password: 'test', code: '123456' }]]);
 });
 
 test('routes authenticator enrollment and mode changes through authenticated same-origin APIs', async (t) => {

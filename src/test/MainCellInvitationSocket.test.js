@@ -5,7 +5,7 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
-const { listenInvitationSocket, requestInvitation } = require('../lib/MainCellInvitationSocket');
+const { listenInvitationSocket, requestInvitation, requestBackup } = require('../lib/MainCellInvitationSocket');
 
 test('private control socket issues one bounded invitation and closes cleanly', { skip: process.platform === 'win32' }, async t => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-cell-socket-'));
@@ -19,6 +19,23 @@ test('private control socket issues one bounded invitation and closes cleanly', 
   await assert.rejects(listenInvitationSocket(socketPath, async () => 'x'), /already in use/);
   await listener.close();
   await assert.rejects(fs.lstat(socketPath), { code: 'ENOENT' });
+});
+
+test('private socket carries a bounded encrypted backup separately from invitations', { skip: process.platform === 'win32' }, async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-backup-socket-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const socketPath = path.join(directory, 'control.sock');
+  let count = 0;
+  const value = { id: Buffer.alloc(16, 1).toString('base64url'), archive: Buffer.alloc(20000, 2).toString('base64'),
+    recoveryKey: `AWG3-B1-${Buffer.alloc(32, 3).toString('base64url')}`, generation: 1, createdAt: 1000 };
+  const listener = await listenInvitationSocket(socketPath, async () => { count++; return 'x'.repeat(40); },
+    { createBackup: async () => value });
+  t.after(() => listener.close());
+  assert.deepEqual(await requestBackup(socketPath), value);
+  assert.equal(count, 0);
+  assert.equal(await requestInvitation(socketPath), 'x'.repeat(40));
+  value.archive = 'malformed-base64!';
+  await assert.rejects(requestBackup(socketPath), /Invalid Main backup/);
 });
 
 test('control socket rejects a directory readable by other users', { skip: process.platform === 'win32' }, async t => {
