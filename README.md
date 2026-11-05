@@ -126,6 +126,14 @@ Earlier field testing, through **0.1.3**. Adds per-client IPv4/IPv6 permissions 
 
 The pinned AWG 3.1 engine, Docker deployment, AmneziaVPN Android import, IPv4/IPv6 connectivity, Home/Guest isolation and profile revocation have been validated on a dedicated VPS. Server-side Home discovery fan-out and SSDP address rewriting have also been validated between two real peers; end-to-end visibility depends on whether the client application sends and receives multicast on the VPN interface.
 
+## Design philosophy
+
+**Protection Against Authoritarian Hypocrisy** — «Защита от чертей» in the Russian original — is the author's deliberately provocative, irreverent name for the LGBTQ+/Pride theme. Its target is the hypocrisy of publicly backing an authoritarian regime and its internet censorship while privately seeking tools to get around those same restrictions.
+
+The Pride colours and LGBTQ+ references express the developer's values and the project's cultural identity. The rainbow stays: authoritarian loyalists and anti-LGBTQ+ bigots can decide for themselves whether they want to use it. That discomfort and voluntary self-selection are intentional; this is more than decoration.
+
+The software remains technically available to everyone. The theme does not authenticate users, inspect beliefs, filter traffic or control access. The approved Pride background will remain in the forthcoming release and Fluent/Aero design work.
+
 ## License and attribution
 
 Work in progress and the roadmap are tracked in [DEVELOPMENT.ru.md](DEVELOPMENT.ru.md) (Russian); these changes are not part of the published release yet.

@@ -128,6 +128,14 @@ Pruebas de campo anteriores, hasta **0.1.3** inclusive. Añade permisos IPv4/IPv
 
 AWG 3.1, Docker, la importación en AmneziaVPN para Android, IPv4/IPv6, el aislamiento Home/Guest y la revocación de perfiles ya se validaron en un VPS. La retransmisión Home del servidor y la reescritura de direcciones SSDP también se validaron entre dos peers reales; la visibilidad final depende del soporte multicast de la aplicación cliente sobre la interfaz VPN.
 
+## Filosofía de diseño
+
+**Protección contra la hipocresía autoritaria** — «Защита от чертей» en el original ruso — es el nombre deliberadamente provocador, satírico e irreverente del tema LGBTQ+/Pride. Critica la hipocresía de apoyar públicamente a un régimen autoritario y su censura de Internet mientras se buscan en privado herramientas para saltarse esas mismas restricciones.
+
+Los colores Pride y las referencias LGBTQ+ expresan los valores del desarrollador y la identidad cultural del proyecto. El arcoíris se queda: quienes respaldan el autoritarismo o rechazan a las personas LGBTQ+ deciden por sí mismos si quieren utilizar el panel. Esa incomodidad y esa autoselección voluntaria son intencionadas; el diseño va más allá de la decoración.
+
+El software sigue técnicamente disponible para todo el mundo. El tema no comprueba creencias, autentica usuarios, filtra tráfico ni controla el acceso. El fondo Pride aprobado se conserva en la próxima versión y en el futuro diseño Fluent/Aero.
+
 ## Licencia y atribución
 
 El trabajo aún no publicado y los próximos pasos se documentan en [DEVELOPMENT.ru.md](DEVELOPMENT.ru.md) (en ruso); todavía no forman parte de la versión pública.
