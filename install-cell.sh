@@ -167,6 +167,9 @@ awg_easy_install_selinux_socket_watch || die 'cannot install the AWG UAPI SELinu
 awg_easy_configure_firewalld "$(sed -n 's/^AWG_CELL_WAN_INTERFACE=//p' "$env_file")" \
   "$(sed -n -e 's/^AWG_CELL_USER_PORT=//p' -e 's/^AWG_CELL_DHT_PORT=//p' "$env_file" | tr '\n' ' ')" awgcellb0 awgcellc0 awgcellu0 awgdata0 \
   || die 'cannot configure firewalld for the reserved Cell interfaces'
+awg_easy_configure_technical_firewalld "$(sed -n 's/^AWG_CELL_WAN_INTERFACE=//p' "$env_file")" \
+  "$(sed -n 's/^AWG_CELL_DHT_PORT=//p' "$env_file")" \
+  || die 'cannot configure firewalld for the technical relay'
 compose up -d cell || die 'Cell service did not start; private state was preserved'
 attempt=0
 while [ "$attempt" -lt 120 ]; do
@@ -177,7 +180,7 @@ while [ "$attempt" -lt 120 ]; do
         info 'Cell registered; awaiting or applying signed settings from the Main Node'
         printf 'Allow inbound UDP %s in the provider firewall for future clients.\n' \
           "$(sed -n 's/^AWG_CELL_USER_PORT=//p' "$env_file")"
-        printf 'Allow inbound UDP %s for public DHT discovery in the provider firewall.\n' \
+        printf 'Allow inbound UDP/TCP %s for discovery and technical AWG relay in the provider firewall.\n' \
           "$(sed -n 's/^AWG_CELL_DHT_PORT=//p' "$env_file")"
         exit 0 ;;
     esac

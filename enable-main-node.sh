@@ -176,6 +176,9 @@ awg_main_ports=$(sed -n -e 's/^AWG_MAIN_BOOTSTRAP_PORT=//p' -e 's/^AWG_MAIN_CONT
 awg_easy_configure_firewalld "$awg_main_wan" "$awg_main_ports" \
   "$(sed -n 's/^AWG_MAIN_USER_INTERFACE=//p' "$env_file")" "$@" \
   || die 'cannot configure firewalld for the reserved Main interfaces'
+awg_easy_configure_technical_firewalld "$awg_main_wan" \
+  "$(sed -n 's/^AWG_MAIN_DHT_PORT=//p' "$env_file")" \
+  || die 'cannot configure firewalld for the technical relay'
 started_at=$(date +%s)
 compose up -d --no-deps main-cell || die 'Main Node service could not be started'
 
@@ -204,5 +207,5 @@ control_udp=$(sed -n 's/^AWG_MAIN_CONTROL_PORT=//p' "$env_file")
 printf 'If your provider has a cloud firewall, allow inbound UDP %s and %s for Cells.\n' \
   "$bootstrap_udp" "$control_udp"
 printf 'Stable auto-updates are held until coordinated Main/Cell updates are available.\n'
-printf 'Allow inbound UDP %s for public DHT discovery in the provider firewall.\n' \
+printf 'Allow inbound UDP/TCP %s for discovery and technical AWG relay in the provider firewall.\n' \
   "$(sed -n 's/^AWG_MAIN_DHT_PORT=//p' "$env_file")"

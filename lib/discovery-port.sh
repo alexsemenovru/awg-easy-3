@@ -8,6 +8,7 @@ awg_discovery_reserve_port() {
   if grep -q "^${awg_dht_key}=" "$awg_dht_file"; then return 0; fi
   awg_dht_candidate=49033
   awg_dht_sockets=$(ss -H -uan) || return 1
+  awg_dht_tcp=$(ss -H -ltn) || return 1
   awg_dht_ids=$(docker ps -q) || return 1
   awg_dht_published=''
   if [ -n "$awg_dht_ids" ]; then
@@ -21,8 +22,9 @@ awg_discovery_reserve_port() {
     done
     if [ "$awg_dht_conflict" = false ] \
       && ! printf '%s\n' "$awg_dht_sockets" | grep -Eq ":${awg_dht_candidate}[[:space:]]" \
+      && ! printf '%s\n' "$awg_dht_tcp" | grep -Eq ":${awg_dht_candidate}[[:space:]]" \
       && ! printf '%s\n' "$awg_dht_published" | awk -v port="$awg_dht_candidate" \
-        '$1 ~ /\/udp$/ && $2 == port { found=1 } END { exit !found }'; then break; fi
+        '$1 ~ /\/(udp|tcp)$/ && $2 == port { found=1 } END { exit !found }'; then break; fi
     awg_dht_candidate=$((awg_dht_candidate + 1))
   done
   [ "$awg_dht_candidate" -le 60000 ] || return 1

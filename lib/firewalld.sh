@@ -39,3 +39,21 @@ awg_easy_configure_firewalld() {
   firewall-cmd --permanent "$@" >/dev/null || return 1
   firewall-cmd "$@" >/dev/null || return 1
 }
+
+# Same numeric port as DHT UDP, but a separate bounded technical-AWG relay.
+# This never opens the web panel, registration TCP or user/data-link listeners.
+awg_easy_configure_technical_firewalld() {
+  [ "$#" -eq 2 ] || return 1
+  awg_tech_wan=$1
+  awg_tech_port=$2
+  case "$awg_tech_wan" in ''|lo|*[!A-Za-z0-9_.-]*) return 1 ;; esac
+  case "$awg_tech_port" in ''|*[!0-9]*) return 1 ;; esac
+  [ "${#awg_tech_wan}" -le 15 ] && [ "$awg_tech_port" -ge 1 ] && [ "$awg_tech_port" -le 65535 ] || return 1
+  command -v firewall-cmd >/dev/null 2>&1 || return 0
+  firewall-cmd --state >/dev/null 2>&1 || return 0
+  awg_tech_zone=$(firewall-cmd --get-zone-of-interface="$awg_tech_wan" 2>/dev/null) || awg_tech_zone=
+  case "$awg_tech_zone" in ''|'no zone') awg_tech_zone=$(firewall-cmd --get-default-zone) || return 1 ;; esac
+  case "$awg_tech_zone" in ''|*[!A-Za-z0-9_-]*) return 1 ;; esac
+  firewall-cmd --permanent "--zone=$awg_tech_zone" "--add-port=$awg_tech_port/tcp" >/dev/null || return 1
+  firewall-cmd "--zone=$awg_tech_zone" "--add-port=$awg_tech_port/tcp" >/dev/null || return 1
+}

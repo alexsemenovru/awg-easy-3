@@ -129,7 +129,7 @@ test('Cell CLI starts registered service with bounded readiness status', async (
     startDiscovery: async () => ({ close: async () => { closed.push('dht'); } }) });
   assert.equal(started.running, service.running);
   await started.close();
-  assert.deepEqual(closed, ['dht', 'vpn']);
+  assert.deepEqual(closed, ['vpn', 'dht']);
   assert.equal(printed, '{"status":"serving","transport":"AWG"}\n');
 });
 

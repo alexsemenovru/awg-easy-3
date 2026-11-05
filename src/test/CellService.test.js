@@ -51,6 +51,21 @@ test('Cell service restores signed state before polling and closes poller only',
   assert.deepEqual(order, ['geo', 'registered', 'guard', 'restore', 'poll', 'geo-start', 'geo-stop', 'stop']);
 });
 
+test('an unavailable technical NAT helper cannot stop the restored VPN/settings service', async () => {
+  let started = false;
+  const service = await startCellService({ config: config(), newDataIdentity,
+    bootstrapHost: bootstrapHost(), discovery: () => null,
+    newTechnical: () => ({ prepare: async () => { throw new Error('Foreign NAT table'); } }),
+    newStore: () => ({ read: async () => ({ server: {} }) }),
+    newGeoUpdater: () => ({ current: {}, load: async () => {}, start() {}, stop: async () => {} }),
+    openRegistered: async () => ({ protectUserTraffic: async () => {},
+      recoverBoot: async () => ({ configured: true }),
+      createPoller: () => ({ start: () => { started = true; return new Promise(() => {}); }, stop: async () => {} }) }) });
+  assert.equal(started, true);
+  assert.equal(service.technicalStatus(), 'unavailable');
+  await service.close();
+});
+
 test('Cell service refuses missing user config and incomplete permanent path', async () => {
   let registered = false;
   await assert.rejects(startCellService({ config: config(), bootstrapHost: bootstrapHost(), newDataIdentity,

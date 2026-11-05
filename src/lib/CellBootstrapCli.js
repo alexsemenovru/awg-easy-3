@@ -169,11 +169,13 @@ async function runCellBootstrapCli({ args, env, input, output,
     }
     if (config.wanInterface) await ensureUser({ config,
       connection: await host.connectionStore.read(), wanInterface: config.wanInterface });
-    const service = await startService({ config, bootstrapHost: host });
-    const discovery = await startDiscovery({ role: 'cell', config, host });
+    let discovery;
+    const service = await startService({ config, bootstrapHost: host, discovery: () => discovery });
+    try { discovery = await startDiscovery({ role: 'cell', config, host }); }
+    catch (error) { await service.close(); throw error; }
     output.write('{"status":"serving","transport":"AWG"}\n');
     return { ...service, discoveryStatus: () => discovery.status(), close: async () => {
-      try { await discovery.close().catch(() => {}); } finally { await service.close(); }
+      try { await service.close(); } finally { await discovery.close().catch(() => {}); }
     } };
   }
   if (args[0] === 'sync') {

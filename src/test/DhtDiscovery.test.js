@@ -13,6 +13,7 @@ const { DhtContactCache } = require('../lib/DhtContactCache');
 const { DhtDiscoveryRuntime, verifyMutable } = require('../lib/DhtDiscoveryRuntime');
 const { startDhtDiscovery } = require('../lib/DhtDiscoverySupervisor');
 const { openNodeDiscovery } = require('../lib/NodeDiscoveryService');
+const { connectTechnicalRelay } = require('../lib/AwgTechnicalRelay');
 
 const temporary = async t => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-dht-'));
@@ -175,4 +176,32 @@ test('real isolated worker starts with its memory limit and closes without publi
   assert.equal(service.status().knownPeers, 0);
   await service.close();
   assert.equal(service.status().state, 'stopped');
+});
+
+test('real product worker forwards only a registered peer to its local control socket', { timeout: 15000 }, async t => {
+  const dgram = require('node:dgram');
+  const directory = await temporary(t);
+  const echo = dgram.createSocket('udp4');
+  await new Promise(resolve => echo.bind(0, '127.0.0.1', resolve));
+  echo.on('message', (bytes, from) => echo.send(bytes, from.port, from.address));
+  t.after(() => new Promise(resolve => echo.close(resolve)));
+  const reservation = dgram.createSocket('udp4');
+  await new Promise(resolve => reservation.bind(0, '127.0.0.1', resolve));
+  const port = reservation.address().port;
+  await new Promise(resolve => reservation.close(resolve));
+  const main = identity();
+  const cell = identity();
+  const service = startDhtDiscovery({ directory, identity: main, kind: 'main',
+    endpointHost: '127.0.0.1', port, bindAddress: '127.0.0.1', bootstrap: false,
+    controlPort: echo.address().port, peers: async () => [{ publicKey: cell.publicKey, kind: 'cell' }] });
+  t.after(() => service.close());
+  const deadline = Date.now() + 7000;
+  while (service.status().state === 'starting' && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 25));
+  assert.equal(service.status().technical.state, 'listening');
+  const connection = await connectTechnicalRelay({ host: '127.0.0.1', port,
+    serverKey: main.publicKey, identity: cell, target: main.publicKey, kind: 'main' });
+  t.after(() => connection.close());
+  const packet = Buffer.from('encrypted-awg-control');
+  await connection.write(packet);
+  assert.deepEqual(await connection.read(3000), packet);
 });

@@ -23,6 +23,7 @@ const { compileCellRouting } = require('./CellRoutingPolicy');
 const { verifyCellDataHandshake } = require('./CellDataHandshake');
 const { addressInSubnet } = require('./AddressAllocator');
 const { runProcess } = require('./ProcessRunner');
+const { createCellTechnicalFailover } = require('./CellTechnicalFailover');
 
 // The service deliberately starts from a registered, persistent Cell state.
 // Missing GeoIP data cannot silently disable a signed country policy:
@@ -232,16 +233,35 @@ async function syncCellOnce(options = {}) {
   return host.syncSettings();
 }
 
-async function startCellService({ onFatal = () => {}, ...options } = {}) {
+async function startCellService({ onFatal = () => {}, discovery = null,
+  newTechnical = createCellTechnicalFailover, ...options } = {}) {
   if (typeof onFatal !== 'function') throw new TypeError('Cell fatal error handler required');
   const { host, geo } = await openCellServiceHost(options);
-  const poller = host.createPoller();
+  let technical = null;
+  let technicalState = 'direct';
+  if (discovery) {
+    try {
+      technical = newTechnical({ ...options, discovery });
+      await technical.prepare();
+    } catch {
+      // A missing helper or an externally changed NAT table disables reserve
+      // mutation, not the VPN/settings loop. Preserve its journal for repair.
+      technical = null;
+      technicalState = 'unavailable';
+    }
+  }
+  const poller = host.createPoller({ onStatus: status => technical?.report(status) });
   const running = poller.start();
   running.catch(onFatal);
   try { geo.start(); }
-  catch (error) { await poller.stop(); throw error; }
+  catch (error) { await poller.stop(); if (technical) await technical.close(); throw error; }
   return Object.freeze({ status: 'serving', running,
-    close: async () => { try { await geo.stop(); } finally { await poller.stop(); } } });
+    technicalStatus: () => technical?.status || technicalState,
+    close: async () => {
+      try { await geo.stop(); } finally {
+        try { await poller.stop(); } finally { if (technical) await technical.close(); }
+      }
+    } });
 }
 
 module.exports = { openCellServiceHost, syncCellOnce, startCellService };

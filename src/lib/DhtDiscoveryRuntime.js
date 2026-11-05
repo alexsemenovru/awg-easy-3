@@ -8,11 +8,12 @@ const { DhtBudgetSocket } = require('./DhtBudgetSocket');
 const { DhtContactCache } = require('./DhtContactCache');
 const { CellDhtCursorStore } = require('./CellDhtCursorStore');
 const { CellDhtContactExchange } = require('./CellDhtContactExchange');
-const { targetFor } = require('./CellDhtLocator');
+const { targetFor, verifyCellLocator } = require('./CellDhtLocator');
 const { retainOwnRecord } = require('./BittorrentDhtOwnRecord');
 
 const BOOTSTRAP = Object.freeze(['router.bittorrent.com:6881',
   'router.utorrent.com:6881', 'dht.transmissionbt.com:6881']);
+const RELAY_TOPIC = crypto.createHash('sha1').update('awg-easy-3/technical-relay/v1').digest();
 const verifyMutable = (signature, bytes, rawKey) => {
   try {
     if (rawKey.length !== 32 || signature.length !== 64) return false;
@@ -48,6 +49,9 @@ class DhtDiscoveryRuntime {
     this.running = null;
     this.closing = false;
     this.failures = 0;
+    this.relayEnabled = false;
+    this.relayPeers = new Map();
+    this.lastRelayRefresh = 0;
   }
 
   setPeers(peers) {
@@ -79,6 +83,13 @@ class DhtDiscoveryRuntime {
       maxPeers: 64, maxAge: 15 * 60 * 1000 });
     this.dht.on('error', () => { this.failures++; });
     this.dht.on('warning', () => {}); // Never log third-party addresses or values.
+    this.dht.on('peer', (peer, infoHash) => {
+      if (!this.relayEnabled || !Buffer.isBuffer(infoHash) || !infoHash.equals(RELAY_TOPIC)
+        || net.isIP(peer.host) !== 4 || !Number.isInteger(peer.port) || peer.port < 1 || peer.port > 65535) return;
+      const key = `${peer.host}:${peer.port}`;
+      if (!this.relayPeers.has(key) && this.relayPeers.size >= 64) this.relayPeers.delete(this.relayPeers.keys().next().value);
+      this.relayPeers.set(key, { host: peer.host, port: peer.port, expiresAt: this.now() + 600000 });
+    });
     try {
       await new Promise((resolve, reject) => {
         const timeout = setTimeout(() => { cleanup(); reject(new Error('DHT bind timed out')); }, 5000);
@@ -127,6 +138,38 @@ class DhtDiscoveryRuntime {
       } catch { this.failures++; }
     }
     if (!this.closing) await this.cache.write(this.contacts());
+    if (this.relayEnabled && !this.closing && now - this.lastRelayRefresh >= 300000) {
+      this.lastRelayRefresh = now;
+      try {
+        await this.relayOperation(done => this.dht.announce(RELAY_TOPIC, this.dht.address().port, done));
+        await this.relayOperation(done => this.dht.lookup(RELAY_TOPIC, done));
+      } catch { this.failures++; }
+    }
+  }
+
+  enableRelayDiscovery() { this.relayEnabled = true; }
+  relayCandidates() {
+    for (const [key, value] of this.relayPeers) if (value.expiresAt <= this.now()) this.relayPeers.delete(key);
+    return [...this.relayPeers.values()].map(({ host, port }) => ({ host, port }));
+  }
+  relayOperation(start) {
+    return new Promise((resolve, reject) => {
+      let finished = false;
+      let abort;
+      const timeout = setTimeout(() => {
+        if (finished) return;
+        finished = true;
+        if (typeof abort === 'function') abort();
+        reject(new Error('DHT relay rendezvous timed out'));
+      }, 10000);
+      try {
+        abort = start(error => {
+          if (finished) return;
+          finished = true; clearTimeout(timeout);
+          if (error) reject(error); else resolve();
+        });
+      } catch (error) { finished = true; clearTimeout(timeout); reject(error); }
+    });
   }
 
   contacts() {
@@ -138,10 +181,22 @@ class DhtDiscoveryRuntime {
     const hint = this.hints.get(publicKey);
     return hint && hint.expiresAt > this.now() ? { ...hint } : null;
   }
+  async lookupRelayTarget(publicKey, kind) {
+    const known = this.contact(publicKey);
+    if (known) return known;
+    // Public-network forwarding must not create disk state for arbitrary keys.
+    // Only the receiver decides whether this origin is its registered partner.
+    const exchange = new CellDhtContactExchange({ dht: this.dht, cellKey: publicKey, kind,
+      cursor: { reserve: () => { throw new Error('Relay cannot publish a foreign identity'); },
+        accept: item => verifyCellLocator(item, { cellKey: publicKey, kind, now: this.now() }) },
+      timeoutMs: 10000 });
+    return exchange.lookup(this.now());
+  }
   status() {
     return Object.freeze({ state: this.closing ? 'stopped' : this.dht?.listening ? 'listening' : 'starting',
       routingContacts: this.dht?.nodes.count() || 0, knownPeers: this.peers.length,
       locatedPeers: [...this.hints.values()].filter(hint => hint.expiresAt > this.now()).length,
+      relayCandidates: this.relayCandidates().length,
       failures: this.failures, ...this.socket.stats() });
   }
   async close() {
@@ -160,4 +215,4 @@ class DhtDiscoveryRuntime {
   }
 }
 
-module.exports = { DhtDiscoveryRuntime, BOOTSTRAP, verifyMutable };
+module.exports = { DhtDiscoveryRuntime, BOOTSTRAP, RELAY_TOPIC, verifyMutable };
