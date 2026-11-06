@@ -78,3 +78,10 @@ jobs:
             -v "$GITHUB_WORKSPACE:/work:ro" -w /work \
             --entrypoint node awg-easy-3:cells-ci-tests \
             --test src/test/BackupConfiguration.test.js
+      - name: Exercise the actual cold restore command on the disposable runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo install -m 0600 /dev/null /var/tmp/ALLOW_AWG_RESTORE_TEST
+          sudo env AWG_DISPOSABLE_HOST_TEST=1 "$(command -v node)" \
+            scripts/test-installation-restore-host.cjs awg-easy-3:cells-ci
