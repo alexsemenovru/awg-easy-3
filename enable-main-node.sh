@@ -150,7 +150,13 @@ compose() {
     -f docker-compose.cells-main.yml --profile cells-main "$@"
 }
 compose config --quiet || die 'Main Node compose configuration is invalid'
-set -- awgmainb0 awgmainc0
+awg_bootstrap_name=$(sed -n 's/^AWG_MAIN_BOOTSTRAP_INTERFACE=//p' "$env_file")
+awg_control_name=$(sed -n 's/^AWG_MAIN_CONTROL_INTERFACE=//p' "$env_file")
+for awg_saved_name in "$awg_bootstrap_name" "$awg_control_name"; do
+  case "$awg_saved_name" in ''|*[!A-Za-z0-9_.-]*) die 'invalid saved Main interface' ;; esac
+  [ "${#awg_saved_name}" -le 15 ] || die 'invalid saved Main interface length'
+done
+set -- "$awg_bootstrap_name" "$awg_control_name"
 awg_data_slot=0
 while [ "$awg_data_slot" -lt 127 ]; do
   set -- "$@" "awgd${awg_data_slot}"

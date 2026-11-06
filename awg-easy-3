@@ -56,6 +56,10 @@ AWG-Easy 3 management commands:
   awg-easy-3 enable-main-node
                               Enable Main Node on this installed panel
   awg-easy-3 issue-cell     Issue one short-lived Cell invitation
+  awg-easy-3 restore ARCHIVE KEY_FILE
+                              Restore onto a standalone destination panel
+  awg-easy-3 restore --resume|--rollback
+                              Recover an interrupted restore transaction
   awg-easy-3 uninstall       Remove AWG-Easy 3 and all its settings
   awg-easy-3 reinstall       Reinstall from scratch
   awg-easy-3 help            Show this help
@@ -63,6 +67,17 @@ EOF
 }
 
 command=${1:-menu}
+if [ -e "$project_dir/.restore/transaction.json" ] || [ -L "$project_dir/.restore/transaction.json" ]; then
+  case "$command" in
+    menu|start|restart|enable-main-node|update|uninstall|--uninstall|reinstall|--reinstall|reset-password|export-client)
+      [ -f "$project_dir/.restore/transaction.json" ] && [ ! -L "$project_dir/.restore/transaction.json" ] \
+        || die 'unsafe restore journal; inspect the installation before changing it'
+      if ! grep -Eq '"phase":"(complete|rolled-back)"' "$project_dir/.restore/transaction.json"; then
+        die 'restore is pending; use awg-easy-3 restore --resume or --rollback first'
+      fi
+      ;;
+  esac
+fi
 case "$command" in
   menu) exec "$project_dir/install.sh" ;;
   start)
@@ -119,6 +134,7 @@ case "$command" in
     compose run --rm --no-deps awg-easy export-client "$2"
     ;;
   enable-main-node) exec "$project_dir/enable-main-node.sh" ;;
+  restore) shift; exec "$project_dir/restore.sh" "$@" ;;
   issue-cell)
     [ "$main_node_enabled" = true ] || die 'Main Node is not enabled'
     compose exec -T main-cell node /app/main-cell-cli.js issue-auto

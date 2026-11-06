@@ -20,7 +20,7 @@ test('pins amd64 base images and official AWG source revisions', () => {
   assert.match(compose, /AWG_LANG: \$\{AWG_LANG:-en\}/);
   const version = fs.readFileSync(path.join(root, 'VERSION'), 'utf8').trim();
   assert.ok(compose.includes(`ghcr.io/alexsemenovru/awg-easy-3:${version}`));
-  assert.match(dockerfile, /\$\{AWG_PANEL_PORT\}/);
+  assert.match(dockerfile, /HEALTHCHECK[^\n]*\["node", "\/app\/healthcheck\.js"\]/);
   assert.match(dockerfile, /apk add --no-cache [^\n]*\bflock\b/);
   assert.doesNotMatch(compose, /SYS_MODULE|ports:/);
 });

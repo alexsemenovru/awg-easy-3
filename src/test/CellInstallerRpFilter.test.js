@@ -12,7 +12,9 @@ test('Main and Cell reserve loose rp_filter only for owned service interfaces', 
   const main = asset('enable-main-node.sh');
   const cell = asset('install-cell.sh');
   const helper = asset('lib/owned-rp-filter.sh');
-  assert.match(main, /set -- awgmainb0 awgmainc0/);
+  assert.match(main, /set -- "\$awg_bootstrap_name" "\$awg_control_name"/);
+  assert.match(main, /AWG_MAIN_BOOTSTRAP_INTERFACE=\/\/p/);
+  assert.match(main, /AWG_MAIN_CONTROL_INTERFACE=\/\/p/);
   assert.match(main, /while \[ "\$awg_data_slot" -lt 127 \]; do/);
   assert.match(main, /set -- "\$@" "awgd\$\{awg_data_slot\}"/);
   assert.match(main, /awg_cells_install_rp_filter main "\$@"/);

@@ -40,4 +40,4 @@ async function runRestoreCli({ args, output }) {
     main: result.main, cells: result.cells, clients: result.clients, generation: result.generation })}\n`);
   return result;
 }
-module.exports = { runRestoreCli };
+module.exports = { runRestoreCli, readPrivateFile };
