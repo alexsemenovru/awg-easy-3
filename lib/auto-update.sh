@@ -258,8 +258,36 @@ awg_easy_acquire_update_lock() {
 }
 
 awg_easy_stable_compose() {
-  AWG_IMAGE= docker compose --project-directory "$project_dir" -f "$project_dir/docker-compose.yml" "$@"
+  AWG_IMAGE=${AWG_EASY_UPDATE_CANDIDATE_IMAGE:-} docker compose --project-directory "$project_dir" -f "$project_dir/docker-compose.yml" "$@"
 }
+
+# Verification runs BEFORE checkout replacement or any container restart. The
+# verifier is pinned independently of the candidate image, never run from it.
+awg_easy_verify_candidate_image() (
+  set -eu
+  version=$1 revision=$2 reference=$3
+  printf '%s\n' "$version" | awk '/^[0-9]+\.[0-9]+\.[0-9]+$/ { ok=1 } END { exit !ok }' || exit 1
+  printf '%s\n' "$revision" | awk '/^[a-f0-9]+$/ && (length == 40 || length == 64) { ok=1 } END { exit !ok }' || exit 1
+  printf '%s\n' "$reference" | awk '/^ghcr\.io\/alexsemenovru\/awg-easy-3@sha256:[a-f0-9]+$/ && length == 104 { ok=1 } END { exit !ok }' || exit 1
+  command -v timeout >/dev/null 2>&1 || exit 1
+  verifier=ghcr.io/sigstore/cosign/cosign@sha256:0f06154836d2de34f887a5c273506d52ca43edaa1d9e53e6510fa78a48f69c2d
+  if ! docker image inspect "$verifier" >/dev/null 2>&1; then
+    timeout 300 docker pull "$verifier" >/dev/null 2>&1 || exit 1
+  fi
+  verification_container=
+  trap '[ -z "$verification_container" ] || docker rm -f "$verification_container" >/dev/null 2>&1' 0
+  verification_container=$(docker create --network host --read-only --cap-drop ALL \
+    --security-opt no-new-privileges:true --user 65532:65532 --pids-limit 64 \
+    --memory 192m --cpu-shares 128 --env HOME=/tmp --env GOMAXPROCS=2 --env GOMEMLIMIT=128MiB \
+    --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777 \
+    --entrypoint /ko-app/cosign "$verifier" verify \
+    --certificate-identity="https://github.com/alexsemenovru/awg-easy-3/.github/workflows/docker-publish.yml@refs/tags/v$version" \
+    --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
+    -a "version=$version" -a "revision=$revision" "$reference") || exit 1
+  printf '%s\n' "$verification_container" | awk '/^[a-f0-9]+$/ && length == 64 { ok=1 } END { exit !ok }' || exit 1
+  timeout 90 docker start -a "$verification_container" >/dev/null 2>&1 || exit 1
+  [ "$(docker inspect -f '{{.State.Running}}:{{.State.ExitCode}}' "$verification_container")" = false:0 ]
+)
 
 awg_easy_install_manager() {
   install -m 0755 "$project_dir/awg-easy-3" /usr/local/sbin/.awg-easy-3-update-new || return 1
@@ -316,6 +344,7 @@ awg_easy_run_stable_update() {
     die "another AWG-Easy 3 update is already running or its lock remains after an unclean shutdown; retry after it finishes, or reboot to clear an orphaned /run lock"
   fi
   AWG_EASY_UPDATE_STAGE=
+  AWG_EASY_UPDATE_CANDIDATE_IMAGE=
   AWG_EASY_UPDATE_ROLLBACK_COMMIT=
   trap awg_easy_update_on_exit 0
   trap 'exit 1' HUP INT TERM
@@ -390,6 +419,14 @@ awg_easy_run_stable_update() {
   AWG_IMAGE= docker compose --project-directory "$AWG_EASY_UPDATE_STAGE" \
     -f "$AWG_EASY_UPDATE_STAGE/docker-compose.yml" pull awg-easy \
     || die "unable to download stable release v$latest_version; the current installation was left unchanged"
+
+  candidate_digests=$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$candidate_image") \
+    || die "unable to inspect the downloaded image digest; the current installation was left unchanged"
+  candidate_digest=$(printf '%s\n' "$candidate_digests" | awk '/^ghcr\.io\/alexsemenovru\/awg-easy-3@sha256:[a-f0-9]+$/ && length == 104 { print; count++ } END { if (count != 1) exit 1 }') \
+    || die "the downloaded image has no unique official digest; the current installation was left unchanged"
+  awg_easy_verify_candidate_image "$latest_version" "$candidate_commit" "$candidate_digest" \
+    || die "release image signature verification failed; the current installation was left unchanged"
+  AWG_EASY_UPDATE_CANDIDATE_IMAGE=$candidate_digest
 
   awg_easy_wait_healthy || die "the current container must be healthy before updating; run sudo awg-easy-3 start and diagnose"
   AWG_EASY_UPDATE_PREVIOUS_IMAGE=$(docker inspect -f '{{.Image}}' awg-easy-3) \

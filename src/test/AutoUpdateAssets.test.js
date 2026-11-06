@@ -175,14 +175,21 @@ const updateFixture = String.raw`
   test_stopped=false
   test_pull_failure=false
   test_bad_health=false
+  test_signature_failure=false
+  test_digest=ghcr.io/alexsemenovru/awg-easy-3@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
   install() { return 0; }
   awg_easy_install_manager() { return 0; }
+  awg_easy_verify_candidate_image() {
+    [ "$1" = 1.1.0 ] && [ "$2" = "$(git -C "$remote" rev-parse v1.1.0)" ] &&
+      [ "$3" = "$test_digest" ] && [ "$test_signature_failure" = false ]
+  }
   docker() {
     printf '%s | image=%s\n' "$*" "$AWG_IMAGE" >> "$task_root/docker.log"
     case "$*" in
       *config\ --images) printf 'ghcr.io/alexsemenovru/awg-easy-3:1.1.0\n';;
       *ps\ -q*) [ "$test_stopped" = true ] || printf 'test-container\n';;
       *pull\ awg-easy) [ "$test_pull_failure" != true ] || return 1;;
+      image\ inspect*) printf '%s\n' "$test_digest";;
       inspect*)
         case "$*" in
           *'.Image'*) printf 'sha256:previous-image\n';;
@@ -212,6 +219,7 @@ test('staged stable update fast-forwards only after the candidate image is avail
       update_status=$?
       installed_version=$(sed -n '1p' "$project_dir/VERSION")
       assert_preserved || exit 91
+      grep -q 'up -d awg-easy.*image=ghcr.io/alexsemenovru/awg-easy-3@sha256:aaaa' "$task_root/docker.log" || exit 92
       rm -rf -- "$task_root"
       [ "$update_status" -eq 0 ] && [ "$installed_version" = 1.1.0 ]
     `,
@@ -247,6 +255,8 @@ test('failed candidate health check restores the previous commit', shellOptions,
 
 for (const [name, setup, message, success = false] of [
   ['unavailable image', 'test_pull_failure=true', /unable to download stable release/],
+  ['rejected release signature', 'test_signature_failure=true', /signature verification failed/],
+  ['foreign digest', 'test_digest=ghcr.io/foreign/project@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', /no unique official digest/],
   ['unavailable release list', 'awg_easy_latest_stable_version() { return 1; }', /unable to select a stable release/],
   ['unreadable checkout', String.raw`git() { case "$*" in *status*) return 1;; *) command git "$@";; esac; }`, /unable to inspect tracked project files/],
   ['unavailable Docker', 'docker() { return 1; }', /unable to inspect Docker/],
@@ -292,3 +302,33 @@ test('an existing lock is never stolen, even before its owner writes a PID', she
   assert.ifError(result.error);
   assert.equal(result.status, 0, result.stdout + result.stderr);
 });
+
+for (const [state, expected] of [['false:0', 0], ['false:1', 1], ['true:0', 1]]) {
+  test(`signature verifier trusts the completed container result ${state}`, shellOptions, () => {
+    const result = spawnSync(shell, ['-s'], {
+      input: `${updater}\n` + String.raw`
+        task_root=$(mktemp -d /tmp/awg-signature-test.XXXXXX) || exit 90
+        log="$task_root/calls"
+        timeout() { shift; "$@"; }
+        docker() {
+          printf '%s\n' "$*" >> "$log"
+          case "$1" in
+            create) printf '%s\n' bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb;;
+            inspect) printf '%s\n' "$test_state";;
+          esac
+          return 0
+        }
+      ` + `test_state='${state}'\n` + String.raw`
+        result=0
+        awg_easy_verify_candidate_image 1.2.3 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ghcr.io/alexsemenovru/awg-easy-3@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc || result=$?
+        grep -q -- '--cap-drop ALL.*--user 65532:65532.*--memory 192m' "$log" || exit 91
+        grep -q -- '--certificate-identity=https://github.com/alexsemenovru/awg-easy-3/.github/workflows/docker-publish.yml@refs/tags/v1.2.3' "$log" || exit 92
+        grep -q '^rm -f bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb$' "$log" || exit 93
+        rm -rf -- "$task_root"
+      ` + `\n[ "$result" -eq ${expected} ]\n`,
+      encoding: 'utf8', timeout: 10000, windowsHide: true,
+    });
+    assert.ifError(result.error);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+  });
+}
