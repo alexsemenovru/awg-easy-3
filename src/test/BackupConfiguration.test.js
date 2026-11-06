@@ -38,6 +38,40 @@ test('semantic backup validation proves Main identities, two Cell peers and gene
   const snapshot = await fixture();
   assert.deepEqual(await validateBackupConfiguration(snapshot), { main: true, cells: 2, clients: 1 });
 });
+test('restore discards archived settings and routing receipts until the new authority receives fresh acknowledgements', async t => {
+  const cells = [];
+  const snapshot = await fixture({ onCell: cell => cells.push(cell) });
+  const cell = cells[0], digest = hash(cell.identity.publicKey);
+  const controller = JSON.parse(Buffer.from(snapshot.files.find(item => item.name === 'identity.json').data, 'base64'));
+  const { signSettingsAck } = require('../lib/CellSettingsAck');
+  const { signRoutingRevision } = require('../lib/CellRoutingRevision');
+  const { signRoutingAck } = require('../lib/CellRoutingAck');
+  rewrite(snapshot, `main/cell-settings/${digest}.json`, value => {
+    const ack = signSettingsAck(value.desired, cell.identity.privateKey);
+    return { ...value, ack, confirmed: { desired: value.desired, ack } };
+  });
+  const routing = signRoutingRevision({ cellKey: cell.identity.publicKey, revision: 4,
+    view: { schema: 1, nodeId: cell.record.id, controllerId: 'controller',
+      node: { id: cell.record.id, role: 'cell', ipv4: true, ipv6: false },
+      links: [{ peer: 'controller', ipv4: true, ipv6: false }], routes: [] } }, controller.privateKey);
+  snapshot.files.push(file(`main/cell-routing/${digest}.json`, routing),
+    file(`main/cell-routing/${digest}.json.ack`, signRoutingAck(routing, cell.identity.privateKey)));
+  snapshot.recovery = createRecoveryMaterial(1);
+  await validateBackupConfiguration(snapshot);
+  const sealed = sealBackup(Buffer.from(JSON.stringify(snapshot)));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-restore-receipts-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const directory = path.join(root, 'prepared');
+  await prepareConfigurationRestore({ archive: sealed.archive, recoveryKey: sealed.recoveryKey,
+    target: { interfaceName: 'awg3', wanInterface: 'eth9', endpointHost: '198.51.100.44', listenPort: 55000, panelPort: 51821 }, directory });
+  const published = JSON.parse(await fs.readFile(path.join(directory, 'main', 'cell-settings', `${digest}.json`), 'utf8'));
+  assert.equal(published.ack, null);
+  assert.equal(published.confirmed, null);
+  assert.equal(published.desired.revision, 1);
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(directory, 'main', 'cell-routing', `${digest}.json`), 'utf8')), routing);
+  await assert.rejects(fs.readFile(path.join(directory, 'main', 'cell-routing', `${digest}.json.ack`)), { code: 'ENOENT' });
+  assert.equal((await inspectPreparedRestore(directory)).prepared, true);
+});
 test('semantic backup validation rejects mismatched keys, missing revisions, altered plans and orphan Cell metadata', async () => {
   const snapshot = await fixture();
   const wrongServer = structuredClone(snapshot);

@@ -91,6 +91,10 @@ class CellControlService {
     if (!allowed) {
       throw new Error('Unknown cell');
     }
+    const authority = await this.authorityIdentity();
+    if (request.action !== 'recover' && (request.authorityKey ?? null) !== (authority?.publicKey ?? null)) {
+      throw new Error('Control request belongs to another live authority');
+    }
     if (request.action === 'recover') {
       if (!this.bootstrapStore) throw new Error('Backup recovery unavailable');
       const recovery = this.recoveryForCell
@@ -212,9 +216,12 @@ async function syncCellSettings({ connectionStore, identityStore, receiver, host
   let recoveryAttempted = false;
   const exchange = async (action, payload = null) => {
     signal?.throwIfAborted();
-    const request = signControl({ controllerKey: connection.controllerKey, action, payload }, identity.privateKey);
-    const send = async () => exchangeOverTunnel({ address: host, port, request,
-      controllerKey: connection.controllerKey, authorityKey: await authorityFor(connectionStore, connection), signal });
+    const send = async () => {
+      const authorityKey = await authorityFor(connectionStore, connection);
+      const request = signControl({ controllerKey: connection.controllerKey, action, payload, authorityKey }, identity.privateKey);
+      return exchangeOverTunnel({ address: host, port, request,
+        controllerKey: connection.controllerKey, authorityKey, signal });
+    };
     try { return await send(); }
     catch (error) {
       signal?.throwIfAborted();
@@ -274,10 +281,11 @@ async function fetchCellDataOffer({ connectionStore, identityStore, host, port, 
   }
   const identity = await identityStore.load('cell');
   if (identity.publicKey !== connection.cellKey) throw new Error('Cell identity changed');
-  const request = signControl({ controllerKey: connection.controllerKey,
+  const authorityKey = await authorityFor(connectionStore, connection);
+  const request = signControl({ controllerKey: connection.controllerKey, authorityKey,
     action: 'offer-data' }, identity.privateKey);
   const reply = await exchangeOverTunnel({ address: host, port, request,
-    controllerKey: connection.controllerKey, authorityKey: await authorityFor(connectionStore, connection), signal });
+    controllerKey: connection.controllerKey, authorityKey, signal });
   return reply.offer === null ? null : validatePublicDataOffer(reply.offer);
 }
 
@@ -291,10 +299,11 @@ async function fetchCellRoutingRevision({ connectionStore, identityStore, host, 
   }
   const identity = await identityStore.load('cell');
   if (identity.publicKey !== connection.cellKey) throw new Error('Cell identity changed');
-  const request = signControl({ controllerKey: connection.controllerKey,
+  const authorityKey = await authorityFor(connectionStore, connection);
+  const request = signControl({ controllerKey: connection.controllerKey, authorityKey,
     action: 'route' }, identity.privateKey);
   const reply = await exchangeOverTunnel({ address: host, port, request,
-    controllerKey: connection.controllerKey, authorityKey: await authorityFor(connectionStore, connection), signal });
+    controllerKey: connection.controllerKey, authorityKey, signal });
   if (reply.routing === null) return null;
   verifyRoutingRevision(reply.routing, { controllerKey: connection.controllerKey,
     cellKey: connection.cellKey, nodeId: connection.invitationId });
@@ -314,10 +323,11 @@ async function acknowledgeCellRoutingRevision({ connectionStore, identityStore,
   if (identity.publicKey !== connection.cellKey) throw new Error('Cell identity changed');
   const { signRoutingAck } = require('./CellRoutingAck');
   const ack = signRoutingAck(state.applied, identity.privateKey);
-  const request = signControl({ controllerKey: connection.controllerKey,
+  const authorityKey = await authorityFor(connectionStore, connection);
+  const request = signControl({ controllerKey: connection.controllerKey, authorityKey,
     action: 'route-ack', payload: ack }, identity.privateKey);
   const reply = await exchangeOverTunnel({ address: host, port, request,
-    controllerKey: connection.controllerKey, authorityKey: await authorityFor(connectionStore, connection), signal });
+    controllerKey: connection.controllerKey, authorityKey, signal });
   if (reply.applied !== ack.revision) throw new Error('Routing acknowledgement mismatch');
   return { applied: ack.revision };
 }

@@ -104,6 +104,11 @@ async function prepareConfigurationRestore({ archive, recoveryKey, target, direc
       bindings = mainBindings(panel, active, records);
     }
     for (const [name, value] of originalFiles) {
+      if (/^main\/cell-settings\/[a-f0-9]{64}\.json$/.test(name)) {
+        // An archived receipt describes the OLD live authority. A restored
+        // controller must obtain fresh acknowledgement before claiming ready.
+        updates.set(name, { ...value, ack: null, confirmed: null });
+      }
       if (!/^main\/data-links\/[a-f0-9]{64}\/plan\.json$/.test(name)) continue;
       const interfaceName = value.spec.owner.interfaceName;
       const port = Number(value.spec.owner.config.match(/^ListenPort\s*=\s*(\d+)/m)?.[1]);
@@ -112,7 +117,8 @@ async function prepareConfigurationRestore({ archive, recoveryKey, target, direc
       updates.set(name, freshOwner(value));
     }
   }
-  restored.files = restored.files.map(item => {
+  restored.files = restored.files.filter(item => !(item.area === 'main'
+    && /^cell-routing\/[a-f0-9]{64}\.json\.ack$/.test(item.name))).map(item => {
     const name = `${item.area}/${item.name}`;
     return updates.has(name) ? rewrittenFile(item, updates.get(name)) : item;
   });

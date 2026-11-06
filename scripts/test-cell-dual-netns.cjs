@@ -400,7 +400,7 @@ async function main() {
       assert.equal(JSON.parse(runMainCli('settings-status', invitationId)).confirmedRevision, 6);
       stage = 'cell-service-restart';
       const cellService = track(spawn('ip', ['netns', 'exec', 'awgcell', process.execPath,
-        cellCli, 'serve'], { env: env(cellDir), stdio: ['ignore', 'pipe', 'pipe'] }));
+        path.join(__dirname, '..', 'src', 'link-agent.js'), 'serve'], { env: env(cellDir), stdio: ['ignore', 'pipe', 'pipe'] }));
       try {
         await new Promise((resolve, reject) => {
           let output = '';

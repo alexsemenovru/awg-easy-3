@@ -1,4 +1,5 @@
 'use strict';
+const { parseStateText } = require('../src/lib/PrivateStateText');
 // Disposable two-VPS laboratory harness, never a production installer.
 // One operator invokes one action at a time under an external host-wide lock.
 const fs = require('node:fs/promises');
@@ -53,7 +54,7 @@ function components() {
   };
 }
 
-async function loadConfig() { return JSON.parse(await fs.readFile(file('config.json'), 'utf8')); }
+async function loadConfig() { return parseStateText(await fs.readFile(file('config.json'), 'utf8')); }
 async function exists(name) {
   try { await fs.access(file(name)); return true; }
   catch (error) { if (error.code === 'ENOENT') return false; throw error; }

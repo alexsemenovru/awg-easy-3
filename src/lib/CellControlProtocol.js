@@ -4,26 +4,27 @@ const { TextDecoder } = require('node:util');
 const { MAX_CLOCK_SKEW_MS } = require('./CellClock');
 
 function body(request) {
-  const fields = ['version', 'controllerKey', 'cellKey', 'requestId', 'issuedAt', 'action', 'payload', 'signature'];
+  const fields = ['version', 'controllerKey', 'cellKey', 'requestId', 'issuedAt', 'action', 'payload', 'signature',
+    ...(request?.version === 2 ? ['authorityKey'] : [])];
   if (!request || typeof request !== 'object' || Array.isArray(request)
-    || Object.keys(request).some(key => !fields.includes(key)) || request.version !== 1
+    || Object.keys(request).some(key => !fields.includes(key)) || ![1, 2].includes(request.version)
     || !['poll', 'ack', 'announce', 'announce-data', 'offer-data', 'route', 'route-ack',
       'backup', 'backup-ack', 'recover'].includes(request.action) || typeof request.payload !== 'string'
     || Buffer.byteLength(request.payload) > 1536
     || !Number.isSafeInteger(request.issuedAt) || request.issuedAt < 0
     || !/^[a-f0-9]{32}$/.test(request.requestId)
-    || ![request.cellKey, request.controllerKey].every(key => typeof key === 'string'
+    || ![request.cellKey, request.controllerKey, ...(request.version === 2 ? [request.authorityKey] : [])].every(key => typeof key === 'string'
       && /^[A-Za-z0-9_-]{43}$/.test(key) && Buffer.from(key, 'base64url').toString('base64url') === key)) {
     throw new Error('Invalid control request');
   }
-  return Buffer.from(JSON.stringify(['awg-easy-3/control/v1', request.controllerKey, request.cellKey,
-    request.requestId, request.issuedAt, request.action, request.payload]));
+  return Buffer.from(JSON.stringify([`awg-easy-3/control/v${request.version}`, request.controllerKey, request.cellKey,
+    request.requestId, request.issuedAt, request.action, request.payload, ...(request.version === 2 ? [request.authorityKey] : [])]));
 }
 
-function signControl({ controllerKey, action, payload = null }, privateKey, now = Date.now()) {
+function signControl({ controllerKey, action, payload = null, authorityKey = null }, privateKey, now = Date.now()) {
   const key = crypto.createPrivateKey(privateKey);
   if (key.asymmetricKeyType !== 'ed25519') throw new Error('Invalid control identity');
-  const request = { version: 1, controllerKey, cellKey: crypto.createPublicKey(key).export({ format: 'jwk' }).x,
+  const request = { version: authorityKey ? 2 : 1, controllerKey, ...(authorityKey ? { authorityKey } : {}), cellKey: crypto.createPublicKey(key).export({ format: 'jwk' }).x,
     requestId: crypto.randomBytes(16).toString('hex'), issuedAt: now, action, payload: JSON.stringify(payload) };
   return { ...request, signature: crypto.sign(null, body(request), key).toString('base64url') };
 }

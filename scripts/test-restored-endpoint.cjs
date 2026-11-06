@@ -18,6 +18,10 @@ const { signControl } = require('../src/lib/CellControlProtocol');
 const { CellBackupRecoveryStore } = require('../src/lib/CellBackupRecoveryStore');
 const { createRecoveryMaterial, signBackupGrant, signTakeover } = require('../src/lib/BackupRecovery');
 const { createRestoredEndpoint } = require('../src/lib/CellRestoredEndpoint');
+const { CellControlRedirect } = require('../src/lib/CellControlRedirect');
+const { AwgTechnicalRelay, openTechnicalBridge } = require('../src/lib/AwgTechnicalRelay');
+const { MainBackupStore } = require('../src/lib/MainBackupStore');
+const { MainBackupRecovery } = require('../src/lib/MainBackupRecovery');
 const run = (file, args) => execFileSync(file, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 async function configure(directory, name, config, address) {
   const file = path.join(directory, `${name}.conf`);
@@ -34,6 +38,7 @@ async function child(file) {
   const data = JSON.parse(await fs.readFile(file, 'utf8'));
   const directory = path.dirname(file);
   const plans = {};
+  let bridge, reserve;
   try {
     for (let index = 0; index < 2; index++) {
       const role = index ? 'data' : 'control', name = index ? 'restored0' : 'restorec0';
@@ -46,19 +51,40 @@ async function child(file) {
     }
     const connection = { version: 2, status: 'registered', controllerKey: data.mainIdentity.publicKey,
       cellKey: data.cellIdentity.publicKey };
-    const connectionStore = { filePath: path.join(directory, 'connection.json'), read: async () => connection };
+    const connectionStore = { filePath: path.join(directory, 'connection.json'), read: async () => connection,
+      pinAuthority: async (key, generation) => Object.assign(connection, { authorityKey: key, authorityGeneration: generation }) };
     const options = port => ({ connectionStore, identityStore: { load: async () => data.cellIdentity },
       receiver: {}, host: port === 54121 ? '10.202.91.1' : '10.202.92.1', port, transport: 'tunnel' });
     const request = signControl({ controllerKey: data.mainIdentity.publicKey, action: 'poll' }, data.cellIdentity.privateKey);
     await assert.rejects(exchangeOverTunnel({ address: '10.202.91.1', port: 54121, request,
       controllerKey: data.mainIdentity.publicKey, timeoutMs: 500 }));
     const store = new CellBackupRecoveryStore(path.join(directory, 'backup-recovery.json'), connection);
-    const material = createRecoveryMaterial(1);
-    const grant = signBackupGrant(material, Buffer.from('disposable backup archive'), data.mainIdentity.privateKey);
-    await store.accept(grant);
-    const challenge = await store.challenge();
-    await store.consume(signTakeover({ grant, material, cellKey: data.cellIdentity.publicKey,
-      challenge: challenge.nonce, authorityKey: data.authority.publicKey, endpointHost: data.outer.target }));
+    await store.accept(data.grant);
+    if (data.outer.family === 4) {
+      // The Cell receives no recovery private key. A real signed recovery RPC
+      // crosses its original AWG control tunnel through the reserve bridge.
+      bridge = await openTechnicalBridge({ host: data.outer.target, port: data.relayPort,
+        serverKey: data.mainIdentity.publicKey, target: data.mainIdentity.publicKey, kind: 'main',
+        identity: data.cellIdentity, localAwgPort: data.planes[0].cellPort, localAwgAddress: data.outer.cell });
+      reserve = new CellControlRedirect({ directory: path.join(directory, 'technical'), verifyOwned: async value =>
+        value.interfaceName === plans.control.spec.owner.interfaceName && value.ownerTag === plans.control.spec.owner.ownerTag
+        && inspectAwgOwnership({ manifest: plans.control.spec.owner,
+          links: JSON.parse(run('ip', ['-d', '-j', 'link', 'show', 'dev', value.interfaceName])),
+          actualConfig: run('awg', ['showconf', value.interfaceName]) }).verified });
+      await reserve.apply({ interfaceName: plans.control.spec.owner.interfaceName,
+        ownerTag: plans.control.spec.owner.ownerTag, source4: data.outer.cell,
+        sourcePort: data.planes[0].cellPort, peer4: data.outer.old,
+        peerPort: data.planes[0].mainPort, bridgePort: bridge.address.port });
+      assert.equal((await syncCellSettings(options(54121))).status, 'no-settings');
+      assert.equal(connection.authorityKey, data.authority.publicKey);
+      assert.equal((await store.read()).authority.proof.endpointHost, data.outer.target);
+    } else {
+      // IPv6 transport migration is checked separately from IPv4-only reserve.
+      const challenge = await store.challenge();
+      await store.consume(signTakeover({ grant: data.grant, material: data.material,
+        cellKey: data.cellIdentity.publicKey, challenge: challenge.nonce,
+        authorityKey: data.authority.publicKey, endpointHost: data.outer.target }));
+    }
     let protectedCount = 0;
     const migration = createRestoredEndpoint({ stateDirectory: directory, connectionStore,
       permanentPlanStore: { read: async () => plans.control }, dataDeployment: {
@@ -70,6 +96,8 @@ async function child(file) {
           actualConfig: run('awg', ['showconf', plan.spec.owner.interfaceName]) }).verified }) });
     const protect = async () => { protectedCount++; };
     assert.equal((await migration.ensure({ protect })).changed, true);
+    if (reserve) { await reserve.recover(); reserve = null; }
+    if (bridge) { await bridge.close(); bridge = null; }
     for (const port of [54121, 54122]) assert.equal((await syncCellSettings(options(port))).status, 'no-settings');
     assert.equal((await migration.ensure({ protect })).changed, false);
     assert.equal(protectedCount, 1);
@@ -81,8 +109,11 @@ async function child(file) {
       assert(run('awg', ['show', plan.spec.owner.interfaceName, 'endpoints']).includes(`${data.outer.family === 6 ? `[${data.outer.old}]` : data.outer.old}:`));
     }
     console.log(JSON.stringify({ realAwgControl: true, realAwgData: true, newMainAddress: true,
-      oldMainUnavailable: true, originalPinnedEndpointsPreserved: true, secondPassUnchanged: true, tlsUsed: false }));
+      oldMainUnavailable: true, originalPinnedEndpointsPreserved: true, secondPassUnchanged: true,
+      recoveryRpc: data.outer.family === 4, tlsUsed: false }));
   } finally {
+    if (reserve) await reserve.recover();
+    if (bridge) await bridge.close();
     for (const name of ['restorec0', 'restored0']) { try { run('ip', ['link', 'delete', name]); } catch {} }
   }
 }
@@ -93,6 +124,7 @@ async function main() {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-restored-network-'));
   const namespace = `awgr${crypto.randomBytes(4).toString('hex')}`;
   const listeners = [];
+  let relay;
   const outer = process.env.AWG_RESTORE_TRANSPORT_FAMILY === '6'
     ? { family: 6, old: '2001:db8:92::1', target: '2001:db8:92::3', cell: '2001:db8:92::2', prefix: 64 }
     : { family: 4, old: '198.18.92.1', target: '198.18.92.3', cell: '198.18.92.2', prefix: 29 };
@@ -106,6 +138,12 @@ async function main() {
       ['link', 'set', 'restorepeer', 'up']]) run('ip', ['netns', 'exec', namespace, 'ip', ...args]);
     const manager = new AwgKeyManager();
     const mainIdentity = identity(), cellIdentity = identity(), authority = identity();
+    const material = createRecoveryMaterial(1);
+    const grant = signBackupGrant(material, Buffer.from('disposable backup archive'), mainIdentity.privateKey);
+    const backup = new MainBackupStore(path.join(directory, 'backup-state.json'), mainIdentity.publicKey);
+    await backup.commit(grant, [cellIdentity.publicKey]);
+    const recovery = new MainBackupRecovery(path.join(directory, 'restore-recovery.json'), mainIdentity.publicKey);
+    await recovery.journal.write({ version: 1, grant, material });
     const profile = renderInterfaceFields(generateOfficialProfile());
     const planes = [];
     for (let index = 0; index < 2; index++) {
@@ -120,14 +158,26 @@ async function main() {
           authorityIdentity: async () => authority,
           bootstrapStore: { read: async () => ({ version: 2, invitations: [{ status: 'consumed', phase: 'closed',
             cellKey: cellIdentity.publicKey, awgPublicKey: plane.cell.publicKey, awgPresharedKey: plane.psk }] }) },
-          publisherForCell: () => ({ load: async () => null }) }) }));
+          publisherForCell: () => ({ load: async () => null }),
+          backupForCell: key => ({ grant: () => backup.grant(key),
+            acknowledge: ack => backup.acknowledge(key, ack, authority.publicKey) }),
+          recoveryForCell: async (cellKey, challenge) => recovery.proof({ cellKey, challenge,
+            grant: await backup.grant(cellKey), authority, endpointHost: outer.target }) }) }));
     }
+    if (outer.family === 4) relay = await new AwgTechnicalRelay({ identity: mainIdentity, kind: 'main',
+      controlPort: planes[0].mainPort, allowedPeer: key => key === cellIdentity.publicKey,
+      lookup: async () => null }).start(0, outer.target);
     const file = path.join(directory, 'child.json');
-    await fs.writeFile(file, JSON.stringify({ planes, mainIdentity, cellIdentity, authority, profile, outer }), { mode: 0o600 });
+    await fs.writeFile(file, JSON.stringify({ planes: planes.map(plane => ({ ...plane,
+      main: { publicKey: plane.main.publicKey } })), mainIdentity: { publicKey: mainIdentity.publicKey },
+      cellIdentity, authority: { publicKey: authority.publicKey }, profile, outer, grant,
+      ...(outer.family === 4 ? { relayPort: relay.address().port } : { material }) }), { mode: 0o600 });
     const result = await runProcess('ip', ['netns', 'exec', namespace, process.execPath, __filename, 'child', file],
       { timeoutMs: 45000, maxOutputBytes: 4096 });
     console.log(result.stdout);
+    if (outer.family === 4) assert.equal((await backup.status(cellIdentity.publicKey)).confirmed, true);
   } finally {
+    if (relay) await relay.close();
     for (const listener of listeners) await new Promise(resolve => listener.close(resolve));
     try { run('ip', ['netns', 'delete', namespace]); } catch {}
     for (const name of ['restoreroot', 'restores0', 'restores1']) { try { run('ip', ['link', 'delete', name]); } catch {} }

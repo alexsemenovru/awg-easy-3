@@ -25,7 +25,7 @@ function file(name, value) {
   const [area, ...parts] = name.split('/');
   return { area, name: parts.join('/'), sha256: hash(bytes), data: bytes.toString('base64') };
 }
-async function fixture() {
+async function fixture({ onCell = () => {} } = {}) {
   const main = identity(), control = pair(), profile = generateOfficialProfile();
   const state = { version: 4, auth: { passwordHash: 'test-hash', sessionSecret: 'test-session' },
     server: { interfaceName: 'awg0', wanInterface: 'eth0', endpointHost: '198.51.100.1',
@@ -50,6 +50,7 @@ async function fixture() {
       temporaryPresharedKey: null, cellKey: cell.publicKey, requestId: 'a'.repeat(32),
       changedAt: 1001, awgPublicKey: cellAwg.publicKey, awgPresharedKey: key() };
     records.push(record);
+    onCell({ identity: cell, record });
     const digest = hash(cell.publicKey);
     values[`main/cell-settings/${digest}.json`] = { version: 1,
       desired: signSettings({ cellKey: cell.publicKey, revision: 1, settings: { schema: 1, clients: [] } }, main.privateKey),

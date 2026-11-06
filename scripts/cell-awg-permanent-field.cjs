@@ -1,4 +1,5 @@
 'use strict';
+const { parseStateText } = require('../src/lib/PrivateStateText');
 // Disposable AWG-control-path field harness. Does not configure user traffic.
 // External per-host flock is required for mutating actions.
 const fs = require('node:fs/promises');
@@ -88,7 +89,7 @@ async function enrolled() {
 }
 async function desiredConfig() {
   if (role === 'controller') {
-    const config = JSON.parse(await fs.readFile(file('config.json'), 'utf8'));
+    const config = parseStateText(await fs.readFile(file('config.json'), 'utf8'));
     const peer = await enrolled();
     const text = `[Interface]\nPrivateKey = ${config.privateKey}\nListenPort = ${udpPort}\n${renderInterfaceFields(config.profile)}\n`
       + `\n[Peer]\nPublicKey = ${peer.awgPublicKey}\nPresharedKey = ${peer.awgPresharedKey}\nAllowedIPs = ${cellAddress}/32\n`;
@@ -157,7 +158,7 @@ async function main() {
     const deployment = new CellAwgPermanentDeployment({ stateDirectory: file('permanent') });
     const gate = new CellAwgPermanentRetirementGate({ deployment });
     const temporary = bootstrapParts();
-    const config = JSON.parse(await fs.readFile(file('config.json'), 'utf8'));
+    const config = parseStateText(await fs.readFile(file('config.json'), 'utf8'));
     const runtime = new CellAwgBootstrapRuntime({ ...temporary, store: enrollment(),
       interfaceName: tempName, privateKey: config.privateKey, listenPort: 53081,
       controllerAddress: '10.90.8.1', registrationPort: 53082,
@@ -184,9 +185,9 @@ async function main() {
     return;
   }
   if (action === 'product-sync' && role === 'cell') {
-    const server = JSON.parse(await fs.readFile(file('cell-server.json'), 'utf8'));
+    const server = parseStateText(await fs.readFile(file('cell-server.json'), 'utf8'));
     let geoDatabase = {};
-    try { geoDatabase = JSON.parse(await fs.readFile(file('geo-database.json'), 'utf8')); }
+    try { geoDatabase = parseStateText(await fs.readFile(file('geo-database.json'), 'utf8')); }
     catch (error) { if (error.code !== 'ENOENT') throw error; }
     const host = await openRegisteredCellHost({ stateDirectory: dir,
       runtimeDirectory: file('user-runtime'), connectionStore: connection(),
@@ -265,7 +266,7 @@ async function main() {
     const record = await enrolled();
     if (!await pathReady(permanent, record.awgPublicKey)) throw new Error('Permanent path not verified');
     const temporary = bootstrapParts();
-    const config = JSON.parse(await fs.readFile(file('config.json'), 'utf8'));
+    const config = parseStateText(await fs.readFile(file('config.json'), 'utf8'));
     const runtime = new CellAwgBootstrapRuntime({ ...temporary, store: enrollment(),
       interfaceName: tempName, privateKey: config.privateKey, listenPort: 53081,
       controllerAddress: '10.90.8.1', registrationPort: 53082,
@@ -288,7 +289,7 @@ async function main() {
     const record = await enrolled();
     const publisher = await publishForCell(record.cellKey);
     let payload;
-    try { payload = JSON.parse(await fs.readFile(file('desired-payload.json'), 'utf8')); }
+    try { payload = parseStateText(await fs.readFile(file('desired-payload.json'), 'utf8')); }
     catch (error) { if (error.code !== 'ENOENT') throw error;
       payload = { schema: 1, clients: [] }; }
     const desired = await publisher.publish(payload);

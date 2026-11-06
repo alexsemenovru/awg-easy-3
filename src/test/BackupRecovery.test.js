@@ -118,6 +118,27 @@ test('fresh live authority is required over real TCP after takeover; old signing
   await assert.rejects(exchangeOverTunnel({ ...options, request: { ...request,
     requestId: '1'.repeat(32) } }), /rejected/);
 });
+test('restored Main rejects a fresh replay of an old-authority acknowledgement before applying it', async t => {
+  const f = await fixture(t);
+  let accepted = 0;
+  const oldAuthority = identity();
+  const service = new CellControlService({ identityStore: { load: async () => f.main },
+    authorityIdentity: async () => f.authority,
+    bootstrapStore: { read: async () => ({ version: 2, invitations: [{ status: 'consumed', phase: 'closed',
+      cellKey: f.cell.publicKey, awgPublicKey: 'present', awgPresharedKey: 'present' }] }) },
+    publisherForCell: () => ({ acknowledge: async () => { accepted++; return { revision: 1 }; } }) });
+  const server = await listenControlOnTunnel({ address: '127.0.0.1', port: 0, handler: service });
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const send = authorityKey => exchangeOverTunnel({ address: '127.0.0.1', port: server.address().port,
+    controllerKey: f.main.publicKey, authorityKey: f.authority.publicKey,
+    request: signControl({ controllerKey: f.main.publicKey, authorityKey,
+      action: 'ack', payload: { synthetic: true } }, f.cell.privateKey) });
+  await assert.rejects(send(null), /rejected/);
+  await assert.rejects(send(oldAuthority.publicKey), /rejected/);
+  assert.equal(accepted, 0);
+  assert.equal((await send(f.authority.publicKey)).applied, 1);
+  assert.equal(accepted, 1);
+});
 test('registered Cell receives and acknowledges backup generation over the existing signed AWG control RPC', async t => {
   const f = await fixture(t);
   await f.mainStore.commit(f.grant, [f.cell.publicKey]);
