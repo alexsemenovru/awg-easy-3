@@ -20,8 +20,9 @@ const verify = (value, signature, key) => validKey(key) && typeof signature === 
 const exact = (value, names) => value && typeof value === 'object' && !Array.isArray(value)
   && Object.keys(value).sort().join(',') === [...names].sort().join(',');
 const helloBody = value => ['awg-easy-3/technical-hello/v1', value.key, value.challenge];
-const openBody = value => ['awg-easy-3/technical-open/v1', value.key, value.target,
-  value.kind, value.server, value.challenge, value.nonce, value.origin];
+const openBody = value => [`awg-easy-3/technical-open/v${value.version}`, value.key, value.target,
+  value.kind, value.server, value.challenge, value.nonce, value.origin,
+  ...(value.version === 2 ? [value.locatorKey] : [])];
 const ackBody = (hash, key) => ['awg-easy-3/technical-accepted/v1', hash, key];
 const digest = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
@@ -83,14 +84,17 @@ class RelayFrames extends EventEmitter {
 }
 
 function validateOpen(value) {
-  if (!exact(value, ['version', 'key', 'target', 'kind', 'server', 'challenge', 'nonce', 'origin', 'signature'])
-    || value.version !== 1 || ![value.key, value.target, value.server, value.challenge, value.nonce].every(validKey)
+  if (!exact(value, ['version', 'key', 'target', 'kind', 'server', 'challenge', 'nonce', 'origin', 'signature',
+    ...(value?.version === 2 ? ['locatorKey'] : [])])
+    || ![1, 2].includes(value.version) || value.version === 2 && !validKey(value.locatorKey)
+    || ![value.key, value.target, value.server, value.challenge, value.nonce].every(validKey)
     || !['main', 'cell'].includes(value.kind)
     || !verify(openBody(value), value.signature, value.key)) throw new Error('Invalid technical relay proof');
   if (value.origin !== null) {
     // Exactly one intermediate is allowed. No relay loops or chained proxies.
     if (value.origin.origin !== null || value.origin.server !== value.key
-      || value.origin.target !== value.target || value.origin.kind !== value.kind) {
+      || value.origin.target !== value.target || value.origin.kind !== value.kind
+      || (value.origin.locatorKey ?? null) !== (value.locatorKey ?? null)) {
       throw new Error('Invalid technical relay origin');
     }
     validateOpen(value.origin);
@@ -98,7 +102,7 @@ function validateOpen(value) {
   return value;
 }
 
-async function connectTechnicalRelay({ host, port, serverKey, identity, target, kind, origin = null }) {
+async function connectTechnicalRelay({ host, port, serverKey, identity, target, kind, origin = null, locatorKey }) {
   if (!validKey(serverKey) || !validKey(target) || !Number.isInteger(port)
     || port < 1 || port > 65535 || !net.isIP(host)) throw new Error('Invalid technical relay endpoint');
   const socket = net.connect({ host, port });
@@ -109,7 +113,8 @@ async function connectTechnicalRelay({ host, port, serverKey, identity, target, 
     if (!exact(hello, ['version', 'key', 'challenge', 'signature']) || hello.version !== 1
       || hello.key !== serverKey || !validKey(hello.challenge)
       || !verify(helloBody(hello), hello.signature, serverKey)) throw new Error('Technical relay identity mismatch');
-    const request = { version: 1, key: identity.publicKey, target, kind,
+    const request = { version: locatorKey === undefined ? 1 : 2, key: identity.publicKey, target, kind,
+      ...(locatorKey === undefined ? {} : { locatorKey }),
       server: serverKey, challenge: hello.challenge, nonce: crypto.randomBytes(32).toString('base64url'), origin };
     request.signature = sign(openBody(request), identity.privateKey);
     await frames.json(request);
@@ -225,11 +230,11 @@ class AwgTechnicalRelay {
       if (request.origin) throw new Error('A second technical relay is forbidden');
       if (this.clock() - this.lookupAt < 5000) throw new Error('Technical route lookup budget exhausted');
       this.lookupAt = this.clock();
-      const contact = await this.lookup(request.target, request.kind);
+      const contact = await this.lookup(request.locatorKey ?? request.target, request.kind);
       if (!contact || !this.allowAddress(contact.host)) throw new Error('No technical relay route');
       const outgoing = await connectTechnicalRelay({ host: contact.host, port: contact.port,
         serverKey: request.target, identity: this.identity, target: request.target,
-        kind: request.kind, origin: request });
+        kind: request.kind, origin: request, locatorKey: request.locatorKey });
       try {
         await accepted();
         const pump = async (source, destination) => {

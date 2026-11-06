@@ -95,15 +95,17 @@ class CellControlRedirect {
   async current() {
     const tables = JSON.parse((await this.runner('nft', ['-j', 'list', 'tables'])).stdout);
     if (!Array.isArray(tables?.nftables)) throw new Error('Technical NAT inventory unavailable');
-    if (!tables.nftables.some(item => item.table?.family === 'ip' && item.table.name === this.table)) return null;
-    return JSON.parse((await this.runner('nft', ['-j', 'list', 'table', 'ip', this.table])).stdout);
+    const found = tables.nftables.filter(item => ['ip', 'ip6'].includes(item.table?.family) && item.table.name === this.table);
+    if (!found.length) return null;
+    if (found.length !== 1 || this.table === TABLE && found[0].table.family !== 'ip') throw new Error('Ambiguous owned NAT family');
+    return JSON.parse((await this.runner('nft', ['-j', 'list', 'table', found[0].table.family, this.table])).stdout);
   }
   async assertOwner(value, recovering = false) {
     if (await this.verifyOwned(value, { recovering }) !== true) throw new Error('Control AWG ownership is unproven');
   }
   async clearFlow(value) {
     try {
-      await this.runner('conntrack', ['-D', '-p', 'udp', '--orig-src', value.source4,
+      await this.runner('conntrack', [...(net.isIP(value.peer4) === 6 ? ['-f', 'ipv6'] : []), '-D', '-p', 'udp', '--orig-src', value.source4,
         '--orig-dst', value.peer4, '--sport', String(value.sourcePort), '--dport', String(value.peerPort)],
       { env: { ...process.env, LC_ALL: 'C' }, timeoutMs: 5000, maxOutputBytes: 4096 });
     } catch (error) {
@@ -127,7 +129,7 @@ class CellControlRedirect {
     await this.runner('conntrack', ['--version'], { timeoutMs: 5000, maxOutputBytes: 1024 });
     if (current && normalize(current) !== normalize(this.makeSnapshot(saved.context))) throw new Error('Technical NAT table was changed externally');
     await this.save({ ...saved, phase: 'removing' });
-    if (current) await this.runner('nft', ['delete', 'table', 'ip', this.table]);
+    if (current) await this.runner('nft', ['delete', 'table', this.makeSnapshot(saved.context).nftables[0].table.family, this.table]);
     await this.clearFlow(saved.context);
     await fs.unlink(this.file);
     await this.syncDirectory();

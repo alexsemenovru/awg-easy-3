@@ -39,20 +39,24 @@ async function main() {
         const peer = service.peers.find(item => item.publicKey === message.target);
         if (!peer || !workerData.controlPort || require('node:net').isIP(message.source4) !== 4) throw new Error('No registered technical target');
         if (bridge) { await bridge.close(); bridge = null; }
-        const direct = service.contact(peer.publicKey) || await service.lookupRelayTarget(peer.publicKey, peer.kind);
-        const open = (host, port, serverKey) => openTechnicalBridge({ host, port, serverKey,
+        const contacts = await service.lookupRelayTargets(peer.publicKey, peer.kind);
+        const open = (host, port, serverKey, locatorKey) => openTechnicalBridge({ host, port, serverKey, locatorKey,
           localAwgPort: workerData.controlPort, localAwgAddress: message.source4, identity: workerData.identity,
           target: peer.publicKey, kind: peer.kind });
-        if (direct) {
-          try { bridge = await open(direct.host, direct.port, peer.publicKey); } catch { /* Try one intermediate. */ }
+        for (const contact of contacts) {
+          try { bridge = await open(contact.host, contact.port, peer.publicKey); break; } catch { /* Try another pinned locator. */ }
         }
         if (!bridge) {
           for (const candidate of service.relayCandidates().slice(0, 3)) {
             try {
               const key = await discoverRelayIdentity(candidate);
               if (key === workerData.identity.publicKey || key === peer.publicKey) continue;
-              bridge = await open(candidate.host, candidate.port, key);
-              break;
+              const locatorKeys = [...new Set([...contacts.map(value => value.lookupKey), ...(peer.lookupKeys ?? [peer.publicKey])])];
+              for (const locatorKey of locatorKeys) {
+                try { bridge = await open(candidate.host, candidate.port, key,
+                  locatorKey === peer.publicKey ? undefined : locatorKey); break; } catch { /* Try the next pinned alias. */ }
+              }
+              if (bridge) break;
             } catch { /* A public candidate has no authority; try the next bounded candidate. */ }
           }
         }

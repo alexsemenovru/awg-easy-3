@@ -26,6 +26,7 @@ const verifyMutable = (signature, bytes, rawKey) => {
 // settings, VPN profiles, commands, client statistics or backup archives.
 class DhtDiscoveryRuntime {
   constructor({ directory, identity, kind, endpointHost, port,
+    aliases = [],
     bootstrap = BOOTSTRAP, bindAddress = '0.0.0.0',
     newDht, socket, now = Date.now, resolve = host => dns.lookup(host, { family: 4 }) }) {
     if (!path.isAbsolute(directory) || !['main', 'cell'].includes(kind)
@@ -38,6 +39,12 @@ class DhtDiscoveryRuntime {
     if (crypto.createPublicKey(key).export({ format: 'jwk' }).x !== identity.publicKey) {
       throw new Error('DHT identity mismatch');
     }
+    if (!Array.isArray(aliases) || aliases.length > 2 || kind !== 'main' && aliases.length) throw new Error('Invalid discovery aliases');
+    for (const alias of aliases) {
+      targetFor(alias.publicKey);
+      if (crypto.createPublicKey(crypto.createPrivateKey(alias.privateKey)).export({ format: 'jwk' }).x !== alias.publicKey) throw new Error('Discovery alias identity mismatch');
+    }
+    this.publicationIdentities = [...new Map([identity, ...aliases].map(value => [value.publicKey, value])).values()];
     Object.assign(this, { directory, identity, kind, endpointHost, port, bootstrap,
       bindAddress, newDht, now, resolve });
     this.socket = socket || new DhtBudgetSocket();
@@ -60,8 +67,11 @@ class DhtDiscoveryRuntime {
     for (const peer of peers) {
       if (!peer || !['main', 'cell'].includes(peer.kind)) throw new Error('Invalid DHT peer role');
       targetFor(peer.publicKey);
+      const lookupKeys = peer.lookupKeys === undefined ? [peer.publicKey] : peer.lookupKeys;
+      if (!Array.isArray(lookupKeys) || !lookupKeys.length || lookupKeys.length > 2 || new Set(lookupKeys).size !== lookupKeys.length) throw new Error('Invalid discovery lookup keys');
+      lookupKeys.forEach(targetFor);
       if (peer.publicKey !== this.identity.publicKey) unique.set(peer.publicKey,
-        { publicKey: peer.publicKey, kind: peer.kind });
+        { publicKey: peer.publicKey, kind: peer.kind, ...(peer.lookupKeys === undefined ? {} : { lookupKeys: [...lookupKeys] }) });
     }
     this.peers = [...unique.values()];
     for (const key of this.hints.keys()) if (!unique.has(key)) this.hints.delete(key);
@@ -69,7 +79,7 @@ class DhtDiscoveryRuntime {
 
   exchange(publicKey, kind) {
     return new CellDhtContactExchange({ dht: this.dht, cellKey: publicKey, kind,
-      retainOwn: publicKey === this.identity.publicKey ? options => retainOwnRecord(this.dht,
+      retainOwn: this.publicationIdentities.some(value => value.publicKey === publicKey) ? options => retainOwnRecord(this.dht,
         options, { publicKey, kind, now: this.now() }) : undefined,
       cursor: new CellDhtCursorStore(path.join(this.directory, `${publicKey}.json`), publicKey, { kind }),
       timeoutMs: 10000 });
@@ -119,8 +129,11 @@ class DhtDiscoveryRuntime {
         const host = net.isIP(this.endpointHost) === 4 ? this.endpointHost
           : (await this.resolve(this.endpointHost)).address;
         if (net.isIP(host) !== 4) throw new Error('DHT requires IPv4 discovery address');
-        await this.exchange(this.identity.publicKey, this.kind).publish({
-          privateKey: this.identity.privateKey, host, port: this.dht.address().port, now });
+        for (const signer of this.publicationIdentities) {
+          try { await this.exchange(signer.publicKey, this.kind).publish({
+            privateKey: signer.privateKey, host, port: this.dht.address().port, now }); }
+          catch { this.failures++; } // Historical-key conflicts cannot suppress recovery aliases.
+        }
         this.lastPublished = now;
       } catch { this.failures++; }
     }
@@ -130,7 +143,7 @@ class DhtDiscoveryRuntime {
     for (let index = 0; index < Math.min(8, peers.length) && !this.closing; index++) {
       const peer = peers[this.offset++ % peers.length];
       try {
-        const hint = await this.exchange(peer.publicKey, peer.kind).lookup(this.now());
+        const hint = (await this.lookupRelayTargets(peer.publicKey, peer.kind))[0];
         if (hint && this.peers.some(current => current.publicKey === peer.publicKey)) {
           this.hints.set(peer.publicKey, hint);
           this.dht.addNode({ host: hint.host, port: hint.port });
@@ -191,6 +204,20 @@ class DhtDiscoveryRuntime {
         accept: item => verifyCellLocator(item, { cellKey: publicKey, kind, now: this.now() }) },
       timeoutMs: 10000 });
     return exchange.lookup(this.now());
+  }
+  async lookupRelayTargets(publicKey, kind) {
+    const peer = this.peers.find(value => value.publicKey === publicKey && value.kind === kind);
+    const keys = peer?.lookupKeys ?? [publicKey];
+    const hints = [];
+    for (const key of keys) {
+      try {
+        const cached = this.contact(publicKey);
+        const hint = cached?.cellKey === key ? cached : peer
+          ? await this.exchange(key, kind).lookup(this.now()) : await this.lookupRelayTarget(key, kind);
+        if (hint) hints.push({ ...hint, lookupKey: key });
+      } catch { this.failures++; }
+    }
+    return hints;
   }
   status() {
     return Object.freeze({ state: this.closing ? 'stopped' : this.dht?.listening ? 'listening' : 'starting',

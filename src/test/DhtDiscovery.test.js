@@ -85,13 +85,14 @@ test('three actual UDP nodes exchange signed locators and restart using cached c
   seed.listen(0, '127.0.0.1');
   await listening;
   const mainIdentity = identity();
+  const recoveryIdentity = identity();
   const cellIdentity = identity();
-  const runtime = (name, kind, signer, bootstrap = false) => new DhtDiscoveryRuntime({
+  const runtime = (name, kind, signer, bootstrap = false, aliases = []) => new DhtDiscoveryRuntime({
     directory: path.join(directory, name), identity: signer, kind,
-    endpointHost: '127.0.0.1', port: 0, bindAddress: '127.0.0.1', bootstrap,
+    endpointHost: '127.0.0.1', port: 0, bindAddress: '127.0.0.1', bootstrap, aliases,
     newDht: options => new DHT(options),
   });
-  const main = runtime('main', 'main', mainIdentity);
+  const main = runtime('main', 'main', mainIdentity, false, [recoveryIdentity]);
   const cell = runtime('cell', 'cell', cellIdentity);
   t.after(() => Promise.all([main.close(), cell.close()]));
   main.setPeers([{ publicKey: cellIdentity.publicKey, kind: 'cell' }]);
@@ -109,6 +110,17 @@ test('three actual UDP nodes exchange signed locators and restart using cached c
   assert.equal(main.contact(cellIdentity.publicKey).port, cell.dht.address().port);
   assert.equal(main.status().locatedPeers, 1);
   assert.doesNotMatch(JSON.stringify(main.status()), /127\.0\.0\.1|privateKey|publicKey/);
+  cell.setPeers([{ publicKey: mainIdentity.publicKey, kind: 'main', lookupKeys: [recoveryIdentity.publicKey] }]);
+  const recovered = await cell.lookupRelayTargets(mainIdentity.publicKey, 'main');
+  assert.equal(recovered.length, 1);
+  assert.equal(recovered[0].cellKey, recoveryIdentity.publicKey);
+  assert.equal(recovered[0].port, main.dht.address().port);
+  const originalExchange = main.exchange.bind(main);
+  main.exchange = (key, kind) => key === mainIdentity.publicKey ? { publish: async () => { throw new Error('Historical locator conflict'); } } : originalExchange(key, kind);
+  main.lastPublished = 0;
+  await main.tick();
+  assert.ok((await cell.exchange(recoveryIdentity.publicKey, 'main').lookup()).seq > recovered[0].seq,
+    'Historical locator failure suppressed recovery alias');
   main.setPeers([]);
   assert.equal(main.contact(cellIdentity.publicKey), null);
   await cell.close();

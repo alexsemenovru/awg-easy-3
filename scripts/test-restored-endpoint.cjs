@@ -40,7 +40,7 @@ async function child(file) {
       const peer = data.planes[index];
       const config = `[Interface]\nPrivateKey=${peer.cell.privateKey}\nListenPort=${peer.cellPort}\n${data.profile}\n`
         + `[Peer]\nPublicKey=${peer.main.publicKey}\nPresharedKey=${peer.psk}\n`
-        + `AllowedIPs=10.202.${91 + index}.1/32\nEndpoint=198.18.92.1:${peer.mainPort}\nPersistentKeepalive=1\n`;
+        + `AllowedIPs=10.202.${91 + index}.1/32\nEndpoint=${data.outer.family === 6 ? `[${data.outer.old}]` : data.outer.old}:${peer.mainPort}\nPersistentKeepalive=1\n`;
       plans[role] = await configure(directory, name, config, `10.202.${91 + index}.2`);
       run('ip', ['route', 'add', `10.202.${91 + index}.1/32`, 'dev', name]);
     }
@@ -58,7 +58,7 @@ async function child(file) {
     await store.accept(grant);
     const challenge = await store.challenge();
     await store.consume(signTakeover({ grant, material, cellKey: data.cellIdentity.publicKey,
-      challenge: challenge.nonce, authorityKey: data.authority.publicKey, endpointHost: '198.18.92.3' }));
+      challenge: challenge.nonce, authorityKey: data.authority.publicKey, endpointHost: data.outer.target }));
     let protectedCount = 0;
     const migration = createRestoredEndpoint({ stateDirectory: directory, connectionStore,
       permanentPlanStore: { read: async () => plans.control }, dataDeployment: {
@@ -78,7 +78,7 @@ async function child(file) {
       assert.equal(inspectAwgOwnership({ manifest: plan.spec.owner,
         links: JSON.parse(run('ip', ['-d', '-j', 'link', 'show', 'dev', plan.spec.owner.interfaceName])),
         actualConfig: run('awg', ['showconf', plan.spec.owner.interfaceName]) }).verified, true);
-      assert(run('awg', ['show', plan.spec.owner.interfaceName, 'endpoints']).includes('198.18.92.1:'));
+      assert(run('awg', ['show', plan.spec.owner.interfaceName, 'endpoints']).includes(`${data.outer.family === 6 ? `[${data.outer.old}]` : data.outer.old}:`));
     }
     console.log(JSON.stringify({ realAwgControl: true, realAwgData: true, newMainAddress: true,
       oldMainUnavailable: true, originalPinnedEndpointsPreserved: true, secondPassUnchanged: true, tlsUsed: false }));
@@ -93,13 +93,16 @@ async function main() {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-restored-network-'));
   const namespace = `awgr${crypto.randomBytes(4).toString('hex')}`;
   const listeners = [];
+  const outer = process.env.AWG_RESTORE_TRANSPORT_FAMILY === '6'
+    ? { family: 6, old: '2001:db8:92::1', target: '2001:db8:92::3', cell: '2001:db8:92::2', prefix: 64 }
+    : { family: 4, old: '198.18.92.1', target: '198.18.92.3', cell: '198.18.92.2', prefix: 29 };
   try {
     run('ip', ['netns', 'add', namespace]);
     run('ip', ['link', 'add', 'restoreroot', 'type', 'veth', 'peer', 'name', 'restorepeer']);
     run('ip', ['link', 'set', 'restorepeer', 'netns', namespace]);
-    run('ip', ['address', 'add', '198.18.92.3/29', 'dev', 'restoreroot']);
+    run('ip', [`-${outer.family}`, 'address', 'add', `${outer.target}/${outer.prefix}`, 'dev', 'restoreroot', ...(outer.family === 6 ? ['nodad'] : [])]);
     run('ip', ['link', 'set', 'restoreroot', 'up']);
-    for (const args of [['link', 'set', 'lo', 'up'], ['address', 'add', '198.18.92.2/29', 'dev', 'restorepeer'],
+    for (const args of [['link', 'set', 'lo', 'up'], [`-${outer.family}`, 'address', 'add', `${outer.cell}/${outer.prefix}`, 'dev', 'restorepeer', ...(outer.family === 6 ? ['nodad'] : [])],
       ['link', 'set', 'restorepeer', 'up']]) run('ip', ['netns', 'exec', namespace, 'ip', ...args]);
     const manager = new AwgKeyManager();
     const mainIdentity = identity(), cellIdentity = identity(), authority = identity();
@@ -120,7 +123,7 @@ async function main() {
           publisherForCell: () => ({ load: async () => null }) }) }));
     }
     const file = path.join(directory, 'child.json');
-    await fs.writeFile(file, JSON.stringify({ planes, mainIdentity, cellIdentity, authority, profile }), { mode: 0o600 });
+    await fs.writeFile(file, JSON.stringify({ planes, mainIdentity, cellIdentity, authority, profile, outer }), { mode: 0o600 });
     const result = await runProcess('ip', ['netns', 'exec', namespace, process.execPath, __filename, 'child', file],
       { timeoutMs: 45000, maxOutputBytes: 4096 });
     console.log(result.stdout);

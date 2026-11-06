@@ -3,10 +3,20 @@
 const path = require('node:path');
 const { startDhtDiscovery } = require('./DhtDiscoverySupervisor');
 const { runProcess } = require('./ProcessRunner');
+const { ControlIdentityStore } = require('./ControlIdentityStore');
+const { MainBackupRecovery } = require('./MainBackupRecovery');
+const { recoveryStoreFor } = require('./CellControlAuthority');
 
 async function openNodeDiscovery({ role, config, host, start = startDhtDiscovery, runner = runProcess }) {
   try {
     const identity = await host.identityStore.load(role === 'main' ? 'controller' : 'cell');
+    const aliases = [];
+    if (role === 'main') {
+      try { aliases.push(await new ControlIdentityStore(path.join(config.stateDirectory, 'authority.json')).load('controller')); }
+      catch (error) { if (error.code !== 'ENOENT') throw error; }
+      const recovery = await new MainBackupRecovery(path.join(config.stateDirectory, 'restore-recovery.json'), identity.publicKey).journal.read();
+      if (recovery) aliases.push({ publicKey: recovery.material.publicKey, privateKey: recovery.material.privateKey });
+    }
     let controlPort = role === 'main' ? config.permanentEndpointPort : null;
     if (role === 'cell') {
       try {
@@ -18,12 +28,17 @@ async function openNodeDiscovery({ role, config, host, start = startDhtDiscovery
       } catch { /* Discovery and relay forwarding still work without a local AWG socket. */ }
     }
     return start({ directory: path.join(config.stateDirectory, 'discovery'),
-      identity, kind: role, endpointHost: config.endpointHost, port: config.dhtPort, controlPort,
+      identity, aliases, kind: role, endpointHost: config.endpointHost, port: config.dhtPort, controlPort,
       peers: async () => {
         if (role === 'cell') {
           const connection = await host.connectionStore.read();
-          return connection?.status === 'registered'
-            ? [{ publicKey: connection.controllerKey, kind: 'main' }] : [];
+          if (connection?.status !== 'registered') return [];
+          const recovery = typeof host.connectionStore.filePath === 'string'
+            ? await recoveryStoreFor(host.connectionStore, connection)?.read() : null;
+          const lookupKeys = [...new Set([recovery?.grant?.recoveryKey,
+            connection.authorityKey ?? connection.controllerKey].filter(Boolean))];
+          return [{ publicKey: connection.controllerKey, kind: 'main',
+            ...(lookupKeys.length === 1 && lookupKeys[0] === connection.controllerKey ? {} : { lookupKeys }) }];
         }
         const state = await host.bootstrapStore.read();
         return state.invitations.filter(record => record.status === 'consumed'

@@ -68,6 +68,12 @@ jobs:
             -v "$GITHUB_WORKSPACE:/work:ro" -w /work \
             --entrypoint node awg-easy-3:cells-ci-tests \
             scripts/test-restored-endpoint.cjs
+          docker run --rm --network none --cap-add NET_ADMIN --cap-add SYS_ADMIN \
+            --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
+            --device /dev/net/tun -e AWG_DISPOSABLE_NETWORK_TEST=1 -e AWG_RESTORE_TRANSPORT_FAMILY=6 \
+            -v "$GITHUB_WORKSPACE:/work:ro" -w /work \
+            --entrypoint node awg-easy-3:cells-ci-tests \
+            scripts/test-restored-endpoint.cjs
       - name: Reconstruct a Main from an encrypted archive on a clean network
         shell: bash
         run: |

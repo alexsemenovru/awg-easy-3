@@ -6,7 +6,7 @@ const crypto = require('node:crypto');
 
 // No addresses or private keys in argv, status messages or logs. DHT failure
 // cannot reject the VPN poller/reconciler or alter its routes and access rules.
-function startDhtDiscovery({ directory, identity, kind, endpointHost, port, controlPort, bootstrap,
+function startDhtDiscovery({ directory, identity, aliases = [], kind, endpointHost, port, controlPort, bootstrap,
   bindAddress, peers = async () => [],
   newWorker = (file, options) => new Worker(file, options) }) {
   let worker;
@@ -20,7 +20,7 @@ function startDhtDiscovery({ directory, identity, kind, endpointHost, port, cont
     if (stopped) return;
     try {
       worker = newWorker(path.join(__dirname, '../dht-worker.js'), {
-        workerData: { directory, identity, kind, endpointHost, port, controlPort, bootstrap, bindAddress },
+        workerData: { directory, identity, aliases, kind, endpointHost, port, controlPort, bootstrap, bindAddress },
         resourceLimits: { maxOldGenerationSizeMb: 32, maxYoungGenerationSizeMb: 8, stackSizeMb: 2 },
         name: 'network-discovery',
       });

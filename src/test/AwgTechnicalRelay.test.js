@@ -51,6 +51,25 @@ test('receiver rejects an unregistered origin even through an otherwise valid re
   assert.equal(data.delivered(), 0);
 });
 
+test('a pinned recovery locator can find a restored Main through one relay without changing final peer identity', async t => {
+  const data = await fixture(t);
+  const locator = identity().publicKey;
+  const seen = [];
+  data.relay.lookup = async (key, kind) => {
+    seen.push(key);
+    return key === locator && kind === 'main' ? { host: '127.0.0.1', port: data.main.address().port } : null;
+  };
+  const connection = await connectTechnicalRelay({ host: '127.0.0.1', port: data.relay.address().port,
+    serverKey: data.relayIdentity.publicKey, identity: data.sender, target: data.destination.publicKey,
+    locatorKey: locator, kind: 'main' });
+  try {
+    const bytes = Buffer.from('recovery-locator-transport');
+    await connection.write(bytes); assert.deepEqual(await connection.read(3000), bytes);
+  } finally { connection.close(); }
+  assert.deepEqual(seen, [locator]);
+  assert.equal(data.delivered(), 1);
+});
+
 test('pinned identity and role prevent redirection to a foreign listener', async t => {
   const data = await fixture(t);
   await assert.rejects(connectTechnicalRelay({ host: '127.0.0.1', port: data.main.address().port,
