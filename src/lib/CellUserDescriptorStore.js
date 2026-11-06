@@ -1,4 +1,5 @@
 'use strict';
+const { encodeStateText, parseStateText } = require('./PrivateStateText');
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -22,7 +23,7 @@ class CellUserDescriptorStore {
         && (stat.uid !== process.getuid() || (stat.mode & 0o077)))) {
       throw new Error('Unsafe Cell descriptor');
     }
-    return validateCellUserDescriptor(JSON.parse(await fs.readFile(this.filePath, 'utf8')));
+    return validateCellUserDescriptor(parseStateText(await fs.readFile(this.filePath, 'utf8')));
   }
 
   async update(value) {
@@ -41,7 +42,7 @@ class CellUserDescriptorStore {
     let handle;
     try {
       handle = await fs.open(temporary, 'wx', 0o600);
-      await handle.writeFile(JSON.stringify(descriptor));
+      await handle.writeFile(encodeStateText(JSON.stringify(descriptor), this.filePath));
       await handle.sync();
       await handle.close();
       handle = undefined;

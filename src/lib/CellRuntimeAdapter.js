@@ -78,7 +78,8 @@ class CellRuntimeAdapter {
       const [config, policy, stripped, actual] = await Promise.all([
         this.runtime.readOptional(path.join(directory, `${interfaceName}.conf`)),
         this.runtime.readOptional(path.join(directory, 'rules.nft')),
-        this.runner('awg-quick', ['strip', path.join(directory, `${interfaceName}.conf`)]),
+        typeof this.runtime.stripSavedConfig === 'function' ? this.runtime.stripSavedConfig(interfaceName)
+          : this.runner('awg-quick', ['strip', path.join(directory, `${interfaceName}.conf`)]),
         this.runner('awg', ['showconf', interfaceName]),
       ]);
       if (config !== artifacts.serverConfig || policy !== artifacts.nftables

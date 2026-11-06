@@ -52,7 +52,7 @@ class CellSettingsPoller {
       this.report({ state: 'polling', lastAttemptAt: attemptAt });
       if (signal.aborted) break;
       try {
-        await this.sync();
+        await this.sync({ signal });
         failures = 0;
         this.report({ state: 'connected', lastSuccessAt: this.now(),
           consecutiveFailures: 0 });

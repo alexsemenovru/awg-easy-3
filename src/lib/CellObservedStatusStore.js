@@ -1,4 +1,5 @@
 'use strict';
+const { encodeStateText, parseStateText } = require('./PrivateStateText');
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -26,7 +27,7 @@ class CellObservedStatusStore {
     catch (error) { if (error.code === 'ENOENT') return null; throw error; }
     if (!stat.isFile() || stat.nlink !== 1 || stat.size > 1024 || process.platform !== 'win32'
       && (stat.uid !== process.getuid() || stat.mode & 0o077)) throw new Error('Unsafe Cell observation');
-    return validateObservedStatus(JSON.parse(await fs.readFile(this.filePath, 'utf8')));
+    return validateObservedStatus(parseStateText(await fs.readFile(this.filePath, 'utf8')));
   }
   update(controlPath, issuedAt, receivedAt = Date.now()) {
     const next = validateObservedStatus({ version: 1, controlPath, issuedAt, receivedAt });
@@ -43,7 +44,7 @@ class CellObservedStatusStore {
       const temporary = path.join(directory, `.observed-${crypto.randomUUID()}.tmp`);
       try {
         const handle = await fs.open(temporary, 'wx', 0o600);
-        try { await handle.writeFile(JSON.stringify(next)); await handle.sync(); } finally { await handle.close(); }
+        try { await handle.writeFile(encodeStateText(JSON.stringify(next), this.filePath)); await handle.sync(); } finally { await handle.close(); }
         await fs.rename(temporary, this.filePath);
         if (process.platform !== 'win32') {
           const parent = await fs.open(directory, 'r');

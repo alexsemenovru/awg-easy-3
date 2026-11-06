@@ -1,4 +1,5 @@
 'use strict';
+const { encodeStateText, parseStateText } = require('./PrivateStateText');
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -48,7 +49,7 @@ class CellReceivedDataOfferStore {
       throw new Error('Unsafe received Cell data offer');
     }
     await this.privateDirectory();
-    try { return validateForCell(JSON.parse(await fs.readFile(this.filePath, 'utf8')),
+    try { return validateForCell(parseStateText(await fs.readFile(this.filePath, 'utf8')),
       this.server); }
     catch { throw new Error('Unreadable received Cell data offer; replacement disabled'); }
   }
@@ -58,7 +59,7 @@ class CellReceivedDataOfferStore {
     const temporary = path.join(directory, `.received-data-offer-${crypto.randomUUID()}.tmp`);
     try {
       const handle = await fs.open(temporary, 'wx', 0o600);
-      try { await handle.writeFile(JSON.stringify(value)); await handle.sync(); }
+      try { await handle.writeFile(encodeStateText(JSON.stringify(value), this.filePath)); await handle.sync(); }
       finally { await handle.close(); }
       try { await fs.link(temporary, this.filePath); }
       catch (error) {

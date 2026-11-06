@@ -1,4 +1,5 @@
 'use strict';
+const { encodeStateText, parseStateText } = require('./PrivateStateText');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -42,7 +43,7 @@ class CellNftTransaction {
     try {
       const stat = await fs.lstat(this.file);
       if (!stat.isFile() || stat.size > MAX_BYTES || (process.platform !== 'win32' && (stat.mode & 0o077))) throw new Error('Unsafe nft journal');
-      return validate(JSON.parse(await fs.readFile(this.file, 'utf8')), this.table);
+      return validate(parseStateText(await fs.readFile(this.file, 'utf8')), this.table);
     } catch (error) {
       if (error.code === 'ENOENT') return { version: 1, committed: null, pending: null };
       throw error;
@@ -55,7 +56,7 @@ class CellNftTransaction {
     await fs.mkdir(directory, { recursive: true, mode: 0o700 });
     try {
       const handle = await fs.open(temporary, 'wx', 0o600);
-      try { await handle.writeFile(data); await handle.sync(); } finally { await handle.close(); }
+      try { await handle.writeFile(encodeStateText(data, this.file)); await handle.sync(); } finally { await handle.close(); }
       await fs.rename(temporary, this.file);
       if (process.platform !== 'win32') {
         const parent = await fs.open(directory, 'r');

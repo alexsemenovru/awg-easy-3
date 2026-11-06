@@ -192,6 +192,7 @@ async function main() {
       runtimeDirectory: file('user-runtime'), connectionStore: connection(),
       identityStore: identities(), bootstrap: bootstrapParts(),
       temporaryInterfaceName: tempName, server, geoDatabase: async () => geoDatabase });
+    await host.recoverBoot();
     console.log(JSON.stringify(await host.syncSettings()));
     return;
   }

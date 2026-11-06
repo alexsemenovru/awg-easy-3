@@ -1,4 +1,5 @@
 'use strict';
+const { encodeStateText, parseStateText } = require('./PrivateStateText');
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -40,7 +41,7 @@ class CellNftPolicyReceipt {
       && (directory.uid !== process.getuid() || (directory.mode & 0o077))) {
       throw new Error('Private cell nft receipt directory required');
     }
-    const value = JSON.parse(await fs.readFile(this.filePath, 'utf8'));
+    const value = parseStateText(await fs.readFile(this.filePath, 'utf8'));
     if (!valid(value)) throw new Error('Invalid cell nft receipt');
     return value;
   }
@@ -58,7 +59,7 @@ class CellNftPolicyReceipt {
     const temporary = path.join(directory, `.nft-receipt-${crypto.randomUUID()}.tmp`);
     try {
       const handle = await fs.open(temporary, 'wx', 0o600);
-      try { await handle.writeFile(JSON.stringify(value)); await handle.sync(); }
+      try { await handle.writeFile(encodeStateText(JSON.stringify(value), this.filePath)); await handle.sync(); }
       finally { await handle.close(); }
       await fs.rename(temporary, this.filePath);
       if (process.platform !== 'win32') {

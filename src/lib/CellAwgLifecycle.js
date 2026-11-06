@@ -1,4 +1,6 @@
 'use strict';
+const { encodeStateText, parseStateText } = require('./PrivateStateText');
+const { enabled, withPlainConfiguration } = require('./PrivateStateText');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -72,7 +74,7 @@ class CellAwgLifecycle {
       if (!stat.isFile() || stat.nlink !== 1 || stat.size > 5 * 1024 * 1024
         || (process.platform !== 'win32' && (stat.uid !== process.getuid() || (stat.mode & 0o077)))) throw new Error('Unsafe lifecycle journal');
       let value;
-      try { value = JSON.parse(await fs.readFile(this.file, 'utf8')); }
+      try { value = parseStateText(await fs.readFile(this.file, 'utf8')); }
       catch { throw new Error('Unreadable private lifecycle journal'); }
       return validate(value);
     } catch (error) { if (error.code === 'ENOENT') return empty(); throw error; }
@@ -83,7 +85,7 @@ class CellAwgLifecycle {
     const directory = await this.directory(), file = path.join(directory, `.life-${crypto.randomUUID()}.tmp`);
     try {
       const handle = await fs.open(file, 'wx', 0o600);
-      try { await handle.writeFile(text); await handle.sync(); } finally { await handle.close(); }
+      try { await handle.writeFile(encodeStateText(text, this.file)); await handle.sync(); } finally { await handle.close(); }
       await fs.rename(file, this.file);
       if (process.platform !== 'win32') {
         const parent = await fs.open(directory, 'r');
@@ -132,6 +134,8 @@ class CellAwgLifecycle {
     return state;
   }
   async configure(spec) {
+    if (enabled(this.file)) return withPlainConfiguration(path.join(path.dirname(this.file), `${spec.owner.interfaceName}.conf`),
+      spec.owner.config, file => this.run('awg', ['setconf', spec.owner.interfaceName, file]));
     const file = path.join(await this.directory(), `.life-config-${crypto.randomUUID()}.conf`);
     try {
       const handle = await fs.open(file, 'wx', 0o600);

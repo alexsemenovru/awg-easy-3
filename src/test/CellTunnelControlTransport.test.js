@@ -26,6 +26,31 @@ const ownedLoopback = () => ({
   verify: async () => ({ up: true }),
 });
 
+test('an aborted control poll closes the actual socket before its timeout', async t => {
+  const net = require('node:net');
+  let received, closed;
+  const ready = new Promise(resolve => { received = resolve; });
+  const gone = new Promise(resolve => { closed = resolve; });
+  const server = net.createServer(socket => {
+    socket.once('data', received);
+    socket.once('close', closed);
+    socket.on('error', () => {});
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const controller = identity(), cell = identity(), abort = new AbortController();
+  const request = signControl({ controllerKey: controller.publicKey, action: 'poll' }, cell.privateKey);
+  const pending = exchangeOverTunnel({ address: '127.0.0.1', port: server.address().port,
+    request, controllerKey: controller.publicKey, timeoutMs: 60000, signal: abort.signal });
+  const rejected = assert.rejects(pending, /cancelled/);
+  await ready;
+  abort.abort();
+  await rejected;
+  await gone;
+  await assert.rejects(exchangeOverTunnel({ address: '127.0.0.1', port: server.address().port,
+    request, controllerKey: controller.publicKey, signal: abort.signal }), /cancelled/);
+});
+
 test('tunnel control transport refuses public addresses and never auto-listens', async () => {
   for (const address of ['0.0.0.0', '216.57.108.77', '::', '2001:db8::1', 'localhost']) {
     assert.equal(privateAddress(address), false);

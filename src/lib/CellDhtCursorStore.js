@@ -1,4 +1,5 @@
 'use strict';
+const { encodeStateText, parseStateText } = require('./PrivateStateText');
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -44,7 +45,7 @@ class CellDhtCursorStore {
       }
       raw = await fs.readFile(this.filePath, 'utf8');
     } catch (error) { if (error.code === 'ENOENT') return 0; throw error; }
-    const state = JSON.parse(raw);
+    const state = parseStateText(raw);
     if (!state || state.version !== 1 || state.cellKey !== this.cellKey
       || !validSeq(state.seq) || Object.keys(state).sort().join(',') !== 'cellKey,seq,version') {
       throw new Error('Invalid DHT cursor');
@@ -64,7 +65,7 @@ class CellDhtCursorStore {
     try {
       const handle = await fs.open(temporary, 'wx', 0o600);
       try {
-        await handle.writeFile(JSON.stringify({ version: 1, cellKey: this.cellKey, seq }));
+        await handle.writeFile(encodeStateText(JSON.stringify({ version: 1, cellKey: this.cellKey, seq }), this.filePath));
         await handle.sync();
       } finally { await handle.close(); }
       await fs.rename(temporary, this.filePath);

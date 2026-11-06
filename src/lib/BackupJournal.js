@@ -1,4 +1,5 @@
 'use strict';
+const { encodeStateText, parseStateText } = require('./PrivateStateText');
 
 const fs = require('node:fs/promises');
 const { constants } = require('node:fs');
@@ -34,7 +35,7 @@ class BackupJournal {
         && (stat.uid !== process.getuid() || stat.mode & 0o077)) throw new Error('Unsafe backup journal');
       const bytes = await handle.readFile();
       if (bytes.length > this.limit) throw new Error('Backup journal too large');
-      return this.validate(JSON.parse(bytes.toString('utf8')));
+      return this.validate(parseStateText(bytes.toString('utf8')));
     } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
     finally { if (handle) await handle.close(); }
   }
@@ -48,7 +49,7 @@ class BackupJournal {
     const temporary = path.join(directory, `.backup-${crypto.randomUUID()}.tmp`);
     try {
       const handle = await fs.open(temporary, 'wx', 0o600);
-      try { await handle.writeFile(bytes); await handle.sync(); } finally { await handle.close(); }
+      try { await handle.writeFile(encodeStateText(bytes.toString('utf8'), this.filePath)); await handle.sync(); } finally { await handle.close(); }
       await fs.rename(temporary, this.filePath);
       await syncDirectory(directory);
     } finally { await fs.unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; }); }

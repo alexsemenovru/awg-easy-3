@@ -1,6 +1,7 @@
 'use strict';
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const { enabled, withUnlinkedFile } = require('./PrivateStateText');
 
 // nft reopens /dev/stdin for `-f -`; Node's child stdin is not always a
 // reopenable pipe (observed with Ubuntu nft in WSL). Keep one validated batch
@@ -15,6 +16,14 @@ async function runNftBatch(runner, input, stateDirectory) {
     || (process.platform !== 'win32'
       && (parent.uid !== process.getuid() || (parent.mode & 0o077)))) {
     throw new Error('Private nft state directory required');
+  }
+  if (enabled(path.join(stateDirectory, 'batch.json'))) {
+    // Regular unlinked inode: nft can reopen it through the parent /proc fd.
+    // Large GeoIP batches need no extra RAM-backed filesystem allocation.
+    return withUnlinkedFile(stateDirectory, input, async file => {
+      await runner('nft', ['-c', '-j', '-f', file]);
+      await runner('nft', ['-j', '-f', file]);
+    });
   }
   // The container's /tmp is intentionally small; GeoIP batches can exceed it.
   const directory = await fs.mkdtemp(path.join(stateDirectory, '.nft-batch-'));

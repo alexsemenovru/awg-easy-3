@@ -1,4 +1,5 @@
 'use strict';
+const { encodeStateText, parseStateText } = require('./PrivateStateText');
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -132,7 +133,7 @@ class CellAwgBootstrapStore {
       throw error;
     }
     if (Buffer.byteLength(text) > MAX_BYTES) invalid();
-    try { return validateState(JSON.parse(text)); } catch { invalid(); }
+    try { return validateState(parseStateText(text)); } catch { invalid(); }
   }
 
   async write(state) {
@@ -146,7 +147,7 @@ class CellAwgBootstrapStore {
     const temporary = path.join(directory, `.awg-bootstrap-${crypto.randomUUID()}.tmp`);
     try {
       const handle = await fs.open(temporary, 'wx', 0o600);
-      try { await handle.writeFile(text); await handle.sync(); } finally { await handle.close(); }
+      try { await handle.writeFile(encodeStateText(text, this.filePath)); await handle.sync(); } finally { await handle.close(); }
       await fs.rename(temporary, this.filePath);
       if (process.platform !== 'win32') {
         const parent = await fs.open(directory, 'r');

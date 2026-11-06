@@ -52,7 +52,10 @@ async function openRegisteredCellHost({ stateDirectory, runtimeDirectory,
   }
   const lockPath = path.join(stateDirectory, 'install.lock');
   const locked = work => withLock({ lockPath, work });
-  const sync = () => locked(() => permanent.syncSettings({ identityStore }));
+  const sync = ({ signal } = {}) => locked(() => {
+    signal?.throwIfAborted();
+    return permanent.syncSettings({ identityStore, ...(signal ? { signal } : {}) });
+  });
   return Object.freeze({
     protectUserTraffic: () => locked(() => settings.adapter.prepareBoot()),
     recoverBoot: options => locked(() => permanent.recoverBoot(options)),

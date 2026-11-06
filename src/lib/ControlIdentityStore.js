@@ -1,4 +1,5 @@
 'use strict';
+const { encodeStateText, parseStateText } = require('./PrivateStateText');
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -34,7 +35,7 @@ class ControlIdentityStore {
       throw new Error('Control identity permissions must exclude group and other users');
     }
     let parsed;
-    try { parsed = JSON.parse(await this.io.readFile(this.filePath, 'utf8')); } catch { invalid(); }
+    try { parsed = parseStateText(await this.io.readFile(this.filePath, 'utf8')); } catch { invalid(); }
     const result = validate(parsed);
     if (result.role !== expectedRole) throw new Error('Control identity role mismatch');
     return result;
@@ -55,7 +56,7 @@ class ControlIdentityStore {
     let handle;
     try {
       handle = await this.io.open(temporary, 'wx', 0o600);
-      await handle.writeFile(JSON.stringify(value), 'utf8');
+      await handle.writeFile(encodeStateText(JSON.stringify(value), this.filePath), 'utf8');
       await handle.sync();
       await handle.close();
       handle = undefined;

@@ -19,6 +19,7 @@ services:
       - no-new-privileges:true
     environment:
       WG_QUICK_USERSPACE_IMPLEMENTATION: net-forward
+      AWG_PRIVATE_STATE: '1'
       AWG_CELL_STATE_DIR: /cell-data
       AWG_CELL_INVITATION_FILE: /cell-data/invitation
       AWG_CELL_RUNTIME_DIR: /cell-data/runtime

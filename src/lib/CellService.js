@@ -220,9 +220,9 @@ async function openCellServiceHost({ config, bootstrapHost, controlPath,
       }
       routingActivated = true;
     },
-    acknowledgeRoutingRevision: ({ identityStore, host, port }) =>
+    acknowledgeRoutingRevision: ({ identityStore, host, port, signal }) =>
       acknowledgeCellRoutingRevision({ connectionStore: bootstrapHost.connectionStore,
-        identityStore, routingInbox, host, port }),
+        identityStore, routingInbox, host, port, ...(signal ? { signal } : {}) }),
     stageDataLink: cachedOffer ? () => stageOffer(cachedOffer) : undefined,
     restoreUserRouting: async () => {
       const restored = await routingInbox.restoreApplied();

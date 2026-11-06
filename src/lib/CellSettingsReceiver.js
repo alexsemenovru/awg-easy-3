@@ -1,4 +1,5 @@
 'use strict';
+const { encodeStateText, parseStateText } = require('./PrivateStateText');
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -38,7 +39,7 @@ class CellSettingsReceiver {
       }
       raw = await fs.readFile(this.filePath, 'utf8');
     } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
-    const state = JSON.parse(raw);
+    const state = parseStateText(raw);
     if (!state || typeof state !== 'object' || Array.isArray(state)
       || !validEpochJournal(state) || !state.received || (state.applied !== null
         && (typeof state.applied !== 'object' || Array.isArray(state.applied)))) {
@@ -67,7 +68,7 @@ class CellSettingsReceiver {
     let handle;
     try {
       handle = await fs.open(temporary, 'wx', 0o600);
-      await handle.writeFile(JSON.stringify(state), 'utf8');
+      await handle.writeFile(encodeStateText(JSON.stringify(state), this.filePath), 'utf8');
       await handle.sync();
       await handle.close();
       handle = undefined;

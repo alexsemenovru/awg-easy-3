@@ -1,4 +1,5 @@
 'use strict';
+const { encodeStateText, parseStateText } = require('./PrivateStateText');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -33,7 +34,7 @@ class CellSettingsPublisher {
       }
       raw = await fs.readFile(this.filePath, 'utf8');
     } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
-    const state = JSON.parse(raw);
+    const state = parseStateText(raw);
     const controller = await this.identityStore.load('controller');
     if (!state || state.version !== 1 || !state.desired
       || !['ack,desired,version', 'ack,confirmed,desired,version'].includes(
@@ -92,7 +93,7 @@ class CellSettingsPublisher {
     let handle;
     try {
       handle = await fs.open(temporary, 'wx', 0o600);
-      await handle.writeFile(JSON.stringify(state), 'utf8');
+      await handle.writeFile(encodeStateText(JSON.stringify(state), this.filePath), 'utf8');
       await handle.sync(); await handle.close(); handle = undefined;
       await fs.rename(temporary, this.filePath);
       if (process.platform !== 'win32') {

@@ -1,4 +1,5 @@
 'use strict';
+const { encodeStateText, parseStateText } = require('./PrivateStateText');
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -125,7 +126,7 @@ class CellAwgPermanentRevisionStore {
       if (error.code === 'ENOENT') return this.empty();
       throw error;
     }
-    try { return this.validate(JSON.parse(raw)); }
+    try { return this.validate(parseStateText(raw)); }
     catch { throw new Error('Corrupt permanent AWG revision journal; automatic replacement disabled'); }
   }
 
@@ -141,7 +142,7 @@ class CellAwgPermanentRevisionStore {
     const temporary = path.join(directory, `.permanent-revision-${crypto.randomUUID()}.tmp`);
     try {
       const handle = await fs.open(temporary, 'wx', 0o600);
-      try { await handle.writeFile(JSON.stringify(normalized)); await handle.sync(); }
+      try { await handle.writeFile(encodeStateText(JSON.stringify(normalized), this.filePath)); await handle.sync(); }
       finally { await handle.close(); }
       await fs.rename(temporary, this.filePath);
       if (process.platform !== 'win32') {
@@ -172,7 +173,7 @@ class CellAwgPermanentRevisionStore {
       throw error;
     }
     try {
-      await handle.writeFile(JSON.stringify(this.empty()));
+      await handle.writeFile(encodeStateText(JSON.stringify(this.empty()), this.filePath));
       await handle.sync();
     } finally { await handle.close(); }
     if (process.platform !== 'win32') {

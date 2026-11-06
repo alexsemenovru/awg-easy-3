@@ -1,4 +1,6 @@
 'use strict';
+const { encodeStateText, parseStateText } = require('./PrivateStateText');
+const { enabled, withPlainConfiguration } = require('./PrivateStateText');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -44,7 +46,7 @@ class CellAwgTransaction {
       if (!stat.isFile() || stat.nlink !== 1 || stat.size > MAX_BYTES
         || (process.platform !== 'win32' && (stat.uid !== process.getuid() || (stat.mode & 0o077)))) throw new Error('Unsafe private AWG journal');
       let value;
-      try { value = JSON.parse(await fs.readFile(this.file, 'utf8')); }
+      try { value = parseStateText(await fs.readFile(this.file, 'utf8')); }
       catch { throw new Error('Unreadable or corrupt private AWG journal'); }
       return validate(value);
     } catch (error) {
@@ -66,7 +68,7 @@ class CellAwgTransaction {
     const directory = await this.privateDirectory(), temporary = path.join(directory, `.awg-${crypto.randomUUID()}.tmp`);
     try {
       const handle = await fs.open(temporary, 'wx', 0o600);
-      try { await handle.writeFile(data); await handle.sync(); } finally { await handle.close(); }
+      try { await handle.writeFile(encodeStateText(data, this.file)); await handle.sync(); } finally { await handle.close(); }
       await fs.rename(temporary, this.file);
       if (process.platform !== 'win32') {
         const parent = await fs.open(directory, 'r');
@@ -91,6 +93,8 @@ class CellAwgTransaction {
     throw new Error('Foreign, missing or changed AWG interface; refusing mutation');
   }
   async writeConfig(desired) {
+    if (enabled(this.file)) return withPlainConfiguration(path.join(path.dirname(this.file), `${desired.interfaceName}.conf`),
+      desired.config, file => this.runner('awg', ['setconf', desired.interfaceName, file]));
     const directory = await this.privateDirectory(), file = path.join(directory, `.awg-config-${crypto.randomUUID()}.conf`);
     try {
       const handle = await fs.open(file, 'wx', 0o600);

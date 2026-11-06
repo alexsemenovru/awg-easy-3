@@ -1,4 +1,5 @@
 'use strict';
+const { encodeStateText, parseStateText } = require('./PrivateStateText');
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -47,7 +48,7 @@ class CellUserConfigStore {
         && (stat.uid !== process.getuid() || (stat.mode & 0o077)))) {
       throw new Error('Unsafe Cell user config');
     }
-    try { return this.validate(JSON.parse(await fs.readFile(this.filePath, 'utf8'))); }
+    try { return this.validate(parseStateText(await fs.readFile(this.filePath, 'utf8'))); }
     catch { throw new Error('Invalid Cell user config'); }
   }
 
@@ -64,7 +65,7 @@ class CellUserConfigStore {
     let handle;
     try {
       handle = await fs.open(temporary, 'wx', 0o600);
-      await handle.writeFile(JSON.stringify(config));
+      await handle.writeFile(encodeStateText(JSON.stringify(config), this.filePath));
       await handle.sync();
       await handle.close();
       handle = undefined;

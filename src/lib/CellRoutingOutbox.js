@@ -1,4 +1,5 @@
 'use strict';
+const { encodeStateText, parseStateText } = require('./PrivateStateText');
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -47,7 +48,7 @@ class CellRoutingOutbox {
       }
       raw = await fs.readFile(this.filePath, 'utf8');
     } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
-    const envelope = JSON.parse(raw);
+    const envelope = parseStateText(raw);
     const controller = await this.identityStore.load('controller');
     verifyRoutingRevision(envelope, { controllerKey: controller.publicKey,
       cellKey: this.cellKey, nodeId: this.nodeId });
@@ -65,7 +66,7 @@ class CellRoutingOutbox {
     const temporary = path.join(dir, `.routing-outbox-${crypto.randomUUID()}.tmp`);
     try {
       const handle = await fs.open(temporary, 'wx', 0o600);
-      try { await handle.writeFile(JSON.stringify(envelope)); await handle.sync(); }
+      try { await handle.writeFile(encodeStateText(JSON.stringify(envelope), this.filePath)); await handle.sync(); }
       finally { await handle.close(); }
       await fs.rename(temporary, this.filePath);
       if (process.platform !== 'win32') {
@@ -88,7 +89,7 @@ class CellRoutingOutbox {
       }
       raw = await fs.readFile(this.ackPath, 'utf8');
     } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
-    return JSON.parse(raw);
+    return parseStateText(raw);
   }
 
   applied() {
@@ -115,7 +116,7 @@ class CellRoutingOutbox {
       const temporary = path.join(dir, `.routing-ack-${crypto.randomUUID()}.tmp`);
       try {
         const handle = await fs.open(temporary, 'wx', 0o600);
-        try { await handle.writeFile(JSON.stringify(ack)); await handle.sync(); }
+        try { await handle.writeFile(encodeStateText(JSON.stringify(ack), this.filePath)); await handle.sync(); }
         finally { await handle.close(); }
         await fs.rename(temporary, this.ackPath);
         if (process.platform !== 'win32') {

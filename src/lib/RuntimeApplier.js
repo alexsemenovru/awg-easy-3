@@ -2,6 +2,8 @@
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const crypto = require('node:crypto');
+const { enabled, encodeStateText, decodeStateText, transientDirectory, withPlainConfiguration, openCommandFile } = require('./PrivateStateText');
 
 const { TABLE_NAME, buildAtomicNftBatch } = require('./NftablesPolicy');
 const { runProcess } = require('./ProcessRunner');
@@ -60,11 +62,19 @@ class RuntimeApplier {
 
   async readOptional(filePath) {
     try {
-      return await this.fs.readFile(filePath, 'utf8');
+      return decodeStateText(await this.fs.readFile(filePath, 'utf8'));
     } catch (error) {
       if (error.code === 'ENOENT') return null;
       throw error;
     }
+  }
+
+  async stripSavedConfig(interfaceName) {
+    const file = path.join(this.runtimeDirectory, `${validateInterface(interfaceName)}.conf`);
+    const text = await this.readOptional(file);
+    if (!enabled(file)) return this.runner(this.awgQuickBinary, ['strip', file]);
+    if (!text) throw new Error('No saved runtime configuration');
+    return withPlainConfiguration(file, text, temporary => this.runner(this.awgQuickBinary, ['strip', temporary]));
   }
 
   async dockerCompatibilityBatch(interfaceName) {
@@ -132,14 +142,22 @@ class RuntimeApplier {
     if (typeof interfaceActive !== 'boolean') throw new TypeError('interfaceActive must be a boolean');
 
     await this.fs.mkdir(this.runtimeDirectory, { recursive: true, mode: 0o700 });
-    const stagingDirectory = await this.fs.mkdtemp(path.join(this.runtimeDirectory, '.apply-'));
+    const stagingParent = transientDirectory(path.join(this.runtimeDirectory, 'rules.nft'));
+    await this.fs.mkdir(stagingParent, { recursive: true, mode: 0o700 });
+    const stagingDirectory = await this.fs.mkdtemp(path.join(stagingParent, '.apply-'));
     const stagedConfigPath = path.join(stagingDirectory, `${awgInterface}.conf`);
     const stagedStrippedPath = path.join(stagingDirectory, `${awgInterface}.stripped.conf`);
-    const stagedNftPath = path.join(stagingDirectory, 'rules.batch.nft');
-    const stagedDockerNftPath = path.join(stagingDirectory, 'docker.batch.nft');
+    let stagedNftPath = path.join(stagingDirectory, 'rules.batch.nft');
+    let stagedDockerNftPath = path.join(stagingDirectory, 'docker.batch.nft');
     const stagedPolicyPath = path.join(stagingDirectory, 'rules.nft');
     const activeConfigPath = path.join(this.runtimeDirectory, `${awgInterface}.conf`);
     const activeNftPath = path.join(this.runtimeDirectory, 'rules.nft');
+    const privateRuntime = enabled(activeConfigPath);
+    const commandInputs = [];
+    const stageNft = async (file, text) => {
+      if (!privateRuntime) { await this.fs.writeFile(file, text, { mode: 0o600, flag: 'wx' }); return file; }
+      const input = await openCommandFile(this.runtimeDirectory, text); commandInputs.push(input); return input.file;
+    };
 
     const previousConfig = await this.readOptional(activeConfigPath);
     const previousPolicy = await this.readOptional(activeNftPath);
@@ -152,6 +170,7 @@ class RuntimeApplier {
     let policyPersisted = false;
     let compatibilityChanged = false;
     let compatibilityMarkers = [];
+    const extraTemporary = [];
     const existed = await this.tableExists();
 
     try {
@@ -159,10 +178,10 @@ class RuntimeApplier {
       const dockerBatch = await this.dockerCompatibilityBatch(awgInterface);
       compatibilityMarkers = [...dockerBatch.matchAll(/comment "([^"]+)"/g)].map((match) => match[1]);
       await this.fs.writeFile(stagedConfigPath, config, { mode: 0o600, flag: 'wx' });
-      await this.fs.writeFile(stagedNftPath, nftBatch, { mode: 0o600, flag: 'wx' });
-      await this.fs.writeFile(stagedPolicyPath, policy, { mode: 0o600, flag: 'wx' });
+      stagedNftPath = await stageNft(stagedNftPath, nftBatch);
+      if (!privateRuntime) await this.fs.writeFile(stagedPolicyPath, policy, { mode: 0o600, flag: 'wx' });
       if (dockerBatch) {
-        await this.fs.writeFile(stagedDockerNftPath, dockerBatch, { mode: 0o600, flag: 'wx' });
+        stagedDockerNftPath = await stageNft(stagedDockerNftPath, dockerBatch);
       }
 
       ({ stdout: newStripped } = await this.runner(this.awgQuickBinary, ['strip', stagedConfigPath]));
@@ -192,16 +211,30 @@ class RuntimeApplier {
         compatibilityChanged = true;
       }
 
-      const persistedConfigPath = path.join(stagingDirectory, 'persisted.conf');
-      const persistedPolicyPath = path.join(stagingDirectory, 'persisted.nft');
-      await this.fs.copyFile(stagedConfigPath, persistedConfigPath);
-      await this.fs.copyFile(stagedPolicyPath, persistedPolicyPath);
+      const persistedConfigPath = privateRuntime ? path.join(this.runtimeDirectory, `.persist-${crypto.randomUUID()}.tmp`) : path.join(stagingDirectory, 'persisted.conf');
+      const persistedPolicyPath = privateRuntime ? path.join(this.runtimeDirectory, `.persist-${crypto.randomUUID()}.tmp`) : path.join(stagingDirectory, 'persisted.nft');
+      if (privateRuntime) {
+        extraTemporary.push(persistedConfigPath, persistedPolicyPath);
+        await this.fs.writeFile(persistedConfigPath, encodeStateText(config, activeConfigPath), { mode: 0o600, flag: 'wx' });
+        await this.fs.writeFile(persistedPolicyPath, encodeStateText(policy, activeNftPath), { mode: 0o600, flag: 'wx' });
+        for (const file of [persistedConfigPath, persistedPolicyPath]) {
+          const handle = await this.fs.open(file, 'r');
+          try { await handle.sync(); } finally { await handle.close(); }
+        }
+      } else {
+        await this.fs.copyFile(stagedConfigPath, persistedConfigPath);
+        await this.fs.copyFile(stagedPolicyPath, persistedPolicyPath);
+      }
       await this.fs.rename(persistedConfigPath, activeConfigPath);
       configPersisted = true;
       await this.fs.rename(persistedPolicyPath, activeNftPath);
       policyPersisted = true;
       await this.fs.chmod(activeConfigPath, 0o600);
       await this.fs.chmod(activeNftPath, 0o600);
+      if (privateRuntime) {
+        const parent = await this.fs.open(this.runtimeDirectory, 'r');
+        try { await parent.sync(); } finally { await parent.close(); }
+      }
       return Object.freeze({ interfaceActive: true, tableExisted: existed });
     } catch (error) {
       const rollbackErrors = [];
@@ -221,7 +254,7 @@ class RuntimeApplier {
           if (previous === null) {
             await this.fs.rm(filePath, { force: true });
           } else {
-            await this.fs.writeFile(filePath, previous, { mode: 0o600 });
+            await this.fs.writeFile(filePath, encodeStateText(previous, filePath), { mode: 0o600 });
             await this.fs.chmod(filePath, 0o600);
           }
         } catch (rollbackError) {
@@ -231,12 +264,8 @@ class RuntimeApplier {
       if (nftChanged) {
         try {
           if (previousPolicy) {
-            const rollbackPath = path.join(stagingDirectory, 'rollback.nft');
-            await this.fs.writeFile(
-              rollbackPath,
-              buildAtomicNftBatch(previousPolicy, { tableExists: true }),
-              { mode: 0o600, flag: 'wx' },
-            );
+            const rollbackPath = await stageNft(path.join(stagingDirectory, 'rollback.nft'),
+              buildAtomicNftBatch(previousPolicy, { tableExists: true }));
             await this.runner(this.nftBinary, ['-f', rollbackPath]);
           } else {
             await this.runner(this.nftBinary, ['delete', 'table', 'inet', TABLE_NAME]);
@@ -260,6 +289,8 @@ class RuntimeApplier {
       throw error;
     } finally {
       await this.fs.rm(stagingDirectory, { recursive: true, force: true });
+      for (const file of extraTemporary) await this.fs.rm(file, { force: true });
+      for (const input of commandInputs) await input.close();
     }
   }
 
@@ -268,7 +299,10 @@ class RuntimeApplier {
     const activeConfigPath = path.join(this.runtimeDirectory, `${awgInterface}.conf`);
     const errors = [];
     try {
-      await this.runner(this.awgQuickBinary, ['down', activeConfigPath]);
+      if (enabled(activeConfigPath)) {
+        const text = await this.readOptional(activeConfigPath);
+        if (text) await withPlainConfiguration(activeConfigPath, text, file => this.runner(this.awgQuickBinary, ['down', file]));
+      } else await this.runner(this.awgQuickBinary, ['down', activeConfigPath]);
     } catch (error) {
       if (!(error && (error.code === 1 || error.exitCode === 1))) errors.push(error);
     }

@@ -1,4 +1,5 @@
 'use strict';
+const { encodeStateText, parseStateText } = require('./PrivateStateText');
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -71,7 +72,7 @@ class CellControlRedirect {
     try { stat = await fs.lstat(this.file); } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
     if (!stat.isFile() || stat.nlink !== 1 || stat.size > 2048 || process.platform !== 'win32'
       && (stat.uid !== process.getuid() || stat.mode & 0o077)) throw new Error('Unsafe control redirect journal');
-    const state = JSON.parse(await fs.readFile(this.file, 'utf8'));
+    const state = parseStateText(await fs.readFile(this.file, 'utf8'));
     if (state?.version !== 1 || !['prepared', 'active', 'removing'].includes(state.phase)
       || Object.keys(state).sort().join(',') !== 'context,phase,version') throw new Error('Invalid control redirect journal');
     this.validateContext(state.context);
@@ -82,7 +83,7 @@ class CellControlRedirect {
     const temporary = path.join(this.directory, `.redirect-${crypto.randomUUID()}.tmp`);
     try {
       const file = await fs.open(temporary, 'wx', 0o600);
-      try { await file.writeFile(JSON.stringify(state)); await file.sync(); } finally { await file.close(); }
+      try { await file.writeFile(encodeStateText(JSON.stringify(state), this.file)); await file.sync(); } finally { await file.close(); }
       await fs.rename(temporary, this.file);
       await this.syncDirectory();
     } finally { await fs.unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; }); }

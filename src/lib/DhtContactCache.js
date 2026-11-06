@@ -1,4 +1,5 @@
 'use strict';
+const { encodeStateText, parseStateText } = require('./PrivateStateText');
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -29,7 +30,7 @@ class DhtContactCache {
     try { info = await fs.lstat(this.file); }
     catch (error) { if (error.code === 'ENOENT') return []; throw error; }
     if (!safe(info)) throw new Error('Unsafe DHT cache');
-    const state = JSON.parse(await fs.readFile(this.file, 'utf8'));
+    const state = parseStateText(await fs.readFile(this.file, 'utf8'));
     if (!state || state.version !== 1 || Object.keys(state).sort().join(',') !== 'nodes,version'
       || !Array.isArray(state.nodes) || state.nodes.length > LIMIT
       || state.nodes.some(node => !contact(node) || Object.keys(node).sort().join(',') !== 'host,port')) {
@@ -54,7 +55,7 @@ class DhtContactCache {
     const temporary = path.join(this.directory, `.contacts-${crypto.randomUUID()}.tmp`);
     try {
       const handle = await fs.open(temporary, 'wx', 0o600);
-      try { await handle.writeFile(JSON.stringify({ version: 1, nodes: [...unique.values()] })); await handle.sync(); }
+      try { await handle.writeFile(encodeStateText(JSON.stringify({ version: 1, nodes: [...unique.values()] }), this.file)); await handle.sync(); }
       finally { await handle.close(); }
       await fs.rename(temporary, this.file);
       if (process.platform !== 'win32') {

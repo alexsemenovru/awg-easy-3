@@ -192,7 +192,8 @@ async function listenTunnelControlEndpoint({ address, port, identityStore, boots
 // One explicit sync, not a daemon. Control address supplied locally until installer
 // assigns the service port; the key must remain the registered controller's key.
 async function syncCellSettings({ connectionStore, identityStore, receiver, host, port,
-  transport, userDescriptor, dataPublicKey, controlPath }) {
+  transport, userDescriptor, dataPublicKey, controlPath, signal }) {
+  signal?.throwIfAborted();
   const connection = await connectionStore.read();
   if (connection?.status !== 'registered') throw new Error('Cell is not registered');
   if (connection.version !== 2) {
@@ -210,11 +211,13 @@ async function syncCellSettings({ connectionStore, identityStore, receiver, host
   }
   let recoveryAttempted = false;
   const exchange = async (action, payload = null) => {
+    signal?.throwIfAborted();
     const request = signControl({ controllerKey: connection.controllerKey, action, payload }, identity.privateKey);
     const send = async () => exchangeOverTunnel({ address: host, port, request,
-      controllerKey: connection.controllerKey, authorityKey: await authorityFor(connectionStore, connection) });
+      controllerKey: connection.controllerKey, authorityKey: await authorityFor(connectionStore, connection), signal });
     try { return await send(); }
     catch (error) {
+      signal?.throwIfAborted();
       const prior = await recovery?.read();
       if (recoveryAttempted || !prior || prior.takeover) throw error;
       recoveryAttempted = true;
@@ -222,7 +225,7 @@ async function syncCellSettings({ connectionStore, identityStore, receiver, host
       const probe = signControl({ controllerKey: connection.controllerKey,
         action: 'recover', payload: challenge }, identity.privateKey);
       const reply = await exchangeOverTunnel({ address: host, port, request: probe,
-        controllerKey: connection.controllerKey });
+        controllerKey: connection.controllerKey, signal });
       if (!reply.recovery) throw error;
       await recovery.consume(reply.recovery);
       if (connectionStore.pinAuthority) await connectionStore.pinAuthority(reply.recovery.authorityKey,
@@ -263,7 +266,8 @@ async function syncCellSettings({ connectionStore, identityStore, receiver, host
 
 // Read-only signed offer fetch. The caller must still verify the offer against
 // its own announced key and provision it under the data-path traffic guard.
-async function fetchCellDataOffer({ connectionStore, identityStore, host, port }) {
+async function fetchCellDataOffer({ connectionStore, identityStore, host, port, signal }) {
+  signal?.throwIfAborted();
   const connection = await connectionStore.read();
   if (connection?.version !== 2 || connection.status !== 'registered') {
     throw new Error('Registered AWG Cell connection required');
@@ -273,13 +277,14 @@ async function fetchCellDataOffer({ connectionStore, identityStore, host, port }
   const request = signControl({ controllerKey: connection.controllerKey,
     action: 'offer-data' }, identity.privateKey);
   const reply = await exchangeOverTunnel({ address: host, port, request,
-    controllerKey: connection.controllerKey, authorityKey: await authorityFor(connectionStore, connection) });
+    controllerKey: connection.controllerKey, authorityKey: await authorityFor(connectionStore, connection), signal });
   return reply.offer === null ? null : validatePublicDataOffer(reply.offer);
 }
 
 // Read-only signed routing fetch. The caller checks local assignments and
 // commits it through the guarded routing inbox before acknowledging readiness.
-async function fetchCellRoutingRevision({ connectionStore, identityStore, host, port }) {
+async function fetchCellRoutingRevision({ connectionStore, identityStore, host, port, signal }) {
+  signal?.throwIfAborted();
   const connection = await connectionStore.read();
   if (connection?.version !== 2 || connection.status !== 'registered') {
     throw new Error('Registered AWG Cell connection required');
@@ -289,7 +294,7 @@ async function fetchCellRoutingRevision({ connectionStore, identityStore, host, 
   const request = signControl({ controllerKey: connection.controllerKey,
     action: 'route' }, identity.privateKey);
   const reply = await exchangeOverTunnel({ address: host, port, request,
-    controllerKey: connection.controllerKey, authorityKey: await authorityFor(connectionStore, connection) });
+    controllerKey: connection.controllerKey, authorityKey: await authorityFor(connectionStore, connection), signal });
   if (reply.routing === null) return null;
   verifyRoutingRevision(reply.routing, { controllerKey: connection.controllerKey,
     cellKey: connection.cellKey, nodeId: connection.invitationId });
@@ -297,7 +302,8 @@ async function fetchCellRoutingRevision({ connectionStore, identityStore, host, 
 }
 
 async function acknowledgeCellRoutingRevision({ connectionStore, identityStore,
-  routingInbox, host, port }) {
+  routingInbox, host, port, signal }) {
+  signal?.throwIfAborted();
   const connection = await connectionStore.read();
   if (connection?.version !== 2 || connection.status !== 'registered') {
     throw new Error('Registered AWG Cell connection required');
@@ -311,7 +317,7 @@ async function acknowledgeCellRoutingRevision({ connectionStore, identityStore,
   const request = signControl({ controllerKey: connection.controllerKey,
     action: 'route-ack', payload: ack }, identity.privateKey);
   const reply = await exchangeOverTunnel({ address: host, port, request,
-    controllerKey: connection.controllerKey, authorityKey: await authorityFor(connectionStore, connection) });
+    controllerKey: connection.controllerKey, authorityKey: await authorityFor(connectionStore, connection), signal });
   if (reply.applied !== ack.revision) throw new Error('Routing acknowledgement mismatch');
   return { applied: ack.revision };
 }

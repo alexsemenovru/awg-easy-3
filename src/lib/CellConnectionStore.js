@@ -1,4 +1,5 @@
 'use strict';
+const { encodeStateText, parseStateText } = require('./PrivateStateText');
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -29,7 +30,7 @@ class CellConnectionStore {
     } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
     let state;
     try {
-      state = JSON.parse(raw);
+      state = parseStateText(raw);
       if (state.version !== 1 || !['pending', 'registered'].includes(state.status)) throw new Error();
       const fields = ['version', 'status', 'invitationId', 'host', 'port', 'controllerKey', 'cellKey',
         ...(state.status === 'pending' ? ['expiresAt', 'request'] : [])];
@@ -57,7 +58,7 @@ class CellConnectionStore {
     let handle;
     try {
       handle = await this.io.open(temporary, 'wx', 0o600);
-      await handle.writeFile(JSON.stringify(state), 'utf8');
+      await handle.writeFile(encodeStateText(JSON.stringify(state), this.filePath), 'utf8');
       await handle.sync();
       await handle.close();
       handle = undefined;

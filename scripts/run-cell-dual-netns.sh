@@ -8,9 +8,12 @@ for tool in unshare mount ip nft node awg awg-quick wg amneziawg-go; do
   command -v "$tool" >/dev/null 2>&1 || { echo "Missing lab tool: $tool" >&2; exit 1; }
 done
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+AWG_OUTER_NETNS=$(readlink /proc/self/ns/net)
+export AWG_OUTER_NETNS
 
-exec unshare --mount --net --pid --fork --kill-child /bin/sh -eu -c '
+unshare --mount --net --pid --fork --kill-child /bin/sh -eu -c '
   mount --make-rprivate /
+  mount -t proc proc /proc
   mount -t tmpfs tmpfs /tmp
   mkdir -p /run/netns /run/wireguard
   mount -t tmpfs tmpfs /run/netns

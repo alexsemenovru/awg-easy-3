@@ -1,4 +1,5 @@
 'use strict';
+const { encodeStateText, parseStateText } = require('./PrivateStateText');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -43,7 +44,7 @@ class CellRouteTransaction {
     try {
       const stat = await fs.lstat(this.file);
       if (!stat.isFile() || stat.size > MAX_BYTES || (process.platform !== 'win32' && (stat.mode & 0o077))) throw new Error('Unsafe route journal');
-      return state(JSON.parse(await fs.readFile(this.file, 'utf8')));
+      return state(parseStateText(await fs.readFile(this.file, 'utf8')));
     } catch (error) {
       if (error.code === 'ENOENT') return { version: 1, committed: [], pending: null };
       throw error;
@@ -57,7 +58,7 @@ class CellRouteTransaction {
     const temporary = path.join(directory, `.routes-${crypto.randomUUID()}.tmp`);
     try {
       const handle = await fs.open(temporary, 'wx', 0o600);
-      try { await handle.writeFile(data); await handle.sync(); } finally { await handle.close(); }
+      try { await handle.writeFile(encodeStateText(data, this.file)); await handle.sync(); } finally { await handle.close(); }
       await fs.rename(temporary, this.file);
       if (process.platform !== 'win32') {
         const parent = await fs.open(directory, 'r');

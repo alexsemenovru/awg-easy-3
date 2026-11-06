@@ -68,3 +68,15 @@ test('poll jitter spreads retries while respecting the configured ceiling', asyn
   await poller.start();
   assert.ok(delay > 4000 && delay <= 5000);
 });
+test('stopping cancels the in-flight control poll without waiting for its timeout', async () => {
+  let begun;
+  const ready = new Promise(resolve => { begun = resolve; });
+  const poller = new CellSettingsPoller({ sync: ({ signal }) => new Promise((resolve, reject) => {
+    signal.addEventListener('abort', () => reject(new Error('cancelled')), { once: true });
+    begun();
+  }) });
+  poller.start();
+  await ready;
+  await poller.stop();
+  assert.equal(poller.status.state, 'stopped');
+});

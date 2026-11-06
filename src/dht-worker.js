@@ -3,6 +3,7 @@
 const { parentPort, workerData } = require('node:worker_threads');
 const { DhtDiscoveryRuntime } = require('./lib/DhtDiscoveryRuntime');
 const { AwgTechnicalRelay, openTechnicalBridge, discoverRelayIdentity } = require('./lib/AwgTechnicalRelay');
+const { relayLocatorOrder } = require('./lib/RelayLocatorOrder');
 
 async function main() {
   const { default: DHT } = await import('bittorrent-dht');
@@ -14,6 +15,7 @@ async function main() {
   let bridge;
   let openingBridge = false;
   let bridgeTarget;
+    const relayAttempts = new Map();
   parentPort.on('message', async message => {
     if (message?.type === 'stop' && !closing) {
       closing = true;
@@ -26,6 +28,7 @@ async function main() {
     } else if (message?.type === 'peers' && !closing) {
       try {
         service.setPeers(message.peers);
+          for (const key of relayAttempts.keys()) if (!service.peers.some(peer => peer.publicKey === key)) relayAttempts.delete(key);
         if (relay) await relay.refreshPeers();
         if (bridge && !service.peers.some(peer => peer.publicKey === bridgeTarget)) {
           await bridge.close(); bridge = null;
@@ -40,6 +43,8 @@ async function main() {
         if (!peer || !workerData.controlPort || require('node:net').isIP(message.source4) !== 4) throw new Error('No registered technical target');
         if (bridge) { await bridge.close(); bridge = null; }
         const contacts = await service.lookupRelayTargets(peer.publicKey, peer.kind);
+          const attempt = relayAttempts.get(peer.publicKey) ?? 0;
+          relayAttempts.set(peer.publicKey, (attempt + 1) % 3);
         const open = (host, port, serverKey, locatorKey) => openTechnicalBridge({ host, port, serverKey, locatorKey,
           localAwgPort: workerData.controlPort, localAwgAddress: message.source4, identity: workerData.identity,
           target: peer.publicKey, kind: peer.kind });
@@ -51,7 +56,7 @@ async function main() {
             try {
               const key = await discoverRelayIdentity(candidate);
               if (key === workerData.identity.publicKey || key === peer.publicKey) continue;
-              const locatorKeys = [...new Set([...contacts.map(value => value.lookupKey), ...(peer.lookupKeys ?? [peer.publicKey])])];
+              const locatorKeys = relayLocatorOrder(peer, contacts, attempt);
               for (const locatorKey of locatorKeys) {
                 try { bridge = await open(candidate.host, candidate.port, key,
                   locatorKey === peer.publicKey ? undefined : locatorKey); break; } catch { /* Try the next pinned alias. */ }

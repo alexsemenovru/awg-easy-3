@@ -1,4 +1,5 @@
 'use strict';
+const { encodeStateText, parseStateText } = require('./PrivateStateText');
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -101,7 +102,7 @@ class CellAwgConnectionStore {
           && (stat.uid !== process.getuid() || (stat.mode & 0o077)))) invalid();
       raw = await fs.readFile(this.filePath, 'utf8');
     } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
-    try { return await this.validate(JSON.parse(raw)); } catch { invalid(); }
+    try { return await this.validate(parseStateText(raw)); } catch { invalid(); }
   }
 
   async save(state) {
@@ -116,7 +117,7 @@ class CellAwgConnectionStore {
     const temporary = path.join(directory, `.awg-connection-${crypto.randomUUID()}.tmp`);
     try {
       const handle = await fs.open(temporary, 'wx', 0o600);
-      try { await handle.writeFile(data); await handle.sync(); } finally { await handle.close(); }
+      try { await handle.writeFile(encodeStateText(data, this.filePath)); await handle.sync(); } finally { await handle.close(); }
       await fs.rename(temporary, this.filePath);
       if (process.platform !== 'win32') {
         const parent = await fs.open(directory, 'r');

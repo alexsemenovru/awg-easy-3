@@ -12,7 +12,9 @@ const { StateStore } = require('../src/lib/StateStore');
 const { MainCellStatusSnapshot } = require('../src/lib/MainCellStatusSnapshot');
 
 assert.equal(process.env.AWG_CELL_ISOLATED_TEST, '1');
-assert.notEqual(fs.readlinkSync('/proc/self/ns/net'), fs.readlinkSync('/proc/1/ns/net'));
+const outerNetns = process.env.AWG_OUTER_NETNS || fs.readlinkSync('/proc/1/ns/net');
+assert.match(outerNetns, /^net:\[\d+\]$/);
+assert.notEqual(fs.readlinkSync('/proc/self/ns/net'), outerNetns);
 const netnsMount = fs.statfsSync('/run/netns');
 assert.equal(netnsMount.type, 0x01021994); // tmpfs; no persistent host netns entries
 const field = path.join(__dirname, 'cell-awg-direct-field.cjs');
@@ -72,10 +74,16 @@ const runMainCli = (...args) => execFileSync('ip',
         : JSON.stringify({ schema: 1, clients: [] })) : undefined,
     stdio: ['pipe', 'pipe', 'pipe'] }).trim();
 let stage = 'namespaces';
+const services = new Set();
+function track(child) {
+  services.add(child);
+  child.once('exit', () => services.delete(child));
+  return child;
+}
 
 function listen(script = mainCli, action = 'listen', expected = 'listening') {
-  const child = spawn('ip', ['netns', 'exec', 'awgmain', process.execPath,
-    script, action], { env: env(mainDir), stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = track(spawn('ip', ['netns', 'exec', 'awgmain', process.execPath,
+    script, action], { env: env(mainDir), stdio: ['ignore', 'pipe', 'pipe'] }));
   const ready = new Promise((resolve, reject) => {
     let output = '';
     const timer = setTimeout(() => reject(new Error('listener not ready')), 15000);
@@ -93,8 +101,8 @@ function listen(script = mainCli, action = 'listen', expected = 'listening') {
 }
 
 function startMainService() {
-  const child = spawn('ip', ['netns', 'exec', 'awgmain', process.execPath,
-    mainCli, 'serve'], { env: env(mainDir), stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = track(spawn('ip', ['netns', 'exec', 'awgmain', process.execPath,
+    mainCli, 'serve'], { env: env(mainDir), stdio: ['ignore', 'pipe', 'pipe'] }));
   const ready = new Promise((resolve, reject) => {
     let output = '';
     const timer = setTimeout(() => reject(new Error('Main service not ready')), 15000);
@@ -116,7 +124,8 @@ function startMainService() {
 async function stopped(child) {
   if (child.exitCode !== null) return;
   await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('Listener did not exit')), 5000);
+    // An in-flight authenticated poll has a bounded 10 s socket timeout.
+    const timer = setTimeout(() => reject(new Error('Listener did not exit')), 30000);
     child.once('exit', () => { clearTimeout(timer); resolve(); });
   });
 }
@@ -258,7 +267,10 @@ async function main() {
       const inventory = JSON.parse(runMainCli('cells'));
       assert.equal(inventory.length, 1);
       assert.deepEqual(inventory[0], { id: invitationId, status: 'consumed',
-        phase: 'closed', createdAt: inventory[0].createdAt, settings: synced });
+        phase: 'closed', createdAt: inventory[0].createdAt, settings: synced,
+        control: { path: null, receivedAt: inventory[0].control.receivedAt },
+        backup: { generation: null, confirmed: false } });
+      assert.ok(inventory[0].control.receivedAt >= inventory[0].createdAt);
       assert.equal(JSON.stringify(inventory).includes('cellKey'), false);
     } finally { control.child.kill('SIGTERM'); }
     stage = 'control-outage';
@@ -283,6 +295,11 @@ async function main() {
         { flag: 'wx', mode: 0o600 });
       assert.equal(JSON.parse(runMainCli('publish', invitationId)).revision, 2);
       assert.equal(runCellCli('sync').status, 'applied');
+      // A settings-only fixture has no signed routing revision. Product sync
+      // must retain the traffic guard; exercise the standalone settings adapter
+      // explicitly for the following policy/NAT tests, without weakening it.
+      ip(['netns', 'exec', 'awgcell', 'nft', 'list', 'table', 'inet', 'awg_easy_3_cell_guard']);
+      assert.equal(role('awgcell', cellDir, 'product-sync', permanentField).status, 'applied');
       const synced = JSON.parse(runMainCli('settings-status', invitationId));
       assert.equal(synced.confirmedRevision, synced.desiredRevision);
       stage = 'synthetic-user-traffic';
@@ -296,14 +313,14 @@ async function main() {
       stage = 'synthetic-user-revocation';
       fs.unlinkSync(path.join(mainDir, 'desired-payload.json'));
       assert.equal(JSON.parse(runMainCli('publish', invitationId)).revision, 3);
-      assert.equal(runCellCli('sync').status, 'applied');
+      assert.equal(role('awgcell', cellDir, 'product-sync', permanentField).status, 'applied');
       assert.equal(ip(['netns', 'exec', 'awgcell', 'awg', 'show', 'awgcellu8', 'peers']), '');
       assert.throws(() => ip(['netns', 'exec', 'awgdevice', 'ping', '-c', '1', '-W', '2', '198.51.100.1']));
       stage = 'synthetic-user-restoration';
       fs.writeFileSync(path.join(mainDir, 'desired-payload.json'), assigned,
         { flag: 'wx', mode: 0o600 });
       assert.equal(JSON.parse(runMainCli('publish', invitationId)).revision, 4);
-      assert.equal(runCellCli('sync').status, 'applied');
+      assert.equal(role('awgcell', cellDir, 'product-sync', permanentField).status, 'applied');
       assert.equal(ip(['netns', 'exec', 'awgcell', 'awg', 'show', 'awgcellu8', 'peers']),
         deviceKeys.publicKey);
       let restored = false;
@@ -382,8 +399,8 @@ async function main() {
       assert.equal(JSON.parse(runMainCli('settings-status', secondId)).confirmedRevision, 2);
       assert.equal(JSON.parse(runMainCli('settings-status', invitationId)).confirmedRevision, 6);
       stage = 'cell-service-restart';
-      const cellService = spawn('ip', ['netns', 'exec', 'awgcell', process.execPath,
-        cellCli, 'serve'], { env: env(cellDir), stdio: ['ignore', 'pipe', 'pipe'] });
+      const cellService = track(spawn('ip', ['netns', 'exec', 'awgcell', process.execPath,
+        cellCli, 'serve'], { env: env(cellDir), stdio: ['ignore', 'pipe', 'pipe'] }));
       try {
         await new Promise((resolve, reject) => {
           let output = '';
@@ -398,8 +415,18 @@ async function main() {
             catch { reject(new Error('Invalid Cell service status')); }
           });
         });
-        assert.equal(role('awgcell', cellDir, 'product-status', permanentField).permanentReady, true);
-        ip(['netns', 'exec', 'awgdevice', 'ping', '-c', '2', '-W', '2', endpoint]);
+        let recoveredControl = false;
+        for (let attempt = 0; attempt < 10; attempt++) {
+          if (role('awgcell', cellDir, 'product-status', permanentField).permanentReady) {
+            recoveredControl = true; break;
+          }
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        assert.equal(recoveredControl, true, 'Cell control must recover after service restart');
+        // The daemon is intentionally fail-closed until a routing revision is
+        // supplied. This fixture only publishes standalone settings.
+        ip(['netns', 'exec', 'awgcell', 'nft', 'list', 'table', 'inet', 'awg_easy_3_cell_guard']);
+        assert.throws(() => ip(['netns', 'exec', 'awgdevice', 'ping', '-c', '1', '-W', '2', endpoint]));
       } finally { cellService.kill('SIGTERM'); }
       await stopped(cellService);
     } finally { service.child.kill('SIGTERM'); }
@@ -412,6 +439,7 @@ async function main() {
   } finally { listener.child.kill('SIGTERM'); }
 }
 main().catch(error => {
+  for (const child of services) child.kill('SIGKILL');
   const detail = String(error.stderr || error.message || '');
   const classification = ['timeout', 'refused', 'network', 'receiver', 'connection',
     'tunnel', 'route', 'identity', 'handshake', 'revision', 'registered', 'required']

@@ -84,6 +84,16 @@ jobs:
             -v "$GITHUB_WORKSPACE:/work:ro" -w /work \
             --entrypoint node awg-easy-3:cells-ci-tests \
             --test src/test/BackupConfiguration.test.js
+      - name: Verify two Cells with opaque persisted metadata and real AWG
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --cap-add NET_ADMIN --cap-add SYS_ADMIN \
+            --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
+            --device /dev/net/tun -e AWG_PRIVATE_STATE=1 \
+            -v "$GITHUB_WORKSPACE:/work:ro" -w /work \
+            --entrypoint sh awg-easy-3:cells-ci-tests \
+            scripts/run-cell-dual-netns.sh
       - name: Exercise the actual cold restore command on the disposable runner
         shell: bash
         run: |

@@ -1,4 +1,5 @@
 'use strict';
+const { encodeStateText, parseStateText } = require('./PrivateStateText');
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -66,7 +67,7 @@ class CellAwgPermanentPlanStore {
       if (error.code === 'ENOENT') return null;
       throw error;
     }
-    try { return validatePermanentPlan(JSON.parse(raw), { policyTable: this.policyTable }); }
+    try { return validatePermanentPlan(parseStateText(raw), { policyTable: this.policyTable }); }
     catch { throw new Error('Unreadable permanent AWG plan; automatic replacement disabled'); }
   }
 
@@ -80,7 +81,7 @@ class CellAwgPermanentPlanStore {
     const temporary = path.join(directory, `.permanent-plan-${crypto.randomUUID()}.tmp`);
     try {
       const handle = await fs.open(temporary, 'wx', 0o600);
-      try { await handle.writeFile(JSON.stringify(normalized)); await handle.sync(); }
+      try { await handle.writeFile(encodeStateText(JSON.stringify(normalized), this.filePath)); await handle.sync(); }
       finally { await handle.close(); }
       // Hard-link creation is atomic and fails if the destination exists.
       // Never rename over a prior plan, including an unreadable one.

@@ -37,7 +37,8 @@ function createPermanentCellRuntime({ stateDirectory, connectionStore, bootstrap
     firewall: bootstrap.firewall, routes: bootstrap.routes, guard: bootstrap.guard,
     interfaceName: temporaryInterfaceName,
     verifyPermanent: connection => gate.verifyCell(connection) });
-  const syncSettings = async ({ identityStore } = {}) => {
+  const syncSettings = async ({ identityStore, signal } = {}) => {
+    signal?.throwIfAborted();
     const connection = await connectionStore.read();
     if (connection?.status !== 'registered' || !connection.controllerPath) {
       throw new Error('Registered cell has no signed permanent control path');
@@ -49,24 +50,25 @@ function createPermanentCellRuntime({ stateDirectory, connectionStore, bootstrap
       host: connection.controllerPath.controllerAddress,
       port: connection.controllerPath.controlPort, transport: 'tunnel',
       ...(userDescriptor ? { userDescriptor } : {}),
-      ...(dataPublicKey ? { dataPublicKey } : {}), ...(controlPath ? { controlPath } : {}) });
+      ...(dataPublicKey ? { dataPublicKey } : {}), ...(controlPath ? { controlPath } : {}), ...(signal ? { signal } : {}) });
+    signal?.throwIfAborted();
     if (recoverEndpoint) await recoverEndpoint();
     if (receiveDataOffer && dataPublicKey) {
       const offer = await fetchDataOffer({ connectionStore, identityStore,
         host: connection.controllerPath.controllerAddress,
-        port: connection.controllerPath.controlPort });
+        port: connection.controllerPath.controlPort, ...(signal ? { signal } : {}) });
       if (offer) {
         await receiveDataOffer(offer);
         if (recoverEndpoint) await recoverEndpoint();
         if (receiveRoutingRevision) {
           const routing = await fetchRoutingRevision({ connectionStore, identityStore,
             host: connection.controllerPath.controllerAddress,
-            port: connection.controllerPath.controlPort });
+            port: connection.controllerPath.controlPort, ...(signal ? { signal } : {}) });
           if (routing) {
             await receiveRoutingRevision(routing, offer);
             if (acknowledgeRoutingRevision) await acknowledgeRoutingRevision({
               identityStore, host: connection.controllerPath.controllerAddress,
-              port: connection.controllerPath.controlPort });
+              port: connection.controllerPath.controlPort, ...(signal ? { signal } : {}) });
           }
         }
       }
@@ -86,7 +88,7 @@ function createPermanentCellRuntime({ stateDirectory, connectionStore, bootstrap
     },
     syncSettings,
     createPoller: ({ identityStore, ...options } = {}) => new CellSettingsPoller({
-      ...options, sync: () => syncSettings({ identityStore }) }),
+      ...options, sync: ({ signal } = {}) => syncSettings({ identityStore, ...(signal ? { signal } : {}) }) }),
   });
 }
 

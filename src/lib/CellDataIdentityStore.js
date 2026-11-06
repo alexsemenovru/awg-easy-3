@@ -1,4 +1,5 @@
 'use strict';
+const { encodeStateText, parseStateText } = require('./PrivateStateText');
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -41,7 +42,7 @@ class CellDataIdentityStore {
         && (directory.uid !== process.getuid() || (directory.mode & 0o077))) {
       throw new Error('Private Cell data identity directory required');
     }
-    const value = validateIdentity(JSON.parse(await fs.readFile(this.filePath, 'utf8')));
+    const value = validateIdentity(parseStateText(await fs.readFile(this.filePath, 'utf8')));
     if (await this.keyManager.derivePublicKey(value.privateKey) !== value.publicKey) {
       throw new Error('Cell data identity no longer matches its private key');
     }
@@ -67,7 +68,7 @@ class CellDataIdentityStore {
     const temporary = path.join(directory, `.data-identity-${crypto.randomUUID()}.tmp`);
     try {
       const handle = await fs.open(temporary, 'wx', 0o600);
-      try { await handle.writeFile(JSON.stringify(value)); await handle.sync(); }
+      try { await handle.writeFile(encodeStateText(JSON.stringify(value), this.filePath)); await handle.sync(); }
       finally { await handle.close(); }
       try { await fs.link(temporary, this.filePath); }
       catch (error) {

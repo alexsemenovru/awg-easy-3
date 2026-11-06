@@ -1,4 +1,5 @@
 'use strict';
+const { encodeStateText, parseStateText } = require('./PrivateStateText');
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -65,7 +66,7 @@ class CellEnrollmentStore {
     }
     if (Buffer.byteLength(raw) > MAX_BYTES) invalid();
     let parsed;
-    try { parsed = JSON.parse(raw); } catch { invalid(); }
+    try { parsed = parseStateText(raw); } catch { invalid(); }
     return validate(parsed);
   }
 

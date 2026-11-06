@@ -1,4 +1,5 @@
 'use strict';
+const { encodeStateText, parseStateText } = require('./PrivateStateText');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -85,7 +86,7 @@ class CellNetworkTransaction {
       if (!stat.isFile() || stat.nlink !== 1 || stat.size > 96 * 1024 * 1024
         || (process.platform !== 'win32' && (stat.uid !== process.getuid() || (stat.mode & 0o077)))) throw new Error('Unsafe network journal');
       let value;
-      try { value = JSON.parse(await fs.readFile(this.file, 'utf8')); } catch { throw new Error('Unreadable private network journal'); }
+      try { value = parseStateText(await fs.readFile(this.file, 'utf8')); } catch { throw new Error('Unreadable private network journal'); }
       return validate(value);
     } catch (e) { if (e.code === 'ENOENT') return { version: 1, committed: null, pending: null }; throw e; }
   }
@@ -98,7 +99,7 @@ class CellNetworkTransaction {
     const file = path.join(this.directory, `.network-${crypto.randomUUID()}.tmp`);
     try {
       const handle = await fs.open(file, 'wx', 0o600);
-      try { await handle.writeFile(data); await handle.sync(); } finally { await handle.close(); }
+      try { await handle.writeFile(encodeStateText(data, this.file)); await handle.sync(); } finally { await handle.close(); }
       await fs.rename(file, this.file);
       if (process.platform !== 'win32') {
         const parent = await fs.open(this.directory, 'r');

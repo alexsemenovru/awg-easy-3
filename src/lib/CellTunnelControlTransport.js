@@ -90,12 +90,13 @@ async function listenControlOnTunnel({ address, port, handler, timeoutMs = 10000
   }
 }
 
-function exchangeOverTunnel({ address, port, request, controllerKey, authorityKey = null, timeoutMs = 10000 }) {
+function exchangeOverTunnel({ address, port, request, controllerKey, authorityKey = null, timeoutMs = 10000, signal }) {
   requireTunnelAddress(address);
   validPort(port);
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 100) throw new TypeError('Invalid control timeout');
   const bytes = Buffer.from(JSON.stringify(request) + '\n');
   if (bytes.length > REQUEST_LIMIT + 1) return Promise.reject(new Error('Control request too large'));
+  if (signal?.aborted) return Promise.reject(new Error('Control exchange cancelled'));
   return new Promise((resolve, reject) => {
     let settled = false;
     const socket = net.connect({ host: address, port });
@@ -103,10 +104,14 @@ function exchangeOverTunnel({ address, port, request, controllerKey, authorityKe
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      signal?.removeEventListener('abort', cancel);
       socket.destroy();
       if (error) reject(error); else resolve(value);
     };
     const timer = setTimeout(() => finish(new Error('Control connection timed out')), timeoutMs);
+    const cancel = () => finish(new Error('Control exchange cancelled'));
+    signal?.addEventListener('abort', cancel, { once: true });
+    if (signal?.aborted) cancel();
     timer.unref();
     socket.on('error', () => finish(new Error('Control connection failed')));
     socket.on('close', () => finish(new Error('Control connection closed')));
