@@ -26,6 +26,8 @@ const { verifyCellDataHandshake } = require('./CellDataHandshake');
 const { addressInSubnet } = require('./AddressAllocator');
 const { runProcess } = require('./ProcessRunner');
 const { createCellTechnicalFailover } = require('./CellTechnicalFailover');
+const { BackupJournal } = require('./BackupJournal');
+const { verifyCommand, sign, verifyHostRequest } = require('./CellMaintenance');
 
 // The service deliberately starts from a registered, persistent Cell state.
 // Missing GeoIP data cannot silently disable a signed country policy:
@@ -200,6 +202,18 @@ async function openCellServiceHost({ config, bootstrapHost, controlPath,
     bootstrap: bootstrapHost.bootstrap,
     temporaryInterfaceName: interfaceName,
     server: user.server, userDescriptor, controlPath,
+    receiveMaintenance: async command => {
+      const connection = await bootstrapHost.connectionStore.read();
+      const epoch = await epochFor(bootstrapHost.connectionStore, connection);
+      const identity = await bootstrapHost.identityStore.load('cell');
+      const trust = { controllerKey: connection.controllerKey, cellKey: identity.publicKey, authorityKey: epoch.key };
+      verifyCommand(command, trust);
+      const journal = new BackupJournal(path.join(stateDirectory, 'maintenance', 'request.json'), value => verifyHostRequest(value,
+        { controllerKey: trust.controllerKey, cellKey: trust.cellKey }), 8192);
+      const previous = await journal.read();
+      if (previous?.command.id !== command.id) await journal.write(sign({ version: 1, command }, identity.privateKey, 'network-maintenance-host/v1'));
+      if (command.action === 'remove') await host.protectUserTrafficLocked();
+    },
     dataPublicKey: dataIdentity.publicKey,
     recoverEndpoint: options => restoredEndpoint.ensure(options),
     clearEndpoint: options => restoredEndpoint.close(options),

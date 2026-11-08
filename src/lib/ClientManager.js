@@ -6,13 +6,13 @@ const { allocateClientAddresses } = require('./AddressAllocator');
 const { buildAwgArtifacts } = require('./AwgArtifacts');
 const { AwgKeyManager } = require('./AwgKeyManager');
 const { assertActiveHomeRemains, normalizeClientPolicy } = require('./ClientPolicy');
-const { changeClientTraffic, assertCurrentPanelPathRemains } = require('./ClientTraffic');
+const { changeClientTraffic, assertCurrentPanelPathRemains, trafficError } = require('./ClientTraffic');
 const { validateState } = require('./StateStore');
 const { normalizeGeoPolicy, validatePrefixes } = require('./GeoIpPolicy');
 const { assignmentFromClient, assignmentFingerprint } = require('./CellAssignedSettings');
 const { validateCellUserDescriptor } = require('./CellUserDescriptor');
 
-const ALLOWED_CHANGES = new Set(['name', 'enabled', 'networkGroup', 'ipv4Enabled', 'ipv6Enabled', 'geoPolicy']);
+const ALLOWED_CHANGES = new Set(['name', 'enabled', 'networkGroup', 'ipv4Enabled', 'ipv6Enabled', 'geoPolicy', 'exitNodeId']);
 
 class ClientManager {
   constructor({
@@ -202,15 +202,39 @@ class ClientManager {
         changes = { ...changes, geoPolicy: policy };
       }
       const target = state.clients.find((client) => client.id === clientId);
-      const descriptor = target?.entryCellId
-        ? validateCellUserDescriptor((await this.entryDescriptors())[target.entryCellId]) : null;
+      if (!target) throw new TypeError(`Unknown client: ${clientId}`);
+      if (Object.hasOwn(changes, 'exitNodeId')) {
+        const exit = changes.exitNodeId;
+        const descriptors = await this.entryDescriptors();
+        if (typeof exit !== 'string' || exit !== 'main'
+          && (!/^[a-f0-9]{32}$/.test(exit) || !Object.hasOwn(descriptors, exit))) throw new TypeError('Unknown exit node');
+        const exit6 = exit === 'main' ? state.server.address6 : validateCellUserDescriptor(descriptors[exit]).address6;
+        if (!exit6) {
+          changes = { ...changes, ipv6Enabled: false,
+            ...('enabled' in changes ? { ipv4Enabled: changes.enabled } : {}) };
+          delete changes.enabled;
+        }
+      }
+      const entry = target.entryCellId ? (await this.entryDescriptors())[target.entryCellId] : null;
+      if (target.entryCellId && !entry && (target.enabled || changes.enabled || changes.ipv4Enabled || changes.ipv6Enabled)) {
+        throw Object.assign(new Error('Client entry Cell was removed'), { code: 'CELL_REMOVED' });
+      }
+      const descriptor = entry ? validateCellUserDescriptor(entry) : null;
+      const selectedExit = changes.exitNodeId ?? target.exitNodeId;
+      const exit6 = !selectedExit ? true : selectedExit === 'main' ? Boolean(state.server.address6)
+        : Boolean((await this.entryDescriptors())[selectedExit]?.address6);
+      if (!exit6 && changes.enabled === true) {
+        changes = { ...changes, ipv4Enabled: true, ipv6Enabled: false }; delete changes.enabled;
+      }
       const nextClient = changeClientTraffic(target, changes, {
         ipv6Available: Boolean(target.address6 && (descriptor
           ? descriptor.address6 : state.server.address6 && state.server.ipv6Subnet)),
       });
+      if (nextClient.ipv6Enabled && !exit6) throw trafficError('IPV6_UNAVAILABLE', 'IPv6 is not available on the selected exit');
       assertCurrentPanelPathRemains(target, nextClient, remoteAddress);
       const clients = state.clients.map((client) => client.id === clientId ? nextClient : client);
-      const result = await this.applyState(state, { ...state, clients });
+      const result = await this.applyState(state, { ...state, clients,
+        version: Object.hasOwn(changes, 'exitNodeId') ? 4 : state.version });
       const client = result.state.clients.find((item) => item.id === clientId);
       return Object.freeze({ client, export: result.artifacts.clientArtifacts[clientId] });
     });
@@ -226,6 +250,22 @@ class ClientManager {
         clients: state.clients.filter((client) => client.id !== clientId),
       });
       return result.state.clients;
+    });
+  }
+
+  disableCellClients(cellId, { remoteAddress } = {}) {
+    if (typeof cellId !== 'string' || !/^[a-f0-9]{32}$/.test(cellId)) throw new TypeError('Cell identifier required');
+    return this.serialize(async () => {
+      const state = await this.requireState();
+      const clients = state.clients.map(client => {
+        if (client.entryCellId !== cellId && client.exitNodeId !== cellId) return client;
+        const disabled = { ...client, enabled: false, ipv4Enabled: false, ipv6Enabled: false };
+        assertCurrentPanelPathRemains(client, disabled, remoteAddress);
+        return disabled;
+      });
+      const affected = state.clients.filter((client, i) => client.enabled && !clients[i].enabled).length;
+      if (affected || state.version !== 4) await this.applyState(state, { ...state, clients, version: 4 });
+      return { affectedClients: affected };
     });
   }
 

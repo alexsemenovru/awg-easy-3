@@ -62,6 +62,53 @@ const fixture = () => {
   return { applications, getState: () => state, manager };
 };
 
+test('exit changes persist without replacing client keys, reject unknown nodes, and disable unavailable IPv6', async () => {
+  const { manager, getState } = fixture();
+  const cellId = 'a'.repeat(32);
+  const descriptor = { version: 1, endpointHost: 'cell.example.test', endpointPort: 51830,
+    serverPublicKey: Buffer.alloc(32, 4).toString('base64'), address4: '10.64.0.1',
+    ipv4Subnet: '10.64.0.0/24', profile: profile() };
+  manager.entryDescriptors = async () => ({ [cellId]: descriptor });
+  const before = structuredClone(getState().clients[0]);
+  const changed = await manager.updateClient(before.id, { exitNodeId: cellId });
+  assert.equal(changed.client.exitNodeId, cellId);
+  assert.equal(getState().version, 4);
+  for (const field of ['privateKey', 'publicKey', 'presharedKey', 'address4']) assert.equal(changed.client[field], before[field]);
+  await assert.rejects(manager.updateClient(before.id, { exitNodeId: 'b'.repeat(32) }), /Unknown exit/);
+  assert.equal(getState().clients[0].exitNodeId, cellId);
+  await manager.updateClient(before.id, { exitNodeId: 'main' });
+  assert.equal(getState().clients[0].exitNodeId, 'main');
+});
+
+test('Cell retirement disables its profiles without moving them to another exit or replacing their keys', async () => {
+  const { manager, getState } = fixture(), cellId = 'a'.repeat(32);
+  const descriptor = { version: 1, endpointHost: 'cell.example.test', endpointPort: 51830,
+    serverPublicKey: Buffer.alloc(32, 4).toString('base64'), address4: '10.64.0.1',
+    ipv4Subnet: '10.64.0.0/24', profile: profile() };
+  manager.entryDescriptors = async () => ({ [cellId]: descriptor });
+  const guest = await manager.createClient({ name: 'Guest' });
+  await manager.updateClient(guest.client.id, { exitNodeId: cellId });
+  assert.equal((await manager.disableCellClients(cellId)).affectedClients, 1);
+  const disabled = getState().clients.find(client => client.id === guest.client.id);
+  assert.equal(disabled.enabled, false); assert.equal(disabled.exitNodeId, cellId);
+  assert.equal(disabled.privateKey, guest.client.privateKey);
+  assert.equal(getState().clients[0].enabled, true);
+});
+
+test('an IPv4-only exit turns IPv6 off and cannot be bypassed through an explicit API toggle', async () => {
+  const { manager } = fixture(), id = 'a'.repeat(32);
+  let state = initialState();
+  state = validateState({ ...state, version: 4,
+    server: { ...state.server, address6: 'fd88::1', ipv6Subnet: 'fd88::/64' },
+    clients: state.clients.map(client => ({ ...client, address6: 'fd88::2', ipv4Enabled: true, ipv6Enabled: true })) });
+  manager.store = { load: async () => state, save: async next => { state = validateState(next); return state; } };
+  manager.entryDescriptors = async () => ({ [id]: { version: 1, endpointHost: 'cell.example.test', endpointPort: 51830,
+    serverPublicKey: Buffer.alloc(32, 4).toString('base64'), address4: '10.64.0.1', ipv4Subnet: '10.64.0.0/24', profile: profile() } });
+  assert.equal((await manager.updateClient('home-admin', { exitNodeId: id })).client.ipv6Enabled, false);
+  await assert.rejects(manager.updateClient('home-admin', { ipv6Enabled: true }), { code: 'IPV6_UNAVAILABLE' });
+  assert.equal((await manager.updateClient('home-admin', { enabled: true })).client.ipv6Enabled, false);
+});
+
 test('new Cell client upgrades state and withholds its profile until Cell confirms the assignment', async () => {
   const { manager, getState, applications } = fixture();
   const cellId = 'a'.repeat(32);

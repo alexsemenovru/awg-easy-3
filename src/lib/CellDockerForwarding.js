@@ -20,7 +20,8 @@ class CellDockerForwarding {
     this.runner = runner;
   }
 
-  async ensure() {
+  remove() { return this.ensure({ remove: true }); }
+  async ensure({ remove = false } = {}) {
     let chain, forward;
     try {
       ({ stdout: chain } = await this.runner('iptables-legacy', ['-S', 'DOCKER-USER']));
@@ -48,9 +49,10 @@ class CellDockerForwarding {
       const rule = [...args, '-m', 'comment', '--comment', marker, '-j', 'ACCEPT'];
       if (chain.includes(`--comment ${marker}`) || chain.includes(`--comment "${marker}"`)) {
         await this.runner('iptables-legacy', ['-C', 'DOCKER-USER', ...rule]);
+        if (remove) await this.runner('iptables-legacy', ['-D', 'DOCKER-USER', ...rule]);
         continue;
       }
-      await this.runner('iptables-legacy', ['-I', 'DOCKER-USER', '1', ...rule]);
+      if (!remove) await this.runner('iptables-legacy', ['-I', 'DOCKER-USER', '1', ...rule]);
     }
     return true;
   }

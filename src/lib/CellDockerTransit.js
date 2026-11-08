@@ -24,7 +24,8 @@ const absent = e => e?.code === 1 || e?.exitCode === 1
 // these narrow interface rules prevent Docker's later FORWARD=DROP override.
 class CellDockerTransit {
   constructor({ runner = runProcess } = {}) { this.runner = runner; }
-  async ensure(interfaces) {
+  remove(interfaces) { return this.ensure(interfaces, { remove: true }); }
+  async ensure(interfaces, { remove = false } = {}) {
     if (!Array.isArray(interfaces) || !interfaces.length || interfaces.length > 128
       || new Set(interfaces).size !== interfaces.length
       || interfaces.some(n => typeof n !== 'string' || !/^[A-Za-z0-9_.-]{1,15}$/.test(n) || n === 'lo')) {
@@ -51,7 +52,11 @@ class CellDockerTransit {
         if (matches.length > 1 || matches.length === 1 && !same(matches[0], rule)) {
           throw new Error('Changed Docker transit rule; refusing mutation');
         }
-        if (!matches.length) batch.push({ insert: { rule } });
+        if (remove && matches.length) {
+          const handle = snapshot.nftables.find(x => x.rule?.comment === marker).rule.handle;
+          if (!Number.isSafeInteger(handle) || handle < 1) throw new Error('Missing Docker rule handle');
+          batch.push({ delete: { rule: { family, table: 'filter', chain: 'DOCKER-USER', handle } } });
+        } else if (!remove && !matches.length) batch.push({ insert: { rule } });
       }
       if (batch.length) await this.runner('nft', ['-j', '-f', '-'], { input: JSON.stringify({ nftables: batch }) });
       // Older Docker engines can use legacy xtables independently of nft.
@@ -68,7 +73,8 @@ class CellDockerTransit {
           '-m', 'comment', '--comment', marker, '-j', 'ACCEPT'];
         if (legacy.includes(marker)) {
           await this.runner(binary, ['-C', 'DOCKER-USER', ...args]);
-        } else await this.runner(binary, ['-I', 'DOCKER-USER', '1', ...args]);
+          if (remove) await this.runner(binary, ['-D', 'DOCKER-USER', ...args]);
+        } else if (!remove) await this.runner(binary, ['-I', 'DOCKER-USER', '1', ...args]);
       }
     }
   }

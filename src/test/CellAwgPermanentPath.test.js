@@ -35,6 +35,9 @@ function fixture({ retainGuard = false } = {}) {
     },
   };
   const lifecycle = {
+    link: async () => life.phase === 'empty' ? null : { ifname: name },
+    finishRemoval: async saved => { assert.deepEqual(saved.spec, spec);
+      life = { phase: 'empty', spec: null }; events.push('life-remove'); },
     load: async () => structuredClone(life),
     create: async value => { assert.equal(guarded, true);
       life = { phase: 'creating', spec: value }; events.push('life-create'); },
@@ -43,6 +46,7 @@ function fixture({ retainGuard = false } = {}) {
     verify: async value => { assert.deepEqual(value, spec); return { up }; },
   };
   const awgTransaction = {
+    retire: async () => { assert.equal(life.phase, 'empty'); awg = { committed: null, pending: null }; },
     load: async () => structuredClone(awg),
     initialize: async value => { assert.equal(guarded, true);
       awg.committed = value; events.push('awg-init'); },
@@ -50,6 +54,8 @@ function fixture({ retainGuard = false } = {}) {
     inspect: async () => { events.push('awg-inspect'); },
   };
   const routeTransaction = {
+    reconcile: async (_before, desired) => { assert.deepEqual(desired, []); assert.equal(guarded, true); },
+    save: async value => { routes = value; },
     load: async () => structuredClone(routes),
     recover: async () => { assert.equal(guarded, true); events.push('routes-recover'); },
     apply: async desired => { assert.equal(guarded, true);
@@ -59,6 +65,12 @@ function fixture({ retainGuard = false } = {}) {
     routes6: [], rules4: [], rules6: [] }),
   };
   const nftTransaction = {
+    candidates: value => [value.committed, ...(value.pending ? [value.pending.desired] : [])],
+    reconcile: async (candidates, desired) => {
+      if (failPolicy || !candidates.some(value => JSON.stringify(value) === JSON.stringify(currentPolicy))) throw new Error('Foreign nft policy');
+      assert.equal(guarded, true); currentPolicy = desired;
+    },
+    save: async value => { firewall = value; },
     normalize: value => structuredClone(value),
     equal: (a, b) => JSON.stringify(a) === JSON.stringify(b),
     load: async () => structuredClone(firewall),
@@ -123,6 +135,21 @@ test('data path stays guarded across recovery until a separate routing verifier 
 test('non-data path cannot release guard through routing override', async () => {
   const f = fixture();
   await assert.rejects(f.path.releaseAfterRouting(async () => true), /Guarded data path/);
+});
+
+test('terminal path deletion is idempotent and does not reconstruct a disappeared tunnel', async () => {
+  const f = fixture(); await f.path.initialize();
+  await f.path.remove(); await f.path.remove();
+  assert.equal(f.guarded, false);
+  assert.equal(f.events.filter(event => event === 'life-remove').length, 1);
+  assert.equal(f.events.filter(event => event === 'life-create').length, 1);
+});
+
+test('terminal deletion rejects a foreign kernel policy and retains its guard', async () => {
+  const f = fixture(); await f.path.initialize();
+  f.setCurrentPolicy({ nftables: [{ foreign: true }] });
+  await assert.rejects(f.path.remove(), /Foreign nft/);
+  assert.equal(f.guarded, true); assert.ok(!f.events.includes('life-remove'));
 });
 
 test('foreign permanent ownership and failed readback never release guard', async () => {

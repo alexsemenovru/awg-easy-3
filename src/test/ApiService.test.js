@@ -68,14 +68,14 @@ test('Cell inventory is authenticated and never exposes unvalidated private fiel
     { state: 'unavailable', updatedAt: null, cells: [] });
   service.cellStatus = async () => ({ state: 'ready', updatedAt: 200, cells: [cell] });
   assert.deepEqual(await service.cellsInfo('signed-token'),
-    { state: 'ready', updatedAt: 200, cells: [{ ...cell, entryReady: false }] });
+    { state: 'ready', updatedAt: 200, cells: [{ ...cell, entryReady: false, affectedClients: 0 }] });
   service.cellEntryDetails = async () => ({ [cell.id]: { descriptor: { endpoint: 'hidden' } } });
   assert.deepEqual(await service.cellsInfo('signed-token'),
-    { state: 'ready', updatedAt: 200, cells: [{ ...cell, entryReady: false }] });
+    { state: 'ready', updatedAt: 200, cells: [{ ...cell, entryReady: false, affectedClients: 0 }] });
   service.cellEntryDetails = async () => ({ [cell.id]: {
     descriptor: { endpoint: 'hidden' }, routeApplied: true } });
   assert.deepEqual(await service.cellsInfo('signed-token'),
-    { state: 'ready', updatedAt: 200, cells: [{ ...cell, entryReady: true }] });
+    { state: 'ready', updatedAt: 200, cells: [{ ...cell, entryReady: true, affectedClients: 0 }] });
   service.cellStatus = async () => ({ state: 'ready', updatedAt: 200,
     cells: [{ ...cell, cellKey: 'secret' }] });
   await assert.rejects(service.cellsInfo('signed-token'), /Invalid Main Cell status/);
@@ -95,6 +95,22 @@ test('Cell invitation requires authentication and an enabled Main Node', async (
   service.cellInvitationIssuer = async () => { throw new Error('secret details'); };
   await assert.rejects(service.issueCellInvitation('signed-token'), error => error.statusCode === 503
     && !error.message.includes('secret details'));
+});
+
+test('Cell removal authenticates, disables profiles before queueing, and never queues after a failed disable', async () => {
+  const { service } = fixture(), id = 'a'.repeat(32), calls = [];
+  service.cellStatus = async () => ({ state: 'ready', updatedAt: 200,
+    cells: [{ id, status: 'consumed', phase: 'closed', createdAt: 100,
+      settings: { desiredRevision: null, confirmedRevision: null, awaitingAck: false } }] });
+  service.clientManager.disableCellClients = async value => { calls.push(`disable:${value}`); };
+  service.cellRemover = async value => { calls.push(`queue:${value}`); return { queued: true, affectedClients: 0 }; };
+  await assert.rejects(service.removeCell('bad-token', id), /Authentication/);
+  assert.deepEqual(calls, []);
+  assert.equal((await service.removeCell('signed-token', id)).queued, true);
+  assert.deepEqual(calls, [`disable:${id}`, `queue:${id}`]);
+  service.clientManager.disableCellClients = async () => { throw new Error('would block current panel path'); };
+  await assert.rejects(service.removeCell('signed-token', id), /panel path/);
+  assert.equal(calls.length, 2);
 });
 
 test('logs in with a generic failure and an HTTP-only cookie', async () => {

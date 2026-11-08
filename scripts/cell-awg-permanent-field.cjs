@@ -154,6 +154,27 @@ async function pathReady(parts, peerKey) {
 async function publishForCell(cellKey) { return new CellSettingsPublisher(file('desired.json'), identities(), cellKey); }
 async function main() {
   const permanent = parts();
+  if (['product-main-remove', 'product-main-receipt'].includes(action) && role === 'controller') {
+    const config = require('../src/lib/MainBootstrapCli').configFromEnvironment(process.env);
+    const host = await require('../src/lib/MainBootstrapInstallationHost').openMainBootstrapInstallationHost(config);
+    if (action === 'product-main-receipt') {
+      console.log(JSON.stringify(await host.acceptMaintenanceReceipt(JSON.parse(await fs.readFile(file('removal-receipt.json'), 'utf8')))));
+    } else {
+      const invitationId = (await invite()).id;
+      const record = (await enrollment().read()).invitations.find(row => row.id === invitationId);
+      await host.removeCell(record.id);
+      const hash = require('node:crypto').createHash('sha256').update(record.cellKey).digest('hex');
+      const store = new (require('../src/lib/CellMaintenance').MainCellMaintenance)(file(`cell-maintenance/${hash}.json`), {
+        controller: await identities().load('controller'), cellKey: record.cellKey, endpointHost: mainPublic });
+      console.log(JSON.stringify((await store.read()).command));
+    }
+    return;
+  }
+  if (action === 'product-receipt' && role === 'cell') {
+    const command = JSON.parse(await fs.readFile(file('maintenance-command.json'), 'utf8'));
+    console.log(JSON.stringify(require('../src/lib/CellMaintenance').receiptFor(command, await identities().load('cell'))));
+    return;
+  }
   if (action === 'product-controller-join' && role === 'controller') {
     const deployment = new CellAwgPermanentDeployment({ stateDirectory: file('permanent') });
     const gate = new CellAwgPermanentRetirementGate({ deployment });
@@ -182,6 +203,15 @@ async function main() {
     const gate = new CellAwgPermanentRetirementGate({ deployment });
     console.log(JSON.stringify({ permanentReady: await gate.verifyCell(await connection().read()),
       temporaryRetired: (await bootstrapParts().lifecycle.load()).phase === 'empty' }));
+    return;
+  }
+  if (action === 'product-cleanup' && role === 'cell') {
+    const { cleanupCellOwnedResources } = require('../src/lib/CellOwnedCleanup');
+    const { configFromEnvironment } = require('../src/lib/CellBootstrapCli');
+    console.log(JSON.stringify(await cleanupCellOwnedResources({ config: configFromEnvironment(process.env),
+      authorizeStopped: async () => {
+        if (process.env.AWG_CELL_ISOLATED_TEST !== '1') throw new Error('Disposable namespace required');
+      } })));
     return;
   }
   if (action === 'product-sync' && role === 'cell') {

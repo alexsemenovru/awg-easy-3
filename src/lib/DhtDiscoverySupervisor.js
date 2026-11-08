@@ -7,7 +7,7 @@ const crypto = require('node:crypto');
 // No addresses or private keys in argv, status messages or logs. DHT failure
 // cannot reject the VPN poller/reconciler or alter its routes and access rules.
 function startDhtDiscovery({ directory, identity, aliases = [], kind, endpointHost, port, controlPort, bootstrap,
-  bindAddress, peers = async () => [],
+  bindAddress, peers = async () => [], receiptPeers = null, onReceipt = null,
   newWorker = (file, options) => new Worker(file, options) }) {
   let worker;
   let timer;
@@ -30,6 +30,15 @@ function startDhtDiscovery({ directory, identity, aliases = [], kind, endpointHo
         else if (message?.type === 'unavailable') status = Object.freeze({ state: 'unavailable' });
         else if (message?.type === 'bridge-closed') status = Object.freeze({ ...status,
           technical: { ...status.technical, bridgeActive: false } });
+        else if (message?.type === 'maintenance-receipt') {
+          const receiver = worker;
+          if (typeof message.id !== 'string' || !/^[a-f0-9]{32}$/.test(message.id)) return;
+          Promise.resolve().then(() => {
+            if (typeof onReceipt !== 'function') throw new Error('No receipt receiver');
+            return onReceipt(message.receipt);
+          }).then(ack => { if (worker === receiver) receiver.postMessage({ type: 'receipt-result', id: message.id, ack }); },
+            () => { if (worker === receiver) receiver.postMessage({ type: 'receipt-result', id: message.id, error: true }); });
+        }
         else if (message?.type === 'bridge-result') {
           const pending = requests.get(message.id);
           if (pending) {
@@ -66,7 +75,9 @@ function startDhtDiscovery({ directory, identity, aliases = [], kind, endpointHo
     refreshing = true;
     try {
       const inventory = await peers();
-      if (worker && !stopped) worker.postMessage({ type: 'peers', peers: inventory });
+      const retired = receiptPeers ? await receiptPeers() : null;
+      if (worker && !stopped) worker.postMessage({ type: 'peers', peers: inventory,
+        ...(retired ? { receiptPeers: retired } : {}) });
     } catch { /* An unavailable inventory never authorizes unknown identities. */ }
     finally { refreshing = false; }
   };

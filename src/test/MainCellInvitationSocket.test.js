@@ -5,7 +5,7 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
-const { listenInvitationSocket, requestInvitation, requestBackup } = require('../lib/MainCellInvitationSocket');
+const { listenInvitationSocket, requestInvitation, requestBackup, requestCellRemoval } = require('../lib/MainCellInvitationSocket');
 
 test('private control socket issues one bounded invitation and closes cleanly', { skip: process.platform === 'win32' }, async t => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-cell-socket-'));
@@ -19,6 +19,18 @@ test('private control socket issues one bounded invitation and closes cleanly', 
   await assert.rejects(listenInvitationSocket(socketPath, async () => 'x'), /already in use/);
   await listener.close();
   await assert.rejects(fs.lstat(socketPath), { code: 'ENOENT' });
+});
+
+test('private socket queues only a validated Cell identifier, without an arbitrary command or path', { skip: process.platform === 'win32' }, async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-removal-socket-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const socketPath = path.join(directory, 'control.sock'); let received;
+  const listener = await listenInvitationSocket(socketPath, async () => 'unused', {
+    removeCell: async id => { received = id; return { queued: true, affectedClients: 2 }; } });
+  t.after(() => listener.close());
+  assert.deepEqual(await requestCellRemoval(socketPath, 'a'.repeat(32)), { queued: true, affectedClients: 2 });
+  assert.equal(received, 'a'.repeat(32));
+  await assert.rejects(requestCellRemoval(socketPath, '../other'), /identifier/);
 });
 
 test('private socket carries a bounded encrypted backup separately from invitations', { skip: process.platform === 'win32' }, async t => {

@@ -42,11 +42,13 @@ function validate(saved, allowExpansion = false) {
 // verifyInterfaces must check actual ownership/configuration, not only names.
 class CellRoutingCoordinator {
   constructor({ directory, verifyInterfaces, runner, components,
-    allowExpansion = false }) {
+    allowExpansion = false, verifyRetiredInterfaces = async () => false }) {
     if (typeof directory !== 'string' || !directory || typeof verifyInterfaces !== 'function') throw new TypeError('Coordinator directory and interface verifier required');
     if (typeof allowExpansion !== 'boolean') throw new TypeError('Invalid routing expansion option');
     this.directory = path.resolve(directory); this.file = path.join(this.directory, 'routing.json');
     this.allowExpansion = allowExpansion;
+    if (typeof verifyRetiredInterfaces !== 'function') throw new TypeError('Retired interface verifier required');
+    this.verifyRetiredInterfaces = verifyRetiredInterfaces;
     this.verifyInterfaces = verifyInterfaces;
     this.guard = components?.guard || new CellRoutingGuard({ journalPath: path.join(this.directory, 'guard.json'), runner });
     // All child operations execute under the coordinator's durable guard.
@@ -93,7 +95,8 @@ class CellRoutingCoordinator {
     if (await this.verifyInterfaces([...interfaces]) !== true) throw new Error('Owned AWG interfaces not verified');
     const guardState = await this.guard.load();
     const protectedNames = guardState.pending?.kind === 'protect' ? guardState.pending.interfaces : guardState.interfaces;
-    if (protectedNames.some(name => !interfaces.includes(name))) throw new Error('Existing protection requires AWG lifecycle coordinator');
+    const retired = protectedNames.filter(name => !interfaces.includes(name));
+    if (retired.length && await this.verifyRetiredInterfaces(retired) !== true) throw new Error('Existing protection requires AWG lifecycle coordinator');
     await this.guard.recover();
     await this.guard.protect(interfaces);
   }
@@ -134,6 +137,30 @@ class CellRoutingCoordinator {
     // Deliberately retain the guard after recovery/rollback. Explicit apply of
     // the confirmed specification is required before enabling traffic again.
     return { restored: saved.committed !== null, guarded: true };
+  }
+  retireForRebuild(authorize, minimumInterfaces = []) {
+    if (typeof authorize !== 'function') throw new TypeError('Terminal routing authority required');
+    if (minimumInterfaces.length) routingGuardSnapshot(minimumInterfaces);
+    return this.exclusive(async () => {
+      const saved = await this.load(), guard = await this.guard.load();
+      const names = [...new Set([...(saved.committed?.interfaces ?? []),
+        ...(saved.pending?.desired.interfaces ?? []), ...guard.interfaces,
+        ...(guard.pending?.interfaces ?? []), ...minimumInterfaces])].sort();
+      if (await authorize(names) !== true) throw new Error('Routing retirement not authorized');
+      await this.guard.recover();
+      if (names.length) await this.guard.protect(names);
+      const [nft, routes] = await Promise.all([this.policy.load(), this.routes.load()]);
+      await this.policy.reconcile(this.policy.candidates(nft), null);
+      const possible = [...new Map([...routes.committed, ...(routes.pending?.desired ?? [])]
+        .map(command => [JSON.stringify(command), command])).values()];
+      await this.routes.reconcile(possible, []);
+      await this.policy.save({ version: 1, committed: null, pending: null });
+      await this.routes.save({ version: 1, committed: [], pending: null });
+      await this.save({ version: 1, committed: null, pending: null });
+      // Do not release: the Main's replacement policy must first verify, with
+      // absent retired interfaces independently attested by their lifecycle.
+      return { guarded: true };
+    });
   }
   apply(value, { retainGuard = false } = {}) {
     if (typeof retainGuard !== 'boolean') throw new TypeError('Invalid guard retention option');

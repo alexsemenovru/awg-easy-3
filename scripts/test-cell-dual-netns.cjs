@@ -131,17 +131,18 @@ async function stopped(child) {
 }
 
 async function main() {
+  const mainUserKeys = await new AwgKeyManager().generateKeyPair();
   // A real Main sidecar reads the existing panel state read-only. The lab
   // persists a synthetic panel state so the same reservation check runs here.
   await new StateStore(path.join(root, 'user-state.json')).save({
     version: 1, auth: { passwordHash: 'synthetic-hash', sessionSecret: 'synthetic-session' },
     server: { interfaceName: 'awg0', wanInterface: 'veth-main',
-      privateKey: 'synthetic-user-private', publicKey: 'synthetic-user-public',
+      privateKey: mainUserKeys.privateKey, publicKey: mainUserKeys.publicKey,
       address4: '10.8.0.1', ipv4Subnet: '10.8.0.0/24', listenPort: 51820,
       panelPort: 51821, endpointHost: endpoint, profile: generateOfficialProfile() },
     clients: [{ id: 'synthetic-home', name: 'Synthetic Home', enabled: true,
       networkGroup: 'home', address4: '10.8.0.2',
-      privateKey: 'synthetic-client-private', publicKey: 'synthetic-client-public' }],
+      privateKey: Buffer.alloc(32, 47).toString('base64'), publicKey: Buffer.alloc(32, 48).toString('base64') }],
   });
   ip(['netns', 'add', 'awgmain']);
   ip(['netns', 'add', 'awgcell']);
@@ -268,6 +269,7 @@ async function main() {
       assert.equal(inventory.length, 1);
       assert.deepEqual(inventory[0], { id: invitationId, status: 'consumed',
         phase: 'closed', createdAt: inventory[0].createdAt, settings: synced,
+        maintenance: { version: require('../src/package.json').version, action: null, targetVersion: null, completed: false, matchesMain: true },
         control: { path: null, receivedAt: inventory[0].control.receivedAt },
         backup: { generation: null, confirmed: false } });
       assert.ok(inventory[0].control.receivedAt >= inventory[0].createdAt);
@@ -431,16 +433,66 @@ async function main() {
       await stopped(cellService);
     } finally { service.child.kill('SIGTERM'); }
     await stopped(service.child);
+    stage = 'terminal-cell-owned-cleanup';
+    const mainState = await new StateStore(path.join(root, 'user-state.json')).load();
+    const artifact = require('../src/lib/AwgArtifacts').buildAwgArtifacts({ server: mainState.server, clients: mainState.clients });
+    const configFile = path.join(root, 'main-user.conf');
+    fs.writeFileSync(configFile, artifact.serverConfig, { mode: 0o600 });
+    const stripped = ip(['netns', 'exec', 'awgmain', 'awg-quick', 'strip', configFile]);
+    fs.writeFileSync(path.join(root, 'main-user-stripped.conf'), stripped, { mode: 0o600 });
+    ip(['netns', 'exec', 'awgmain', 'amneziawg-go', 'awg0']);
+    ip(['netns', 'exec', 'awgmain', 'awg', 'setconf', 'awg0', path.join(root, 'main-user-stripped.conf')]);
+    ip(['-n', 'awgmain', 'address', 'add', '10.8.0.1/24', 'dev', 'awg0']);
+    ip(['-n', 'awgmain', 'link', 'set', 'awg0', 'up']);
+    const removalCommand = role('awgmain', mainDir, 'product-main-remove', permanentField);
+    fs.writeFileSync(path.join(cellDir, 'maintenance-command.json'), JSON.stringify(removalCommand), { mode: 0o600 });
+    assert.equal(role('awgcell', cellDir, 'product-cleanup', permanentField).removed, true);
+    assert.equal(role('awgcell', cellDir, 'product-cleanup', permanentField).removed, true);
+    assert.throws(() => ip(['-n', 'awgcell', 'link', 'show', 'awgcellp8']));
+    assert.throws(() => ip(['-n', 'awgcell', 'link', 'show', 'awgcellu8']));
+    stage = 'main-revokes-removed-cell-and-acknowledges';
+    const receipt = role('awgcell', cellDir, 'product-receipt', permanentField);
+    fs.writeFileSync(path.join(mainDir, 'removal-receipt.json'), JSON.stringify(receipt), { mode: 0o600 });
+    for (let repeat = 0; repeat < 2; repeat++) {
+      const ack = role('awgmain', mainDir, 'product-main-receipt', permanentField);
+      require('../src/lib/CellMaintenance').verifyReceiptAck(ack, removalCommand);
+    }
+    const remaining = JSON.parse(runMainCli('cells'));
+    stage = 'completed-cell-hidden';
+    assert.equal(remaining.length, 1); assert.equal(remaining[0].id, secondId);
+    stage = 'remaining-cell-survives-removal';
+    const afterRemoval = startMainService();
+    try {
+      await afterRemoval.ready;
+      let ready = false;
+      for (let attempt = 0; attempt < 12; attempt++) {
+        if (role('awgcell2', cell2Dir, 'product-status', permanentField).permanentReady) { ready = true; break; }
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      assert.equal(ready, true);
+      assert.equal(JSON.parse(runMainCli('cells')).length, 1);
+    } finally { afterRemoval.child.kill('SIGTERM'); }
+    await stopped(afterRemoval.child);
     stage = 'foreign-resource-readback';
     ip(['-n', 'awgcell', 'link', 'show', 'awgforeign2']);
     const foreignTable = JSON.parse(ip(['netns', 'exec', 'awgcell', 'nft', '-j', 'list', 'tables']));
     assert.ok(foreignTable.nftables.some(item => item.table?.name === 'foreign_keep'));
+    if (process.env.AWG_LAB_EXPORT === '1') {
+      assert.equal(fs.readFileSync('/out/.allow-export', 'utf8').trim(), 'synthetic-cell-only');
+      await fs.promises.cp(cellDir, '/out/cell-data', { recursive: true });
+      fs.chmodSync('/out/cell-data', 0o700);
+      const mainIdentity = await new (require('../src/lib/ControlIdentityStore').ControlIdentityStore)(path.join(mainDir, 'identity.json')).load('controller');
+      fs.writeFileSync('/out/main-identity.json', JSON.stringify(mainIdentity), { mode: 0o600 });
+    }
     console.log('PASS isolated Main/two-Cell lifecycle, control recovery, settings isolation, user revocation and GeoIP filtering');
   } finally { listener.child.kill('SIGTERM'); }
 }
 main().catch(error => {
   for (const child of services) child.kill('SIGKILL');
   const detail = String(error.stderr || error.message || '');
+  if (['boolean', 'number'].includes(typeof error.actual) && ['boolean', 'number'].includes(typeof error.expected)) {
+    console.error(`Assertion actual=${error.actual} expected=${error.expected}`);
+  }
   const classification = ['timeout', 'refused', 'network', 'receiver', 'connection',
     'tunnel', 'route', 'identity', 'handshake', 'revision', 'registered', 'required']
     .filter(word => detail.toLowerCase().includes(word)).join(',') || 'unclassified';

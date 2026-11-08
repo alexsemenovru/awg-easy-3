@@ -14,7 +14,7 @@ const { buildCellArtifacts } = require('./CellArtifacts');
 async function openRegisteredCellHost({ stateDirectory, runtimeDirectory,
   connectionStore, identityStore, bootstrap, temporaryInterfaceName,
   server, userDescriptor, dataPublicKey, receiveDataOffer, receiveRoutingRevision,
-  acknowledgeRoutingRevision, controlPath,
+  acknowledgeRoutingRevision, controlPath, receiveMaintenance,
   stageDataLink, restoreUserRouting, recoverEndpoint, clearEndpoint,
   geoDatabase, runner, retainUserGuard = false,
   openSettings = openCellSettingsRuntime,
@@ -43,7 +43,7 @@ async function openRegisteredCellHost({ stateDirectory, runtimeDirectory,
   const permanent = openPermanent({ stateDirectory: path.join(stateDirectory, 'permanent'),
     connectionStore, bootstrap, temporaryInterfaceName,
     receiver: settings.receiver, clientRuntime: settings.adapter, userDescriptor,
-    dataPublicKey, receiveDataOffer, receiveRoutingRevision, acknowledgeRoutingRevision, controlPath,
+    dataPublicKey, receiveDataOffer, receiveRoutingRevision, acknowledgeRoutingRevision, controlPath, receiveMaintenance,
     ...(recoverEndpoint ? { recoverEndpoint: () => recoverEndpoint({ protect: () => settings.adapter.prepareBoot() }) } : {}),
     ...(runner ? { runner } : {}) });
   if (!permanent || !['recoverBoot', 'join', 'syncSettings']
@@ -58,6 +58,7 @@ async function openRegisteredCellHost({ stateDirectory, runtimeDirectory,
   });
   return Object.freeze({
     protectUserTraffic: () => locked(() => settings.adapter.prepareBoot()),
+    protectUserTrafficLocked: () => settings.adapter.prepareBoot(),
     recoverBoot: options => locked(() => permanent.recoverBoot(options)),
     join: options => locked(() => permanent.join(options)),
     syncSettings: sync,

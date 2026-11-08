@@ -158,6 +158,8 @@ fi
 unset AWG_IMAGE AWG_CELL_WAN_INTERFACE AWG_CELL_USER_PORT AWG_CELL_ENDPOINT AWG_CELL_DHT_PORT
 compose() { docker compose --env-file "$env_file" -f docker-compose.cells-cell.yml "$@"; }
 compose config --quiet || die 'Cell compose configuration is invalid'
+[ ! -e "$script_dir/.cell-maintenance/terminal" ] && [ ! -L "$script_dir/.cell-maintenance/terminal" ] \
+  || die 'Cell removal has begun; use a fresh installation directory for a new Cell'
 awg_cells_install_rp_filter cell awgcellb0 awgcellc0 awgcellu0 awgdata0 \
   || die 'cannot reserve loose rp_filter for Cell-owned AWG interfaces'
 info 'Starting the headless Cell; the invitation is never printed'
@@ -177,6 +179,8 @@ while [ "$attempt" -lt 120 ]; do
     status=$(compose exec -T cell node /app/cell-cli.js status 2>/dev/null || true)
     case "$status" in
       *'"registration":"registered"'*'"userConfigured":true'*)
+        . "$script_dir/lib/cell-maintenance.sh"
+        awg_cell_install_maintenance || die 'cannot install the root maintenance supervisor'
         info 'Cell registered; awaiting or applying signed settings from the Main Node'
         printf 'Allow inbound UDP %s in the provider firewall for future clients.\n' \
           "$(sed -n 's/^AWG_CELL_USER_PORT=//p' "$env_file")"

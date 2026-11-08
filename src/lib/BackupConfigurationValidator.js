@@ -66,7 +66,7 @@ async function validateBackupConfiguration(input) {
     validateKey(client.presharedKey, 'backupClientPresharedKey');
   }
   if (![...files.keys()].some(name => name.startsWith('main/'))) {
-    if (state.clients.some(client => client.entryCellId)) fail();
+    if (state.clients.some(client => client.entryCellId || client.exitNodeId && client.exitNodeId !== 'main')) fail();
     return { main: false, cells: 0, clients: state.clients.length };
   }
   const identity = validateControlIdentity(files.get('main/identity.json'));
@@ -82,7 +82,9 @@ async function validateBackupConfiguration(input) {
     throw new Error('Complete the pending Cell transition before restoring this backup');
   }
   const byHash = new Map(records.map(record => [crypto.createHash('sha256').update(record.cellKey).digest('hex'), record]));
-  if (state.clients.some(client => client.entryCellId && !records.some(record => record.id === client.entryCellId))) fail();
+  if (state.clients.some(client => client.enabled && client.entryCellId && !records.some(record => record.id === client.entryCellId))) fail();
+  if (state.clients.some(client => client.enabled && client.exitNodeId && client.exitNodeId !== 'main'
+    && !records.some(record => record.id === client.exitNodeId))) fail();
   const baseValue = files.get('main/permanent/plan.json');
   const revisionValue = files.get('main/permanent/revision.json');
   let effectivePlan = null;
@@ -92,9 +94,10 @@ async function validateBackupConfiguration(input) {
     const revision = new CellAwgPermanentRevisionStore(path.resolve('backup-validation-revision.json'), base).validate(revisionValue);
     if (revision.pending) throw new Error('Complete the pending permanent revision before restoring this backup');
     effectivePlan = revision.committed ?? base;
-    if (!records.length) fail();
+    const descriptor = records[0]?.permanentDescriptor;
+    if (!descriptor || descriptor.serverPublicKey !== config.publicKey || !same(descriptor.profile, config.profile)) fail();
     const expected = validatePermanentPlan({ version: 1, ...await permanentControllerPlan({
-      privateKey: config.privateKey, descriptor: records[0].permanentDescriptor,
+      privateKey: config.privateKey, descriptor,
       peers: records.map(record => ({ cellAddress: record.permanentDescriptor.cellAddress,
         awgPublicKey: record.awgPublicKey, awgPresharedKey: record.awgPresharedKey })),
       interfaceName: effectivePlan.spec.owner.interfaceName, keyManager }) });
@@ -102,6 +105,15 @@ async function validateBackupConfiguration(input) {
   } else if (records.length || revisionValue) fail();
   const slots = new Set(), ports = new Set();
   for (const [name, value] of files) {
+    const job = name.match(/^main\/cell-maintenance\/([a-f0-9]{64})\.json$/);
+    if (job) {
+      const key = enrollment.invitations.map(record => record.cellKey ?? record.retiredCellKey).filter(Boolean)
+        .find(key => crypto.createHash('sha256').update(key).digest('hex') === job[1]);
+      if (!key) fail();
+      new (require('./CellMaintenance').MainCellMaintenance)(path.resolve('backup-validation-maintenance.json'), {
+        controller: identity, cellKey: key, endpointHost: state.server.endpointHost }).journal.validate(value);
+      continue;
+    }
     if (!/^main\/(?:cell-|data-links\/)/.test(name)) continue;
     const match = name.match(/^main\/(cell-settings|cell-descriptors|cell-data-keys|cell-data-offers|cell-routing|data-links)\/([a-f0-9]{64})(?:\.json(\.ack)?|\/plan\.json)$/);
     if (!match) fail();

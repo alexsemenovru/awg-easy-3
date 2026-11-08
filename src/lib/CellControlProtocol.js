@@ -9,7 +9,7 @@ function body(request) {
   if (!request || typeof request !== 'object' || Array.isArray(request)
     || Object.keys(request).some(key => !fields.includes(key)) || ![1, 2].includes(request.version)
     || !['poll', 'ack', 'announce', 'announce-data', 'offer-data', 'route', 'route-ack',
-      'backup', 'backup-ack', 'recover'].includes(request.action) || typeof request.payload !== 'string'
+      'backup', 'backup-ack', 'recover', 'maintenance'].includes(request.action) || typeof request.payload !== 'string'
     || Buffer.byteLength(request.payload) > 1536
     || !Number.isSafeInteger(request.issuedAt) || request.issuedAt < 0
     || !/^[a-f0-9]{32}$/.test(request.requestId)
@@ -50,7 +50,7 @@ function verifyControl(bytes, controllerKey, now = Date.now()) {
 function replyBody(reply) {
   if (!reply || typeof reply !== 'object' || Array.isArray(reply)
     || reply.ok !== true || !/^[a-f0-9]{32}$/.test(reply.requestId)
-    || ['settings', 'applied', 'announced', 'offer', 'routing', 'backup', 'recovery'].filter(key => Object.hasOwn(reply, key)).length !== 1
+    || ['settings', 'applied', 'announced', 'offer', 'routing', 'backup', 'recovery', 'maintenance'].filter(key => Object.hasOwn(reply, key)).length !== 1
     || (Object.hasOwn(reply, 'settings') && reply.settings !== null
       && (typeof reply.settings !== 'object' || Array.isArray(reply.settings)))
     || (Object.hasOwn(reply, 'applied') && (!Number.isSafeInteger(reply.applied) || reply.applied < 1))
@@ -73,7 +73,10 @@ function replyBody(reply) {
   if (Object.hasOwn(reply, 'recovery') && reply.recovery !== null
     && (typeof reply.recovery !== 'object' || Array.isArray(reply.recovery)
       || Buffer.byteLength(JSON.stringify(reply.recovery)) > 2048)) throw new Error('Invalid recovery proof envelope');
-  const kind = ['settings', 'applied', 'announced', 'offer', 'routing', 'backup', 'recovery'].find(key => Object.hasOwn(reply, key));
+  if (Object.hasOwn(reply, 'maintenance') && reply.maintenance !== null
+    && (typeof reply.maintenance !== 'object' || Array.isArray(reply.maintenance)
+      || Buffer.byteLength(JSON.stringify(reply.maintenance)) > 2048)) throw new Error('Invalid maintenance envelope');
+  const kind = ['settings', 'applied', 'announced', 'offer', 'routing', 'backup', 'recovery', 'maintenance'].find(key => Object.hasOwn(reply, key));
   const fields = ['ok', 'requestId', kind, 'signature'];
   if (Object.keys(reply).some(key => !fields.includes(key))) throw new Error('Invalid control reply');
   return Buffer.from(JSON.stringify(['awg-easy-3/control-reply/v1', reply.requestId,

@@ -141,6 +141,32 @@ class CellAwgPermanentPath {
     await this.protect();
     return this.finish();
   }
+  // Caller owns the installation lock. Each child verifies its own kernel
+  // snapshot; a foreign object aborts cleanup and retains the dedicated guard.
+  async remove() {
+    await this.protect();
+    const saved = await this.lifecycle.load();
+    if (saved.phase !== 'empty' && !same(saved.spec, this.spec)) throw new Error('Removal plan differs from owned lifecycle');
+    // Terminal host removal: the original process has stopped, so a Go TUN
+    // may already be absent. Never recreate a tunnel or an old route merely
+    // to delete it. The unchanged before/after journals authorize retries.
+    const [nft, routes] = await Promise.all([this.firewall.load(), this.routes.load()]);
+    await this.firewall.reconcile(this.firewall.candidates(nft), null);
+    const possible = [...new Map([...routes.committed, ...(routes.pending?.desired ?? [])]
+      .map(command => [JSON.stringify(command), command])).values()];
+    await this.routes.reconcile(possible, []);
+    if (saved.phase !== 'empty') await this.lifecycle.finishRemoval(saved);
+    await this.firewall.save({ version: 1, committed: null, pending: null });
+    await this.routes.save({ version: 1, committed: [], pending: null });
+    await this.awg.retire({ terminal: true });
+    await this.guard.release(async () => {
+      const [a, n, r, l] = await Promise.all([this.awg.load(), this.firewall.load(), this.routes.load(), this.lifecycle.load()]);
+      return l.phase === 'empty' && !await this.lifecycle.link(this.interfaceName)
+        && a.committed === null && a.pending === null && n.committed === null && n.pending === null
+        && await this.firewall.current() === null && r.pending === null && r.committed.length === 0;
+    });
+    return { removed: true };
+  }
 }
 
 module.exports = { CellAwgPermanentPath };

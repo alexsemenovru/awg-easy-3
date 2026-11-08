@@ -29,6 +29,10 @@ async function openNodeDiscovery({ role, config, host, start = startDhtDiscovery
     }
     return start({ directory: path.join(config.stateDirectory, 'discovery'),
       identity, aliases, kind: role, endpointHost: config.endpointHost, port: config.dhtPort, controlPort,
+      ...(role === 'main' && typeof host.acceptMaintenanceReceipt === 'function'
+        ? { onReceipt: receipt => host.acceptMaintenanceReceipt(receipt),
+          receiptPeers: async () => (await host.bootstrapStore.read()).invitations
+            .filter(record => record.retiredCellKey).map(record => record.retiredCellKey) } : {}),
       peers: async () => {
         if (role === 'cell') {
           const connection = await host.connectionStore.read();

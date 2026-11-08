@@ -1,6 +1,6 @@
 'use strict';
 
-window.awgCells = ({ api, node, summary, list, translate, createPoller }) => {
+window.awgCells = ({ api, node, summary, list, translate, createPoller, onClientsChanged = async () => {} }) => {
   let snapshot = null;
   const issueButton = node.querySelector?.('#issue-cell');
   const actionStatus = node.querySelector?.('#cells-action-status');
@@ -89,6 +89,23 @@ window.awgCells = ({ api, node, summary, list, translate, createPoller }) => {
         backup.textContent = translate(cell.backup.confirmed ? 'backupCellConfirmed' : 'backupCellPending',
           { generation: cell.backup.generation });
         row.append(backup);
+      }
+      if (cell.status === 'consumed' && cell.phase === 'closed') {
+        const pending = cell.maintenance?.action === 'remove';
+        const button = document.createElement('button');
+        button.type = 'button'; button.className = 'danger'; button.disabled = pending;
+        button.textContent = translate(pending ? 'cellsRemoving' : 'cellsRemove');
+        button.addEventListener('click', async () => {
+          if (!window.confirm(translate('cellsRemoveConfirm', { id: cell.id.slice(0, 8), count: cell.affectedClients ?? '—' }))) return;
+          button.disabled = true;
+          try {
+            await api.removeCell(cell.id);
+            actionStatus.textContent = translate('cellsRemoveQueued');
+            button.textContent = translate('cellsRemoving');
+          } catch { actionStatus.textContent = translate('cellsRemoveError'); button.disabled = false; }
+          finally { await Promise.resolve().then(onClientsChanged).catch(() => {}); }
+        });
+        row.append(button);
       }
       list.append(row);
     }

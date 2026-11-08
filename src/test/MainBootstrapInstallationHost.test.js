@@ -139,6 +139,7 @@ test('Main Cell inventory exposes only public lifecycle and revision fields', as
     { id: 'a'.repeat(32), status: 'pending', phase: 'ready', createdAt: 1000 },
     { id: 'b'.repeat(32), status: 'consumed', phase: 'closed', createdAt: 2000,
       settings: { desiredRevision: null, confirmedRevision: null, awaitingAck: false },
+      maintenance: { version: null, action: null, targetVersion: null, completed: false, matchesMain: false },
       backup: { generation: null, confirmed: false } },
   ]);
 });

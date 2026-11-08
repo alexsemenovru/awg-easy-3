@@ -45,7 +45,10 @@ function assignedSettingsFromState(input, cells) {
   const result = Object.fromEntries([...descriptors.keys()].map(id => [id, []]));
   for (const client of state.clients) {
     if (!client.entryCellId) continue;
-    if (!descriptors.has(client.entryCellId)) throw new TypeError('Assigned Cell is not registered');
+    if (!descriptors.has(client.entryCellId)) {
+      if (!client.enabled) continue;
+      throw new TypeError('Assigned Cell is not registered');
+    }
     const descriptor = descriptors.get(client.entryCellId);
     if (!descriptor) throw new TypeError('Assigned Cell has not announced its user endpoint');
     if (!addressInSubnet(client.address4, descriptor.ipv4Subnet)

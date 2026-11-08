@@ -38,6 +38,31 @@ test('semantic backup validation proves Main identities, two Cell peers and gene
   const snapshot = await fixture();
   assert.deepEqual(await validateBackupConfiguration(snapshot), { main: true, cells: 2, clients: 1 });
 });
+
+test('backup remains restorable after the last Cell is removed without resurrecting its peer', async t => {
+  const snapshot = await fixture();
+  const value = name => JSON.parse(Buffer.from(snapshot.files.find(row => `${row.area}/${row.name}` === name).data, 'base64'));
+  const enrollment = value('main/bootstrap.json'), base = value('main/permanent/plan.json');
+  let plan = base;
+  for (const record of enrollment.invitations) {
+    plan = await require('../lib/CellAwgPermanentRemovalPlan').permanentControllerRemovalPlan({ currentPlan: plan, record, keyManager });
+    record.retiredCellKey = record.cellKey; record.status = 'revoked'; record.changedAt = 2000;
+    for (const field of ['cellKey', 'requestId', 'awgPublicKey', 'awgPresharedKey']) delete record[field];
+  }
+  rewrite(snapshot, 'main/bootstrap.json', () => enrollment);
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'no-cell-backup-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  for (const row of snapshot.files.filter(row => row.area === 'main')) {
+    const target = path.join(directory, row.name);
+    await fs.mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+    await fs.writeFile(target, Buffer.from(row.data, 'base64'), { mode: 0o600 });
+  }
+  const inventory = await require('../lib/ConfigurationBackup').snapshotInventory(directory, []);
+  assert.equal(inventory.some(row => row.name.startsWith('permanent/')), false);
+  const names = new Set(inventory.map(row => `${row.area}/${row.name}`));
+  snapshot.files = snapshot.files.filter(row => names.has(`${row.area}/${row.name}`));
+  assert.deepEqual(await validateBackupConfiguration(snapshot), { main: true, cells: 0, clients: 1 });
+});
 test('restore discards archived settings and routing receipts until the new authority receives fresh acknowledgements', async t => {
   const cells = [];
   const snapshot = await fixture({ onCell: cell => cells.push(cell) });

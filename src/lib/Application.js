@@ -18,7 +18,7 @@ const { SessionManager } = require('./SessionManager');
 const { StateStore } = require('./StateStore');
 const { MainCellStatusSnapshot } = require('./MainCellStatusSnapshot');
 const { MainCellEntrySnapshot } = require('./MainCellEntrySnapshot');
-const { requestInvitation, requestBackup } = require('./MainCellInvitationSocket');
+const { requestInvitation, requestBackup, requestCellRemoval } = require('./MainCellInvitationSocket');
 const { createConfigurationBackup } = require('./ConfigurationBackup');
 const { assignmentFromClient, assignmentFingerprint } = require('./CellAssignedSettings');
 
@@ -160,6 +160,8 @@ class Application {
           : { state: 'unavailable', updatedAt: null, cells: [] },
         cellInvitationIssuer: this.mainCellInvitationSocket
           ? () => requestInvitation(this.mainCellInvitationSocket) : null,
+        cellRemover: this.mainCellInvitationSocket
+          ? id => requestCellRemoval(this.mainCellInvitationSocket, id) : null,
         backupCreator: () => serializeOperation(() => this.mainCellInvitationSocket
           ? requestBackup(this.mainCellInvitationSocket)
           : createConfigurationBackup({ panelDirectory: this.dataDirectory,

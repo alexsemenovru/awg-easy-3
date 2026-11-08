@@ -50,6 +50,8 @@ function compileCellRouting({ topology, routingView, nodeId, context, geoDatabas
   const managed = `{ ${[...names].filter(n => n !== wan).sort().map(n => `"${n}"`).join(', ')} }`;
   const enabled = (r, family) => r.enabled[`ipv${family}`] && r[`address${family}`];
   const pathTo = (id, family) => id === nodeId ? client : links.get(id)?.[`ipv${family}`] ? links.get(id).interfaceName : null;
+  const dataPathTo = (r, id, family) => pathTo(id, family)
+    || (r.via && r.via !== nodeId ? pathTo(r.via, family) : null);
   // Home traffic between spokes traverses their Main. Keep this separate from
   // exit selection: a missing direct exit must never acquire an implicit relay.
   const homePathTo = (id, family) => {
@@ -75,7 +77,7 @@ function compileCellRouting({ topology, routingView, nodeId, context, geoDatabas
       && ipNumber(r[`address${family}`]) === ipNumber(panelAddress))) throw new TypeError('Panel overlaps a client');
     // Exact host routes for reverse traffic. No default route in the host table.
     for (const r of plan.routes) {
-      const incomingPath = isHomeGroup(r.group) ? homePathTo(r.entry, family) : pathTo(r.entry, family);
+      const incomingPath = isHomeGroup(r.group) ? homePathTo(r.entry, family) : dataPathTo(r, r.entry, family);
       if (r.entry !== nodeId && enabled(r, family) && incomingPath) {
         route(family, 'main', `${r[`address${family}`]}/${suffix}`, incomingPath);
         remoteHostDestinations.add(`${ip} daddr ${r[`address${family}`]} drop`);
@@ -126,9 +128,9 @@ function compileCellRouting({ topology, routingView, nodeId, context, geoDatabas
       if (panelAddress) forward.push(`iifname ${managed} ${ip} saddr ${elements} ${ip} daddr ${panelAddress} drop`);
     }
     for (const r of plan.routes) {
-      if (!enabled(r, family) || (r.entry !== nodeId && r.exit !== nodeId)) continue;
-      const source = r[`address${family}`], from = pathTo(r.entry, family);
-      const to = r.exit === nodeId ? wan : pathTo(r.exit, family);
+      if (!enabled(r, family) || (r.entry !== nodeId && r.exit !== nodeId && r.via !== nodeId)) continue;
+      const source = r[`address${family}`], from = dataPathTo(r, r.entry, family);
+      const to = r.exit === nodeId ? wan : dataPathTo(r, r.exit, family);
       if (!from || !to) continue;
       const geo = renderGeoIpPolicy({ clients: [{ policy: r.geoPolicy, [`address${family}`]: source }],
         database: geoDatabase, awg: from, wan: to, active4: family === 4 ? [source] : [], active6: family === 6 ? [source] : [] });
@@ -141,10 +143,10 @@ function compileCellRouting({ topology, routingView, nodeId, context, geoDatabas
       if (r.exit === nodeId && (family === 4 || context.nat66)) {
         nat.push(`oifname "${wan}" ${ip} saddr ${source} masquerade`);
       }
-      if (r.entry === nodeId && r.exit !== nodeId) {
-        const link = links.get(r.exit);
+      if ((r.entry === nodeId || r.via === nodeId) && r.exit !== nodeId) {
+        const link = links.get(r.via && r.via !== nodeId ? r.via : r.exit);
         commands.push({ file: 'ip', args: [`-${family}`, 'rule', 'add', 'pref', String(link.priority),
-          'iif', client, 'from', `${source}/${suffix}`, 'lookup', String(link.table)] });
+          'iif', from, 'from', `${source}/${suffix}`, 'lookup', String(link.table)] });
       }
     }
   }

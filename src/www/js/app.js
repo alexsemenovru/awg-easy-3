@@ -33,6 +33,17 @@
     select.value = selected;
   };
   let clients = [];
+  let exitCells = [];
+  const fillExitOptions = (select, client) => {
+    const selected = client.exitNodeId ?? client.entryCellId ?? 'main';
+    const entries = [['main', t('mainNode')], ...exitCells.map(cell =>
+      [cell.id, t('cellOption', { id: cell.id.slice(0, 8) })])];
+    if (!entries.some(([id]) => id === selected)) entries.push([selected, t('cellOption', { id: selected.slice(0, 8) })]);
+    select.replaceChildren(...entries.map(([id, label]) => {
+      const option = document.createElement('option'); option.value = id; option.textContent = label; return option;
+    }));
+    select.value = selected;
+  };
   let selectedClient;
   let pendingDelete;
   let pendingRename;
@@ -66,7 +77,8 @@
   const geoStatus = window.awgGeoStatus?.({ load: signal => api.geoInfo(signal), createPoller,
     node: $('#geo-status'), translate: t, onData: status => { geoCountries = status.countries || []; } });
   const cellsView = window.awgCells?.({ api, node: $('#cells-view'),
-    summary: $('#cells-summary'), list: $('#cells-list'), translate: t, createPoller });
+    summary: $('#cells-summary'), list: $('#cells-list'), translate: t, createPoller,
+    onClientsChanged: () => loadClients() });
 
   const savedLanguage = localStorage.getItem('awg-easy-language');
   if (supportedLanguages.includes(savedLanguage)) {
@@ -174,7 +186,7 @@
   });
   const update = async (client, changes, input) => {
     const keepFocus = document.activeElement === input;
-    const inputSelector = ['.group-select', '.ipv4-toggle', '.ipv6-toggle'].find((selector) => input.matches(selector));
+    const inputSelector = ['.group-select', '.client-exit', '.ipv4-toggle', '.ipv6-toggle'].find((selector) => input.matches(selector));
     const controls = [...clientsNode.querySelectorAll('input, select, button')];
     const previousDisabled = controls.map((control) => control.disabled);
     controls.forEach((control) => { control.disabled = true; });
@@ -190,6 +202,7 @@
       // A failed refresh must not pretend that a successful server change was undone.
       if (!applied) {
         if (inputSelector === '.group-select') input.value = client.networkGroup;
+        else if (inputSelector === '.client-exit') input.value = client.exitNodeId ?? client.entryCellId ?? 'main';
         else input.checked = !input.checked;
       }
     } finally {
@@ -233,6 +246,10 @@
     const group = node.querySelector('.group-select');
     fillGroupOptions(group, client.networkGroup);
     group.addEventListener('change', () => update(client, { networkGroup: group.value }, group));
+    const exit = node.querySelector('.client-exit');
+    fillExitOptions(exit, client);
+    node.querySelector('.client-exit-row').classList.toggle('hidden', !exitCells.length && !client.exitNodeId);
+    exit.addEventListener('change', () => update(client, { exitNodeId: exit.value }, exit));
     for (const family of [4, 6]) {
       const control = node.querySelector(`.ipv${family}-toggle`);
       control.checked = client[`ipv${family}Enabled`];
@@ -274,6 +291,10 @@
     diagnosticsPoller.stop();
     clearDiagnostics('checking');
     clients = await guarded(() => api.clients());
+    try {
+      const inventory = await api.cellsInfo();
+      exitCells = inventory.state === 'ready' ? inventory.cells.filter(cell => cell.status === 'consumed' && cell.phase === 'closed') : [];
+    } catch { exitCells = []; }
     if (api.geoInfo) {
       try { geoCountries = (await api.geoInfo()).countries || []; } catch { geoCountries = []; }
     }
@@ -347,6 +368,10 @@
     lastDiagnostics.forEach(paintDiagnostics);
     geoStatus?.translate();
     cellsView?.translate();
+    for (const client of clients) {
+      const select = clientsNode.querySelector(`[data-client-id="${CSS.escape(client.id)}"] .client-exit`);
+      if (select) fillExitOptions(select, client);
+    }
   });
   $('#show-create').addEventListener('click', async () => {
     const entrySelect = $('#client-entry');

@@ -67,6 +67,10 @@ function validateRecord(value) {
   } else if (value.status === 'revoked') {
     if (!time(value.changedAt) || value.changedAt < value.createdAt) invalid();
     base.push('changedAt');
+    if (value.retiredCellKey !== undefined) {
+      if (!token(value.retiredCellKey) || value.phase !== 'closed') invalid();
+      base.push('retiredCellKey');
+    }
   }
   if (Object.keys(value).sort().join(',') !== base.sort().join(',')) invalid();
   return { ...value };
@@ -169,6 +173,17 @@ class CellAwgBootstrapStore {
     return task;
   }
 
+  completeCellRemoval(invitationId, cellKey, now = Date.now()) {
+    return this.exclusive(state => {
+      const record = state.invitations.find(item => item.id === invitationId);
+      if (record?.status === 'revoked' && record.retiredCellKey === cellKey) return;
+      if (record?.status !== 'consumed' || record.phase !== 'closed' || record.cellKey !== cellKey || !time(now)) {
+        throw new Error('Registered Cell removal identity mismatch');
+      }
+      record.status = 'revoked'; record.changedAt = now; record.retiredCellKey = cellKey;
+      for (const field of ['cellKey', 'requestId', 'awgPublicKey', 'awgPresharedKey']) delete record[field];
+    });
+  }
   reserve(input) {
     const record = validateRecord({ ...input, phase: 'preparing' });
     if (record.status !== 'pending') invalid();

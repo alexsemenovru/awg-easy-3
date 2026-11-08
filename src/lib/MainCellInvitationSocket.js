@@ -7,7 +7,7 @@ const path = require('node:path');
 const MAX_REPLY = 9000;
 const MAX_BACKUP_REPLY = 17 * 1024 * 1024;
 
-async function listenInvitationSocket(socketPath, issue, { createBackup = null } = {}) {
+async function listenInvitationSocket(socketPath, issue, { createBackup = null, removeCell = null } = {}) {
   if (typeof issue !== 'function') throw new TypeError('Invitation issuer required');
   if (typeof socketPath !== 'string' || !path.isAbsolute(socketPath)) {
     throw new TypeError('Absolute control socket required');
@@ -38,11 +38,12 @@ async function listenInvitationSocket(socketPath, issue, { createBackup = null }
   const server = http.createServer(async (request, response) => {
     response.setHeader('Cache-Control', 'no-store');
     const backup = request.url === '/backup' && typeof createBackup === 'function';
-    if (request.method !== 'POST' || request.url !== '/issue' && !backup) {
+    const removal = typeof removeCell === 'function' && request.url?.match(/^\/remove\/([a-f0-9]{32})$/);
+    if (request.method !== 'POST' || request.url !== '/issue' && !backup && !removal) {
       response.writeHead(404).end(); return;
     }
     try {
-      const result = backup ? await createBackup() : { code: await issue() };
+      const result = backup ? await createBackup() : removal ? await removeCell(removal[1]) : { code: await issue() };
       response.setHeader('Content-Type', 'application/json');
       const bytes = JSON.stringify(result);
       if (Buffer.byteLength(bytes) > (backup ? MAX_BACKUP_REPLY : MAX_REPLY)) throw new Error('Control reply too large');
@@ -107,4 +108,11 @@ async function requestBackup(socketPath) {
     || Buffer.from(value.archive, 'base64').toString('base64') !== value.archive) throw new Error('Invalid Main backup response');
   return value;
 }
-module.exports = { listenInvitationSocket, requestInvitation, requestBackup };
+async function requestCellRemoval(socketPath, id) {
+  if (typeof id !== 'string' || !/^[a-f0-9]{32}$/.test(id)) throw new TypeError('Invalid Cell identifier');
+  const value = await requestControl(socketPath, `/remove/${id}`, MAX_REPLY, 15000);
+  if (!value || Object.keys(value).sort().join(',') !== 'affectedClients,queued' || value.queued !== true
+    || !Number.isSafeInteger(value.affectedClients) || value.affectedClients < 0 || value.affectedClients > 1000) throw new Error('Invalid removal response');
+  return value;
+}
+module.exports = { listenInvitationSocket, requestInvitation, requestBackup, requestCellRemoval };

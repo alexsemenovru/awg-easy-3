@@ -22,7 +22,7 @@ function allowed(area, name) {
   if (area === 'panel') return name === 'state.json';
   return area === 'main' && (['identity.json', 'config.json', 'bootstrap.json',
     'permanent/plan.json', 'permanent/revision.json'].includes(name)
-    || /^(?:cell-settings|cell-descriptors|cell-data-keys|cell-data-offers|cell-routing)\/[a-f0-9]{64}\.json(?:\.ack)?$/.test(name)
+    || /^(?:cell-settings|cell-descriptors|cell-data-keys|cell-data-offers|cell-routing|cell-maintenance)\/[a-f0-9]{64}\.json(?:\.ack)?$/.test(name)
     || /^data-links\/[a-f0-9]{64}\/plan\.json$/.test(name));
 }
 function validateSnapshot(value) {

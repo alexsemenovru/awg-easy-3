@@ -7,11 +7,32 @@ const test = require('node:test');
 const vm = require('node:vm');
 
 const script = fs.readFileSync(path.join(__dirname, '..', 'www', 'js', 'cells.js'), 'utf8');
-const element = () => ({ children: [], textContent: '', className: '',
+const element = () => ({ children: [], textContent: '', className: '', events: {},
+  addEventListener(name, listener) { this.events[name] = listener; },
   classList: { hidden: true, add() { this.hidden = true; },
     remove() { this.hidden = false; } },
   replaceChildren(...items) { this.children = [...items]; },
   append(...items) { this.children.push(...items); } });
+
+test('Cell deletion needs one confirmation and shows queueing without pretending completion', async () => {
+  let confirmed = false, calls = 0, changed = 0, poll;
+  const actionStatus = element(), node = element(), list = element();
+  node.querySelector = selector => selector === '#cells-action-status' ? actionStatus : null;
+  const context = { window: { confirm: () => confirmed }, document: { createElement: element } };
+  vm.runInNewContext(script, context);
+  context.window.awgCells({ api: { removeCell: async () => { calls++; return { queued: true }; } },
+    node, list, summary: element(), translate: key => key, onClientsChanged: async () => { changed++; },
+    createPoller: options => { poll = options; return { start() {}, stop() {} }; } });
+  const cell = { id: 'a'.repeat(32), status: 'consumed', phase: 'closed', affectedClients: 2 };
+  poll.onData({ state: 'ready', cells: [cell] });
+  const button = list.children[0].children.at(-1);
+  await button.events.click(); assert.equal(calls, 0);
+  confirmed = true; await button.events.click();
+  assert.equal(calls, 1); assert.equal(changed, 1);
+  assert.equal(actionStatus.textContent, 'cellsRemoveQueued'); assert.equal(button.disabled, true);
+  poll.onData({ state: 'ready', cells: [{ ...cell, maintenance: { action: 'remove', completed: false } }] });
+  assert.equal(list.children[0].children.at(-1).disabled, true);
+});
 
 test('Cell view hides missing data and never turns stale data into a false zero', () => {
   const context = { window: {}, document: { createElement: () => element() } };

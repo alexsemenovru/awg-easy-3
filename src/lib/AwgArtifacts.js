@@ -82,7 +82,8 @@ const buildAwgArtifacts = ({ server, clients, geoDatabase = {}, entryDescriptors
       : [],
   });
 
-  const clientArtifacts = Object.fromEntries(clients.map((client) => {
+  const clientArtifacts = Object.fromEntries(clients.filter(client => !client.entryCellId
+    || entryDescriptors[client.entryCellId] || client.enabled).map((client) => {
     const entry = client.entryCellId
       ? validateCellUserDescriptor(entryDescriptors[client.entryCellId]) : null;
     if (entry && (!addressInSubnet(client.address4, entry.ipv4Subnet)

@@ -65,7 +65,9 @@ function validateRoutingView(input, expectedNodeId) {
   });
   const ids = new Set(), addresses = new Set();
   const routes = input.routes.map(route => {
-    exact(route, ['id', 'entry', 'exit', 'address4', 'group', 'geoPolicy', 'enabled', 'reasons'], ['address6']);
+    exact(route, ['id', 'entry', 'exit', 'address4', 'group', 'geoPolicy', 'enabled', 'reasons'], ['address6', 'via']);
+    if (route.via !== undefined && (route.via !== input.controllerId || route.via === route.entry
+      || route.via === route.exit || route.entry === route.exit)) throw new TypeError('Invalid fixed route transit');
     if (!identifier(route.id) || ids.has(route.id) || !identifier(route.entry)
       || !identifier(route.exit) || !(route.group === 'guest' || isHomeGroup(route.group))
       || net.isIP(route.address4) !== 4

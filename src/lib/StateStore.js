@@ -134,6 +134,11 @@ const validateState = (input) => {
     }
     const policy = normalizeClientPolicy(inputClient);
     const entryCellId = inputClient.entryCellId;
+    const exitNodeId = inputClient.exitNodeId;
+    if (exitNodeId !== undefined && (input.version !== CELL_STATE_VERSION
+      || typeof exitNodeId !== 'string' || !(exitNodeId === 'main' || /^[a-f0-9]{32}$/.test(exitNodeId)))) {
+      throw new TypeError('Cell exit requires state version 4 and a valid node identifier');
+    }
     if (entryCellId !== undefined && (input.version !== CELL_STATE_VERSION
       || typeof entryCellId !== 'string' || !/^[a-f0-9]{32}$/.test(entryCellId))) {
       throw new TypeError('Cell entry requires state version 4 and a valid Cell identifier');

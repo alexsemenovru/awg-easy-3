@@ -38,7 +38,7 @@ const { stageCellDataPlan } = require('./CellDataStage');
 const { listenTunnelControlEndpoint } = require('./CellControlService');
 const { privateAddress } = require('./CellTunnelControlTransport');
 const { validEndpointHost } = require('./CellAwgEndpointHost');
-const { StateStore } = require('./StateStore');
+const { StateStore, validateState } = require('./StateStore');
 const { addressInSubnet } = require('./AddressAllocator');
 const { allocateCellInvitationAddresses } = require('./CellInvitationAddressAllocator');
 const { assignedSettingsFromState, assignmentFingerprint } = require('./CellAssignedSettings');
@@ -56,6 +56,7 @@ const { verifyMainRoutingInterfaceSet } = require('./MainRoutingInterfaceVerifie
 const { GeoIpUpdater } = require('./GeoIpUpdater');
 const { MainBackupStore } = require('./MainBackupStore');
 const { MainBackupRecovery } = require('./MainBackupRecovery');
+const { MainCellMaintenance } = require('./CellMaintenance');
 const { createConfigurationBackup } = require('./ConfigurationBackup');
 const { verifyMainRestoreBootstrap, retireMainRestoreBootstrap } = require('./MainRestoreBootstrap');
 
@@ -68,7 +69,7 @@ const validPort = port => Number.isSafeInteger(port) && port >= 1 && port <= 655
 async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile, interfaceName,
   controllerAddress, registrationPort, listenPort, endpointHost,
   permanentEndpointPort, permanentControllerAddress, permanentControlPort,
-  resources, runner = runProcess,
+  resources, dhtPort = 49033, runner = runProcess,
   keyManager = new AwgKeyManager({ runner }), preflight = assertFreeCellHostResources,
   newDataDeployment = options => new CellAwgPermanentDeployment(options),
   stageData = stageCellDataPlan,
@@ -179,6 +180,10 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
     try { return await new ControlIdentityStore(file('authority.json')).load('controller'); }
     catch (error) { if (error.code === 'ENOENT') return null; throw error; }
   };
+  const maintenance = async cellKey => new MainCellMaintenance(
+    file(path.join('cell-maintenance', `${crypto.createHash('sha256').update(cellKey).digest('hex')}.json`)),
+    { controller: await identityStore.load('controller'), cellKey, authority: authorityIdentity, endpointHost, port: dhtPort });
+  const maintenanceForCell = cellKey => ({ poll: async version => (await maintenance(cellKey)).poll(version) });
   const recoveryForCell = async (cellKey, challenge) => {
     const controller = await identityStore.load('controller');
     return new MainBackupRecovery(file('restore-recovery.json'), controller.publicKey).proof({
@@ -258,6 +263,97 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
     return { runtime, coordinator: new CellAwgBootstrapCoordinator({ store: bootstrapStore,
       runtime }) };
   }
+  async function dataPathFor(record) {
+    const key = record.cellKey ?? record.retiredCellKey;
+    const offer = await dataOfferForCell(key).read();
+    if (!offer) return null;
+    const expected = await controllerDataLinkPlan({ storedOffer: offer, slot: offer.descriptor.slot, keyManager });
+    const directory = file(path.join('data-links', crypto.createHash('sha256').update(key).digest('hex')));
+    const data = newDataDeployment({ stateDirectory: directory, runner,
+      policyTable: expected.policyTable, guardTable: expected.guardTable, retainGuard: true });
+    const plan = await data.store.read();
+    if (!plan) return null;
+    return { record, offer, path: data.buildPath({ stateDirectory: directory, plan, runner,
+      policyTable: expected.policyTable, guardTable: expected.guardTable, retainGuard: true }) };
+  }
+  async function retiredInterfaces(names) {
+    const records = (await bootstrapStore.read()).invitations.filter(record => record.retiredCellKey);
+    const paths = (await Promise.all(records.map(dataPathFor))).filter(Boolean);
+    return (await Promise.all(names.map(async name => {
+      const owned = paths.find(row => row.path.interfaceName === name)?.path;
+      return !!owned && (await owned.lifecycle.load()).phase === 'empty' && !await owned.lifecycle.link(name);
+    }))).every(Boolean);
+  }
+  async function finalizeCellRemoval(record) {
+    if (!userStateFile) throw new Error('Panel state required for Cell removal');
+    const storedState = await new StateStore(userStateFile).load();
+    const state = storedState && validateState({ ...storedState, version: 4 });
+    if (!state || state.clients.some(client => client.enabled
+      && (client.entryCellId === record.id || client.exitNodeId === record.id))) {
+      throw new Error('Affected profiles must be disabled by the panel before Cell removal');
+    }
+    const cellKey = record.cellKey ?? record.retiredCellKey;
+    const job = await (await maintenance(cellKey)).read();
+    if (job.command?.action !== 'remove' || !job.receipt) throw new Error('Verified Cell removal receipt required');
+    const all = (await bootstrapStore.read()).invitations;
+    const owned = (await Promise.all(all.filter(row => row.status === 'consumed').map(dataPathFor))).filter(Boolean);
+    const target = owned.find(row => row.record.id === record.id) ?? await dataPathFor(record);
+    const routing = newRoutingCoordinator({ directory: file('routing-runtime'), runner,
+      verifyInterfaces: names => verifyMainRoutingInterfaceSet({ names,
+        userInterface: state.server.interfaceName, links: owned,
+        verifyUser: () => verifyMainTunnel(state, { runner }) }), verifyRetiredInterfaces: retiredInterfaces });
+    if (record.status === 'consumed') {
+      await routing.retireForRebuild(async names => {
+        if (!await verifyMainTunnel(state, { runner })) return false;
+        for (const name of names.filter(name => name !== state.server.interfaceName)) {
+          const row = owned.find(row => row.path.interfaceName === name);
+          if (row && await row.path.verifyOwned()) continue;
+          if (target?.path.interfaceName === name && !await target.path.lifecycle.link(name)) continue;
+          if (!await retiredInterfaces([name])) return false;
+        }
+        return true;
+      }, [state.server.interfaceName, ...(target ? [target.path.interfaceName] : [])]);
+      const control = await openPermanentControllerRuntime({ stateDirectory: file('permanent'), deployment, keyManager });
+      const revision = await control.revisionStore.read();
+      if (revision.pending) await control.expansionRuntime.resume();
+      const current = (await control.revisionStore.read()).committed ?? await deployment.store.read();
+      const { normalizeAwgConfig } = require('./CellAwgSnapshot');
+      if (normalizeAwgConfig(current.spec.owner.config).peers.some(peer => peer.publickey === record.awgPublicKey)) {
+        const next = await require('./CellAwgPermanentRemovalPlan').permanentControllerRemovalPlan({ currentPlan: current, record, keyManager });
+        await control.expansionRuntime.prepare(next);
+      }
+      if (target) {
+        await target.path.remove();
+        await new CellDockerTransit({ runner }).remove([target.path.interfaceName]);
+      }
+      await bootstrapStore.completeCellRemoval(record.id, cellKey);
+    }
+    const remaining = all.filter(row => row.status === 'consumed' && row.id !== record.id);
+    const inventory = [];
+    for (const row of remaining) {
+      const descriptor = await descriptorForCell(row.cellKey).read();
+      if (!descriptor) continue;
+      inventory.push({ id: row.id, descriptor, link: owned.find(link => link.record.id === row.id) });
+    }
+    const links = inventory.map(row => row.link).filter(Boolean);
+    const topology = plannedCellRoutingTopology({ state, cells: inventory.map(row => ({ id: row.id, descriptor: row.descriptor })),
+      plannedLinks: links.map(row => ({ cellId: row.record.id, ipv4: true, ipv6: Boolean(row.offer.descriptor.cellAddress6) })) });
+    const panel = { address4: state.server.address4, ...(state.server.address6 ? { address6: state.server.address6 } : {}), port: state.server.panelPort };
+    const compiled = compileCellRouting({ topology, nodeId: 'main', geoDatabase: await routingGeoDatabase(),
+      context: { clientInterface: state.server.interfaceName, wanInterface: state.server.wanInterface,
+        nat66: state.server.ipv6Mode === 'nat66', panel, links: Object.fromEntries(links.map(row => [row.record.id, {
+          interfaceName: row.path.interfaceName, table: 52000 + row.offer.descriptor.slot,
+          priority: 20000 + row.offer.descriptor.slot }])) } });
+    const nextRouting = newRoutingCoordinator({ directory: file('routing-runtime'), runner,
+      verifyRetiredInterfaces: retiredInterfaces, verifyInterfaces: names => verifyMainRoutingInterfaceSet({ names,
+        userInterface: state.server.interfaceName, links, verifyUser: () => verifyMainTunnel(state, { runner }) }) });
+    const spec = { version: 1, interfaces: [state.server.interfaceName, ...links.map(row => row.path.interfaceName)],
+      commands: compiled.commands, nftSnapshot: compiled.nftSnapshot };
+    await nextRouting.recover(); await nextRouting.apply(spec, { retainGuard: true });
+    await new CellDockerTransit({ runner }).ensure(spec.interfaces);
+    await nextRouting.releaseCommitted();
+    activeRoutingFingerprint = crypto.createHash('sha256').update(JSON.stringify(spec)).digest('hex');
+  }
   async function issueLocked({ cellAddress, permanentCellAddress }) {
     const config = await verifiedConfig();
     const identity = await identityStore.load('controller');
@@ -274,10 +370,45 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
   }
   await prepareStateDirectory(stateDirectory);
   return Object.freeze({ bootstrapStore, identityStore, configStore, bootstrap, deployment,
+    removeCell: id => locked(async () => {
+      const record = await registeredRecord(id);
+      const state = userStateFile ? await new StateStore(userStateFile).load() : null;
+      const affected = state?.clients.filter(client => client.entryCellId === id || client.exitNodeId === id).length ?? 0;
+      if (state?.clients.some(client => client.enabled && (client.entryCellId === id || client.exitNodeId === id))) {
+        throw new Error('Affected profiles must be disabled before Cell removal');
+      }
+      await (await maintenance(record.cellKey)).remove();
+      return { queued: true, affectedClients: affected };
+    }),
+    acceptMaintenanceReceipt: receipt => locked(async () => {
+      const record = (await bootstrapStore.read()).invitations.find(item => (item.cellKey ?? item.retiredCellKey) === receipt?.cellKey);
+      if (!record) throw new Error('Unknown maintenance Cell');
+      const store = await maintenance(record.cellKey ?? record.retiredCellKey);
+      const state = await store.read();
+      if (receipt.action !== 'remove') throw new Error('Invalid terminal maintenance receipt');
+      await store.accept(receipt);
+      if (!state.finalized) { await finalizeCellRemoval(record); await store.finishRemoval(); }
+      return require('./CellMaintenance').receiptAckFor(state.command, await identityStore.load('controller'));
+    }),
+    resumeMaintenance: () => locked(async () => {
+      for (const record of (await bootstrapStore.read()).invitations) {
+        const key = record.cellKey ?? record.retiredCellKey;
+        if (!key) continue;
+        const store = await maintenance(key), state = await store.read();
+        if (state.command?.action === 'remove' && state.receipt && !state.finalized) {
+          await finalizeCellRemoval(record); await store.finishRemoval();
+        }
+      }
+    }),
     // The panel holds its shared state-writer queue until this call returns.
     // Control/registration and reconciliation share the installation flock.
     createBackup: () => locked(async () => {
       if (!userStateFile) throw new Error('Main user state required for backup');
+      for (const record of (await bootstrapStore.read()).invitations) {
+        if (!record.cellKey) continue;
+        const job = await (await maintenance(record.cellKey)).read();
+        if (job.command?.action === 'remove' && !job.finalized) throw new Error('Complete pending Cell removal before creating a backup');
+      }
       await verifiedConfig();
       const enrollment = await bootstrapStore.read();
       const identity = await identityStore.load('controller');
@@ -554,7 +685,7 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
     entryDescriptors: async () => {
       const records = (await bootstrapStore.read()).invitations.filter(record =>
         record.status === 'consumed' && record.phase === 'closed' && record.cellKey);
-      return Promise.all(records.map(async record => {
+      return Promise.all(records.filter(record => !record.retiredCellKey).map(async record => {
         const [descriptor, published, routeApplied] = await Promise.all([
           descriptorForCell(record.cellKey).read(), publisherForCell(record.cellKey).load(),
           routingOutboxForRecord(record).applied(),
@@ -667,6 +798,7 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
         commands: policy.commands, nftSnapshot: policy.nftSnapshot };
       const routing = newRoutingCoordinator({
         directory: file('routing-runtime'), runner, allowExpansion: true,
+        verifyRetiredInterfaces: retiredInterfaces,
         verifyInterfaces: names => verifyMainRoutingInterfaceSet({ names,
           userInterface: state.server.interfaceName, links,
           verifyUser: () => verifyMainTunnel(state, { runner }) }),
@@ -696,7 +828,7 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
     cells: async () => {
       await identityStore.load('controller');
       const records = (await bootstrapStore.read()).invitations;
-      return Promise.all(records.map(async record => {
+      return Promise.all(records.filter(record => !record.retiredCellKey).map(async record => {
         const publicRecord = { id: record.id, status: record.status,
           phase: record.phase, createdAt: record.createdAt };
         if (record.status === 'consumed' && record.phase === 'closed') {
@@ -704,6 +836,7 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
           const observed = await observedForCell(record.cellKey).read().catch(() => null);
           if (observed) publicRecord.control = { path: observed.controlPath, receivedAt: observed.receivedAt };
           publicRecord.backup = await (await backupStore()).status(record.cellKey);
+          publicRecord.maintenance = await (await maintenance(record.cellKey)).status();
         }
         return publicRecord;
       }));
@@ -727,7 +860,7 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
         port: permanentControlPort, lifecycle: current.lifecycle,
         identityStore, bootstrapStore, publisherForCell, descriptorForCell,
         dataKeyForCell, dataOfferForCell, routingForCell, observedForCell,
-        backupForCell, recoveryForCell, authorityIdentity, serializeOperation: locked });
+        backupForCell, recoveryForCell, maintenanceForCell, authorityIdentity, serializeOperation: locked });
     }),
     listen: async () => {
       const config = await verifiedConfig();

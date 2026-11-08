@@ -9,7 +9,12 @@ function fixture() {
     if (args.includes('DOCKER-USER')) return { stdout: JSON.stringify({ nftables: rules.map(rule => ({ rule })) }) };
     const batch = JSON.parse(options.input).nftables;
     batches.push(batch);
-    for (const { insert: { rule } } of batch) {
+    for (const item of batch) {
+      if (item.delete) {
+        const index = rules.findIndex(rule => rule.handle === item.delete.rule.handle);
+        assert.ok(index >= 0); rules.splice(index, 1); continue;
+      }
+      const { insert: { rule } } = item;
       const actual = structuredClone(rule);
       for (const item of actual.expr) if (item.match?.left?.ct?.key === 'state') {
         item.match.op = '=='; item.match.right.set.reverse();
@@ -28,6 +33,16 @@ test('Docker transit is scoped, idempotent and expands by verified interface onl
   await f.compat.ensure(['users','data0']); assert.equal(f.batches.length, 1);
   await f.compat.ensure(['users','data0','data1']); assert.equal(f.rules.length, 6);
   assert.ok(f.rules.filter(r => r.comment.includes('oifname')).every(r => r.expr[1].match.left.ct.key === 'state'));
+});
+
+test('terminal cleanup removes exact owned rules and retains unrelated interfaces', async () => {
+  const f = fixture(); await f.compat.ensure(['users', 'data0', 'foreign']);
+  await f.compat.remove(['users', 'data0']);
+  assert.equal(f.rules.length, 2);
+  assert.ok(f.rules.every(row => row.comment.endsWith('_foreign')));
+  await f.compat.remove(['users', 'data0']); assert.equal(f.rules.length, 2);
+  f.rules[0].expr[0].match.right = 'changed';
+  await assert.rejects(f.compat.remove(['foreign']), /Changed Docker transit/);
 });
 test('changed Docker transit rules and ambiguous duplicate markers are refused', async () => {
   const f = fixture(); await f.compat.ensure(['data0']);

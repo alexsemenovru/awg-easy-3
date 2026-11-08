@@ -24,11 +24,12 @@ const authError = (error) => {
   return error;
 };
 
-const publicClient = (client, entryDetails = {}) => Object.freeze({
+const publicClient = (client, entryDetails = {}, server = {}) => Object.freeze({
   id: client.id,
   name: client.name,
   ...clientTraffic(client),
-  ipv6Available: Boolean(client.address6),
+  ipv6Available: Boolean(client.address6 && (!client.exitNodeId || (client.exitNodeId === 'main'
+    ? server.address6 : entryDetails[client.exitNodeId]?.descriptor?.address6))),
   networkGroup: client.networkGroup,
   ...(client.entryCellId ? { entryCellId: client.entryCellId,
     entryReady: entryDetails[client.entryCellId]?.routeApplied === true
@@ -36,6 +37,7 @@ const publicClient = (client, entryDetails = {}) => Object.freeze({
       === assignmentFingerprint(assignmentFromClient(client)) } : {}),
   address4: client.address4,
   ...(client.geoPolicy ? { geoPolicy: client.geoPolicy } : {}),
+  ...(client.exitNodeId ? { exitNodeId: client.exitNodeId } : {}),
   ...(client.address6 ? { address6: client.address6 } : {}),
 });
 
@@ -55,7 +57,7 @@ const exportFileName = (name) => {
 class ApiService {
   constructor({ store, passwordManager, sessionManager, clientManager, diagnostics,
     geoStatus = () => ({}), cellStatus = async () => ({ state: 'unavailable', updatedAt: null, cells: [] }),
-    cellInvitationIssuer = null, backupCreator = null,
+    cellInvitationIssuer = null, backupCreator = null, cellRemover = null,
     cellEntryDetails = async () => ({}),
     qrGenerator = defaultQrGenerator, clock = () => Date.now() } = {}) {
     if (!store || typeof store.load !== 'function') throw new TypeError('store must provide load');
@@ -82,6 +84,8 @@ class ApiService {
     this.geoStatus = geoStatus;
     this.cellStatus = cellStatus;
     this.cellInvitationIssuer = cellInvitationIssuer;
+    this.cellRemover = cellRemover;
+    this.cellRemovalQueue = Promise.resolve();
     this.backupCreator = backupCreator;
     this.backupQueue = Promise.resolve();
     this.lastBackupAt = -Infinity;
@@ -173,7 +177,7 @@ class ApiService {
     const state = await this.store.load();
     if (!state) throw new ApiError(503, 'AWG-Easy 3 is not initialized');
     const details = await this.cellEntryDetails();
-    return Object.freeze(state.clients.map(client => publicClient(client, details)));
+    return Object.freeze(state.clients.map(client => publicClient(client, details, state.server)));
   }
 
   async clientDiagnostics(token) {
@@ -208,6 +212,7 @@ class ApiService {
     await this.authorize(token);
     const snapshot = await this.cellStatus();
     const entryDetails = await this.cellEntryDetails();
+    const clients = (await this.store.load())?.clients ?? [];
     if (!snapshot || !['ready', 'stale', 'unavailable'].includes(snapshot.state)
       || !Array.isArray(snapshot.cells)) throw new Error('Invalid Main Cell status');
     if (snapshot.state === 'ready') validateSnapshot({ version: 1,
@@ -217,6 +222,7 @@ class ApiService {
       cells: snapshot.state === 'ready' ? snapshot.cells.map(cell => ({
         id: cell.id, status: cell.status, phase: cell.phase,
         createdAt: cell.createdAt,
+        affectedClients: clients.filter(client => client.enabled && (client.entryCellId === cell.id || client.exitNodeId === cell.id)).length,
         entryReady: cell.status === 'consumed' && cell.phase === 'closed'
           && Boolean(entryDetails[cell.id]?.descriptor)
           && entryDetails[cell.id]?.routeApplied === true,
@@ -228,6 +234,7 @@ class ApiService {
         ...(cell.control ? { control: {
           path: cell.control.path, receivedAt: cell.control.receivedAt,
         } } : {}),
+        ...(cell.maintenance ? { maintenance: cell.maintenance } : {}),
         ...(cell.backup ? { backup: {
           generation: cell.backup.generation, confirmed: cell.backup.confirmed,
         } } : {}),
@@ -254,6 +261,23 @@ class ApiService {
     return result;
   }
 
+  async removeCell(token, id, context) {
+    await this.authorize(token);
+    if (typeof id !== 'string' || !/^[a-f0-9]{32}$/.test(id)) throw new ApiError(400, 'Invalid Cell identifier');
+    if (!this.cellRemover) throw new ApiError(503, 'Main Node is not enabled');
+    const remove = async () => {
+      const inventory = await this.cellsInfo(token);
+      if (inventory.state !== 'ready' || !inventory.cells.some(cell => cell.id === id && cell.status === 'consumed' && cell.phase === 'closed')) {
+        throw new ApiError(409, 'Cell registry unavailable');
+      }
+      await this.clientManager.disableCellClients(id, context);
+      return this.cellRemover(id);
+    };
+    const result = this.cellRemovalQueue.then(remove, remove);
+    this.cellRemovalQueue = result.catch(() => {});
+    return result;
+  }
+
   async createClient(token, input) {
     await this.authorize(token);
     let result;
@@ -263,13 +287,13 @@ class ApiService {
       if (error.code === 'CLIENT_NAME_EXISTS') throw new ApiError(409, error.message);
       throw error;
     }
-    return Object.freeze({ client: publicClient(result.client, await this.cellEntryDetails()) });
+    return Object.freeze({ client: publicClient(result.client, await this.cellEntryDetails(), (await this.store.load()).server) });
   }
 
   async updateClient(token, clientId, changes, context) {
     await this.authorize(token);
     const result = await this.clientManager.updateClient(clientId, changes, context);
-    return publicClient(result.client, await this.cellEntryDetails());
+    return publicClient(result.client, await this.cellEntryDetails(), (await this.store.load()).server);
   }
 
   async deleteClient(token, clientId, context) {

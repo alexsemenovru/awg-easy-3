@@ -14,7 +14,7 @@ const { CellSettingsPoller } = require('./CellSettingsPoller');
 // owns the cross-process installation lock and the temporary AWG lifecycle.
 function createPermanentCellRuntime({ stateDirectory, connectionStore, bootstrap,
   temporaryInterfaceName, receiver, clientRuntime, userDescriptor, dataPublicKey,
-  receiveDataOffer, receiveRoutingRevision, acknowledgeRoutingRevision, controlPath, recoverEndpoint,
+  receiveDataOffer, receiveRoutingRevision, acknowledgeRoutingRevision, controlPath, recoverEndpoint, receiveMaintenance,
   runner, sync = syncCellSettings,
   fetchDataOffer = fetchCellDataOffer,
   fetchRoutingRevision = fetchCellRoutingRevision } = {}) {
@@ -50,7 +50,8 @@ function createPermanentCellRuntime({ stateDirectory, connectionStore, bootstrap
       host: connection.controllerPath.controllerAddress,
       port: connection.controllerPath.controlPort, transport: 'tunnel',
       ...(userDescriptor ? { userDescriptor } : {}),
-      ...(dataPublicKey ? { dataPublicKey } : {}), ...(controlPath ? { controlPath } : {}), ...(signal ? { signal } : {}) });
+      ...(dataPublicKey ? { dataPublicKey } : {}), ...(controlPath ? { controlPath } : {}),
+      ...(receiveMaintenance ? { receiveMaintenance } : {}), ...(signal ? { signal } : {}) });
     signal?.throwIfAborted();
     if (recoverEndpoint) await recoverEndpoint();
     if (receiveDataOffer && dataPublicKey) {

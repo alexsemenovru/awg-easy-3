@@ -22,7 +22,7 @@ const exact = (value, names) => value && typeof value === 'object' && !Array.isA
 const helloBody = value => ['awg-easy-3/technical-hello/v1', value.key, value.challenge];
 const openBody = value => [`awg-easy-3/technical-open/v${value.version}`, value.key, value.target,
   value.kind, value.server, value.challenge, value.nonce, value.origin,
-  ...(value.version === 2 ? [value.locatorKey] : [])];
+  ...(value.version >= 2 ? [value.locatorKey] : []), ...(value.version === 3 ? [value.purpose] : [])];
 const ackBody = (hash, key) => ['awg-easy-3/technical-accepted/v1', hash, key];
 const digest = value => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
@@ -85,8 +85,9 @@ class RelayFrames extends EventEmitter {
 
 function validateOpen(value) {
   if (!exact(value, ['version', 'key', 'target', 'kind', 'server', 'challenge', 'nonce', 'origin', 'signature',
-    ...(value?.version === 2 ? ['locatorKey'] : [])])
-    || ![1, 2].includes(value.version) || value.version === 2 && !validKey(value.locatorKey)
+    ...(value?.version >= 2 ? ['locatorKey'] : []), ...(value?.version === 3 ? ['purpose'] : [])])
+    || ![1, 2, 3].includes(value.version) || value.version >= 2 && !validKey(value.locatorKey)
+    || value.version === 3 && value.purpose !== 'receipt'
     || ![value.key, value.target, value.server, value.challenge, value.nonce].every(validKey)
     || !['main', 'cell'].includes(value.kind)
     || !verify(openBody(value), value.signature, value.key)) throw new Error('Invalid technical relay proof');
@@ -94,7 +95,8 @@ function validateOpen(value) {
     // Exactly one intermediate is allowed. No relay loops or chained proxies.
     if (value.origin.origin !== null || value.origin.server !== value.key
       || value.origin.target !== value.target || value.origin.kind !== value.kind
-      || (value.origin.locatorKey ?? null) !== (value.locatorKey ?? null)) {
+      || (value.origin.locatorKey ?? null) !== (value.locatorKey ?? null)
+      || (value.origin.purpose ?? null) !== (value.purpose ?? null)) {
       throw new Error('Invalid technical relay origin');
     }
     validateOpen(value.origin);
@@ -102,7 +104,7 @@ function validateOpen(value) {
   return value;
 }
 
-async function connectTechnicalRelay({ host, port, serverKey, identity, target, kind, origin = null, locatorKey }) {
+async function connectTechnicalRelay({ host, port, serverKey, identity, target, kind, origin = null, locatorKey, purpose }) {
   if (!validKey(serverKey) || !validKey(target) || !Number.isInteger(port)
     || port < 1 || port > 65535 || !net.isIP(host)) throw new Error('Invalid technical relay endpoint');
   const socket = net.connect({ host, port });
@@ -113,8 +115,9 @@ async function connectTechnicalRelay({ host, port, serverKey, identity, target, 
     if (!exact(hello, ['version', 'key', 'challenge', 'signature']) || hello.version !== 1
       || hello.key !== serverKey || !validKey(hello.challenge)
       || !verify(helloBody(hello), hello.signature, serverKey)) throw new Error('Technical relay identity mismatch');
-    const request = { version: locatorKey === undefined ? 1 : 2, key: identity.publicKey, target, kind,
-      ...(locatorKey === undefined ? {} : { locatorKey }),
+    if (purpose !== undefined && purpose !== 'receipt') throw new Error('Invalid technical purpose');
+    const request = { version: purpose ? 3 : locatorKey === undefined ? 1 : 2, key: identity.publicKey, target, kind,
+      ...(purpose ? { purpose, locatorKey: locatorKey ?? target } : locatorKey === undefined ? {} : { locatorKey }),
       server: serverKey, challenge: hello.challenge, nonce: crypto.randomBytes(32).toString('base64url'), origin };
     request.signature = sign(openBody(request), identity.privateKey);
     await frames.json(request);
@@ -146,16 +149,16 @@ async function discoverRelayIdentity({ host, port }) {
 }
 
 class AwgTechnicalRelay {
-  constructor({ identity, kind, controlPort = null, allowedPeer, lookup,
-    allowAddress = publicRelayAddress,
+  constructor({ identity, kind, controlPort = null, allowedPeer, allowedReceiptPeer = allowedPeer, lookup,
+    allowAddress = publicRelayAddress, onReceipt = null,
     maxConnections = 4, clock = () => performance.now() }) {
     if (!validKey(identity?.publicKey) || !['main', 'cell'].includes(kind)
       || controlPort !== null && (!Number.isInteger(controlPort) || controlPort < 1 || controlPort > 65535)
-      || typeof allowedPeer !== 'function' || typeof lookup !== 'function'
+      || typeof allowedPeer !== 'function' || typeof allowedReceiptPeer !== 'function' || typeof lookup !== 'function'
       || !Number.isInteger(maxConnections) || maxConnections < 1 || maxConnections > 8) {
       throw new TypeError('Invalid AWG technical relay configuration');
     }
-    Object.assign(this, { identity, kind, controlPort, allowedPeer, lookup, allowAddress, maxConnections, clock });
+    Object.assign(this, { identity, kind, controlPort, allowedPeer, allowedReceiptPeer, lookup, allowAddress, maxConnections, clock, onReceipt });
     this.connections = new Set();
     this.tokens = 8192;
     this.last = clock();
@@ -208,9 +211,18 @@ class AwgTechnicalRelay {
       signature: sign(ackBody(digest(request), this.identity.publicKey), this.identity.privateKey) });
     if (request.target === this.identity.publicKey) {
       const origin = request.origin?.key || request.key;
-      if (request.kind !== this.kind || this.controlPort === null
-        || !await this.allowedPeer(origin)) throw new Error('Unregistered technical peer');
+      if (request.kind !== this.kind || (request.purpose !== 'receipt' && this.controlPort === null)
+        || !await (request.purpose === 'receipt' ? this.allowedReceiptPeer(origin) : this.allowedPeer(origin))) throw new Error('Unregistered technical peer');
       frames.originKey = origin;
+      frames.purpose = request.purpose;
+      if (request.purpose === 'receipt') {
+        if (typeof this.onReceipt !== 'function') throw new Error('Receipt receiver unavailable');
+        await accepted();
+        const receipt = await frames.readJson();
+        if (receipt?.cellKey !== origin) throw new Error('Receipt origin mismatch');
+        await frames.json(await this.onReceipt(receipt));
+        return;
+      }
       const udp = dgram.createSocket('udp4');
       udp.on('error', () => frames.close());
       try {
@@ -234,7 +246,7 @@ class AwgTechnicalRelay {
       if (!contact || !this.allowAddress(contact.host)) throw new Error('No technical relay route');
       const outgoing = await connectTechnicalRelay({ host: contact.host, port: contact.port,
         serverKey: request.target, identity: this.identity, target: request.target,
-        kind: request.kind, origin: request, locatorKey: request.locatorKey });
+        kind: request.kind, origin: request, locatorKey: request.locatorKey, purpose: request.purpose });
       try {
         await accepted();
         const pump = async (source, destination) => {
@@ -250,7 +262,7 @@ class AwgTechnicalRelay {
   }
   async refreshPeers() {
     for (const frames of this.connections) {
-      if (frames.originKey && !await this.allowedPeer(frames.originKey)) frames.close();
+      if (frames.originKey && !await (frames.purpose === 'receipt' ? this.allowedReceiptPeer(frames.originKey) : this.allowedPeer(frames.originKey))) frames.close();
     }
   }
 }

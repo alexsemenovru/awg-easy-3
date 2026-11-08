@@ -2,9 +2,9 @@
 const { validateCellSettings } = require('./CellSettingsSchema');
 const { ipNumber } = require('./GeoIpAddress');
 const id = x => typeof x === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(x);
-const exact = (x, fields) => {
+const exact = (x, fields, optional = []) => {
   if (!x || typeof x !== 'object' || Array.isArray(x)
-    || Object.keys(x).length !== fields.length || fields.some(k => !Object.hasOwn(x, k))) {
+    || Object.keys(x).some(k => !fields.includes(k) && !optional.includes(k)) || fields.some(k => !Object.hasOwn(x, k))) {
     throw new TypeError('Invalid topology fields');
   }
 };
@@ -33,8 +33,12 @@ function planCellTopology(input) {
     links.set(pair(link.a, link.b), { ...link });
   }
   const assignments = input.clients.map(client => {
-    exact(client, ['entry', 'exit', 'assignment']);
+    exact(client, ['entry', 'exit', 'assignment'], ['via']);
     if (!nodes.has(client.entry) || !nodes.has(client.exit)) throw new TypeError('Unknown entry or exit');
+    if (client.via !== undefined && (!nodes.has(client.via) || nodes.get(client.via).role !== 'controller'
+      || client.via === client.entry || client.via === client.exit || client.entry === client.exit)) {
+      throw new TypeError('Invalid fixed transit node');
+    }
     return client.assignment;
   });
   const normalized = validateCellSettings({ schema: 1, clients: assignments }).clients;
@@ -57,7 +61,9 @@ function planCellTopology(input) {
     for (const family of [4, 6]) {
       const key = `ipv${family}`;
       enabled[key] = Boolean(assignment[`${key}Enabled`] && entry[key] && exit[key]
-        && (row.entry === row.exit || link?.[key]));
+        && (row.entry === row.exit || (row.via !== undefined
+          ? nodes.get(row.via)[key] && links.get(pair(row.entry, row.via))?.[key]
+            && links.get(pair(row.via, row.exit))?.[key] : link?.[key])));
       reasons[key] = enabled[key] ? null : !assignment[`${key}Enabled`] ? 'disabled-by-owner'
         : !entry[key] || !exit[key] ? 'family-unavailable' : 'direct-link-unavailable';
     }
@@ -70,6 +76,7 @@ function planCellTopology(input) {
     peers: clients.filter(c => c.entry === node.id).map(c => ({ ...c.assignment,
       ipv4Enabled: c.enabled.ipv4, ipv6Enabled: c.enabled.ipv6 })),
     routes: clients.map(c => ({ id: c.assignment.id, entry: c.entry, exit: c.exit,
+      ...(c.via !== undefined ? { via: c.via } : {}),
       address4: c.assignment.address4, ...(c.assignment.address6 ? { address6: c.assignment.address6 } : {}),
       group: c.assignment.networkGroup, geoPolicy: c.assignment.geoPolicy,
       enabled: { ...c.enabled }, reasons: { ...c.reasons } })),

@@ -48,16 +48,19 @@ function productCellTopology({ state: input, cells, readyLinks = [], exits = {} 
   if (Object.keys(exits).some(id => !clientIds.has(id))) {
     throw new TypeError('Unknown client exit assignment');
   }
-  const clients = state.clients.map(client => {
+  const clients = state.clients.filter(client => client.enabled
+    || ((!client.entryCellId || descriptors.has(client.entryCellId))
+      && (!client.exitNodeId || client.exitNodeId === 'main' || descriptors.has(client.exitNodeId)))).map(client => {
     const entry = client.entryCellId || 'main';
     if (entry !== 'main' && !descriptors.has(entry)) {
       throw new TypeError('Client entry Cell has no descriptor');
     }
-    const exit = Object.hasOwn(exits, client.id) ? exits[client.id] : entry;
+    const exit = Object.hasOwn(exits, client.id) ? exits[client.id] : client.exitNodeId ?? entry;
     if (exit !== 'main' && !descriptors.has(exit)) {
       throw new TypeError('Client exit Cell has no descriptor');
     }
-    return { entry, exit, assignment: assignmentFromClient(client) };
+    return { entry, exit, ...(entry !== exit && entry !== 'main' && exit !== 'main' ? { via: 'main' } : {}),
+      assignment: assignmentFromClient(client) };
   });
   const topology = { version: 1, nodes, links, clients };
   const planned = planCellTopology(topology);

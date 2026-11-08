@@ -126,4 +126,6 @@ test('AWG retirement refuses pending updates even if the interface disappeared',
   kernel.links = [];
   await assert.rejects(tx.retire(), /requires recovery/);
   assert.ok((await tx.load()).pending);
+  await tx.retire({ terminal: true });
+  assert.equal((await tx.load()).committed, null);
 });

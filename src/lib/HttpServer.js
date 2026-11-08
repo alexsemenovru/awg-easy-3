@@ -124,6 +124,10 @@ class HttpServer {
     if (url.pathname === '/api/v1/cells' && request.method === 'GET') {
       return sendJson(response, 200, await this.api.cellsInfo(token));
     }
+    const cellRemoval = url.pathname.match(/^\/api\/v1\/cells\/([a-f0-9]{32})$/);
+    if (cellRemoval && request.method === 'DELETE') {
+      return sendJson(response, 202, await this.api.removeCell(token, cellRemoval[1], { remoteAddress: request.socket.remoteAddress }));
+    }
     if (url.pathname === '/api/v1/cells/invitations' && request.method === 'POST') {
       return sendJson(response, 201, await this.api.issueCellInvitation(token));
     }

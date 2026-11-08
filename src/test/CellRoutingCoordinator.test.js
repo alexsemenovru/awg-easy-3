@@ -24,6 +24,12 @@ async function fixture(t) {
   function child(initial) { return {
     state: { committed: initial, pending: null }, fail: false,
     async load() { return structuredClone(this.state); },
+    async save(value) { this.state = structuredClone(value); },
+    candidates(value) { return [value.committed, ...(value.pending ? [value.pending.desired] : [])]; },
+    async reconcile(candidates, desired) {
+      assert.ok(candidates.some(value => JSON.stringify(value) === JSON.stringify(this.state.committed)));
+      assert.equal(guard.active, true); this.state.committed = structuredClone(desired);
+    },
     async apply(value) {
       assert.equal(guard.active, true);
       if (this.fail) { this.fail = false; throw new Error('child apply failed'); }
@@ -32,6 +38,10 @@ async function fixture(t) {
     async recover() { assert.equal(guard.active, true); this.state.pending = null; },
   }; }
   const routes = child([]), policy = child(null);
+  routes.reconcile = async (previous, desired) => {
+    assert.deepEqual(previous, routes.state.committed); assert.equal(guard.active, true);
+    routes.state.committed = structuredClone(desired);
+  };
   routes.inventory = async () => ({ routes4: routes.state.committed.map(command => ({ dst: 'default', type: 'unreachable',
     table: Number(command.args[6]), protocol: 'bgp', metric: 32767 })), routes6: [], rules4: [], rules6: [] });
   policy.plan = async (allowed, desired) => ({ changed: JSON.stringify(policy.state.committed) !== JSON.stringify(desired) });
@@ -39,6 +49,7 @@ async function fixture(t) {
   const options = { directory, verifyInterfaces: async () => verification.valid, components: { guard, routes, policy } };
   return { coordinator: new CellRoutingCoordinator(options), fresh: () => new CellRoutingCoordinator(options),
     expanding: () => new CellRoutingCoordinator({ ...options, allowExpansion: true }),
+    retiring: () => new CellRoutingCoordinator({ ...options, verifyRetiredInterfaces: async names => names.every(name => name === 'transit') }),
     guard, routes, policy, verification };
 }
 test('coordinator commits matching policy/routes before releasing guard', async t => {
@@ -154,4 +165,17 @@ test('route references outside protected interfaces are rejected before writes',
   bad.commands = [{ file: 'ip', args: ['-4', 'route', 'add', '10.88.0.2/32', 'table', 'main', 'proto', '186', 'dev', 'foreign'] }];
   assert.throws(() => coordinator.apply(bad), /unmanaged/); assert.equal(guard.active, false);
   assert.equal((await coordinator.load()).committed, null);
+});
+
+test('terminal rebuild requires authorization and retains protection until retired devices are attested', async t => {
+  const f = await fixture(t); await f.coordinator.apply(spec(0));
+  await assert.rejects(f.coordinator.retireForRebuild(async () => false), /not authorized/);
+  assert.deepEqual((await f.coordinator.load()).committed, spec(0));
+  await f.coordinator.retireForRebuild(async names => names.join(',') === 'clients,transit');
+  assert.equal(f.guard.active, true); assert.equal((await f.coordinator.load()).committed, null);
+  assert.deepEqual(f.routes.state.committed, []); assert.equal(f.policy.state.committed, null);
+  const next = { ...spec(0), interfaces: ['clients'] };
+  await assert.rejects(f.fresh().apply(next), /lifecycle coordinator/);
+  assert.equal(f.guard.active, true);
+  await f.retiring().apply(next); assert.equal(f.guard.active, false);
 });

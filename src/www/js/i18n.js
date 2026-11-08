@@ -3,6 +3,11 @@
 window.awgI18n = (() => {
   const messages = {
     en: {
+      clientExit: 'Traffic exit',
+      cellsRemove: 'Remove Cell', cellsRemoving: 'Removal pending',
+      cellsRemoveConfirm: 'Remove Cell {id} and its container? Profiles to disable: {count}. The active connection count is unknown. If the Cell is offline, removal remains queued.',
+      cellsRemoveQueued: 'Removal queued. Affected profiles are disabled; completion requires the Cell’s confirmation.',
+      cellsRemoveError: 'Could not confirm the request. Check Cell and profile status before retrying.',
       renameClient: 'Rename', renameSave: 'Save name', clientRenamed: 'Client renamed.',
       backupTitle: 'Configuration backup', backupCreate: 'Create backup', backupCreating: 'Creating backup…', backupCreated: 'Backup created',
       backupHint: 'Save the archive and its separate key. Only the latest backup can restore Cell management after Cells confirm its generation.',
@@ -80,6 +85,11 @@ window.awgI18n = (() => {
       diagnosticsHint: 'Recent connection means a handshake within 150 seconds, not guaranteed current connectivity. Rates are interval averages in bits/s: ↓ sent to the client, ↑ received from the client. Server counters can include service traffic; sending does not confirm delivery.',
     },
     ru: {
+      clientExit: 'Выход трафика',
+      cellsRemove: 'Удалить Ячейку', cellsRemoving: 'Ожидается удаление',
+      cellsRemoveConfirm: 'Удалить Ячейку {id} и её контейнер? Будут отключены профили: {count}. Число активных подключений неизвестно. Если Ячейка недоступна, удаление останется в очереди.',
+      cellsRemoveQueued: 'Удаление запрошено. Профили отключены; завершение должна подтвердить Ячейка.',
+      cellsRemoveError: 'Не удалось подтвердить запрос. Проверьте состояние Ячейки и профилей перед повтором.',
       renameClient: 'Переименовать', renameSave: 'Сохранить имя', clientRenamed: 'Имя профиля изменено.',
       backupTitle: 'Резервная копия настроек', backupCreate: 'Создать копию', backupCreating: 'Создание копии…', backupCreated: 'Резервная копия создана',
       backupHint: 'Сохраните архив и отдельный ключ. Для восстановления управления Ячейками актуальна только последняя копия после подтверждения её поколения Ячейками.',
@@ -157,6 +167,11 @@ window.awgI18n = (() => {
       diagnosticsHint: 'Недавняя связь — handshake за последние 150 секунд, а не гарантия текущего подключения. Скорость — средняя за интервал, в бит/с: ↓ отправлено клиенту, ↑ получено от него. Счётчики сервера могут включать служебный трафик; отправка не подтверждает доставку.',
     },
     es: {
+      clientExit: 'Salida del tráfico',
+      cellsRemove: 'Eliminar celda', cellsRemoving: 'Eliminación pendiente',
+      cellsRemoveConfirm: '¿Eliminar la celda {id} y su contenedor? Perfiles que se desactivarán: {count}. Se desconoce el número de conexiones activas. Si la celda está desconectada, la solicitud quedará pendiente.',
+      cellsRemoveQueued: 'Eliminación solicitada. Los perfiles afectados están desactivados; la celda debe confirmar la finalización.',
+      cellsRemoveError: 'No se pudo confirmar la solicitud. Comprueba el estado de la celda y de los perfiles antes de reintentar.',
       renameClient: 'Renombrar', renameSave: 'Guardar nombre', clientRenamed: 'Nombre del perfil actualizado.',
       backupTitle: 'Copia de la configuración', backupCreate: 'Crear copia', backupCreating: 'Creando copia…', backupCreated: 'Copia creada',
       backupHint: 'Guarde el archivo y su clave por separado. Solo la última copia permite recuperar el control de las Celdas cuando confirman su generación.',
@@ -233,6 +248,11 @@ window.awgI18n = (() => {
       diagnosticsHint: 'Conexión reciente indica un handshake en los últimos 150 segundos, no garantiza conexión actual. Las velocidades son promedios del intervalo en bits/s: ↓ enviado al cliente, ↑ recibido del cliente. Los contadores pueden incluir tráfico de control; enviar no confirma la entrega.',
     },
     'zh-cn': {
+      clientExit: '流量出口',
+      cellsRemove: '删除单元', cellsRemoving: '等待删除',
+      cellsRemoveConfirm: '删除单元 {id} 及其容器？将停用的配置数量：{count}。当前活动连接数未知。若单元离线，删除请求将保留在队列中。',
+      cellsRemoveQueued: '已请求删除。相关配置已停用，需等待单元确认完成。',
+      cellsRemoveError: '无法确认请求。请先检查单元及配置状态，再重试。',
       renameClient: '重命名', renameSave: '保存名称', clientRenamed: '配置名称已更新。',
       backupTitle: '配置备份', backupCreate: '创建备份', backupCreating: '正在创建备份…', backupCreated: '备份已创建',
       backupHint: '请分别保存备份文件和密钥。单元确认备份代数后，只有最新备份可用于恢复单元管理。',
@@ -309,6 +329,11 @@ window.awgI18n = (() => {
       diagnosticsHint: '近期连接表示过去 150 秒内有握手，不保证设备当前在线。速率为采样间隔内的平均值，单位为比特/秒：↓ 发送至客户端，↑ 从客户端接收。服务器计数可能包含控制流量；发送不代表已送达。',
     },
     fa: {
+      clientExit: 'خروجی ترافیک',
+      cellsRemove: 'حذف سلول', cellsRemoving: 'حذف در انتظار',
+      cellsRemoveConfirm: 'سلول {id} و کانتینر آن حذف شود؟ تعداد پروفایل‌های غیرفعال‌شونده: {count}. تعداد اتصال‌های فعال نامشخص است. اگر سلول آفلاین باشد، درخواست در صف می‌ماند.',
+      cellsRemoveQueued: 'حذف درخواست شد. پروفایل‌های مربوط غیرفعال شدند؛ تکمیل نیازمند تأیید سلول است.',
+      cellsRemoveError: 'درخواست تأیید نشد. پیش از تلاش دوباره، وضعیت سلول و پروفایل‌ها را بررسی کنید.',
       renameClient: 'تغییر نام', renameSave: 'ذخیره نام', clientRenamed: 'نام پروفایل تغییر کرد.',
       backupTitle: 'پشتیبان تنظیمات', backupCreate: 'ایجاد پشتیبان', backupCreating: 'در حال ایجاد پشتیبان…', backupCreated: 'پشتیبان ایجاد شد',
       backupHint: 'فایل و کلید آن را جداگانه ذخیره کنید. پس از تأیید نسل پشتیبان توسط سلول‌ها، فقط آخرین پشتیبان برای بازیابی مدیریت سلول‌ها معتبر است.',

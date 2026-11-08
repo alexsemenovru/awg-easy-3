@@ -14,7 +14,7 @@ const { verifyRoutingRevision } = require('./CellRoutingRevision');
 
 class CellControlService {
   constructor({ identityStore, enrollmentStore, bootstrapStore, publisherForCell, descriptorForCell,
-    dataKeyForCell, dataOfferForCell, routingForCell, observedForCell, backupForCell, recoveryForCell,
+    dataKeyForCell, dataOfferForCell, routingForCell, observedForCell, backupForCell, recoveryForCell, maintenanceForCell,
     authorityIdentity = async () => null, serializeOperation = work => work(),
     monotonicNow = () => performance.now() }) {
     if (enrollmentStore && bootstrapStore) {
@@ -31,6 +31,7 @@ class CellControlService {
     this.observedForCell = observedForCell;
     this.backupForCell = backupForCell;
     this.recoveryForCell = recoveryForCell;
+    this.maintenanceForCell = maintenanceForCell;
     this.authorityIdentity = authorityIdentity;
     this.serializeOperation = serializeOperation;
     this.inFlight = 0;
@@ -109,6 +110,13 @@ class CellControlService {
       return this.reply({ ok: true, requestId: request.requestId,
         backup: this.backupForCell ? await this.backupForCell(request.cellKey).grant() : null }, controller.privateKey);
     }
+    if (request.action === 'maintenance') {
+      const { stable } = require('./CellMaintenance');
+      if (!this.maintenanceForCell || !request.payload || Object.keys(request.payload).join(',') !== 'version'
+        || !stable(request.payload.version)) throw new Error('Invalid maintenance poll');
+      return this.reply({ ok: true, requestId: request.requestId,
+        maintenance: await this.maintenanceForCell(request.cellKey).poll(request.payload.version) }, controller.privateKey);
+    }
     if (request.action === 'backup-ack') {
       if (!this.bootstrapStore || !this.backupForCell) throw new Error('Backup acknowledgements unavailable');
       const ack = await this.backupForCell(request.cellKey).acknowledge(request.payload);
@@ -182,7 +190,7 @@ class CellControlService {
 // unchanged inter-server AWG device immediately before opening the listener.
 async function listenTunnelControlEndpoint({ address, port, identityStore, bootstrapStore,
   lifecycle, publisherForCell, descriptorForCell, dataKeyForCell, dataOfferForCell,
-  routingForCell, observedForCell, backupForCell, recoveryForCell, authorityIdentity, serializeOperation }) {
+  routingForCell, observedForCell, backupForCell, recoveryForCell, maintenanceForCell, authorityIdentity, serializeOperation }) {
   if (!bootstrapStore || typeof bootstrapStore.read !== 'function') {
     throw new TypeError('AWG bootstrap store required for tunnel control');
   }
@@ -190,13 +198,13 @@ async function listenTunnelControlEndpoint({ address, port, identityStore, boots
   return listenControlOnTunnel({ address, port,
     handler: new CellControlService({ identityStore, bootstrapStore, publisherForCell,
       descriptorForCell, dataKeyForCell, dataOfferForCell, routingForCell, observedForCell,
-      backupForCell, recoveryForCell, authorityIdentity, serializeOperation }) });
+      backupForCell, recoveryForCell, maintenanceForCell, authorityIdentity, serializeOperation }) });
 }
 
 // One explicit sync, not a daemon. Control address supplied locally until installer
 // assigns the service port; the key must remain the registered controller's key.
 async function syncCellSettings({ connectionStore, identityStore, receiver, host, port,
-  transport, userDescriptor, dataPublicKey, controlPath, signal }) {
+  transport, userDescriptor, dataPublicKey, controlPath, signal, receiveMaintenance }) {
   signal?.throwIfAborted();
   const connection = await connectionStore.read();
   if (connection?.status !== 'registered') throw new Error('Cell is not registered');
@@ -254,6 +262,14 @@ async function syncCellSettings({ connectionStore, identityStore, receiver, host
     if (transport !== 'tunnel') throw new Error('Cell descriptor requires AWG control');
     const announced = await exchange('announce', validateCellUserDescriptor(userDescriptor));
     if (announced.announced !== true) throw new Error('Cell descriptor acknowledgement mismatch');
+  }
+  if (receiveMaintenance) {
+    const version = require('../package.json').version;
+    const command = (await exchange('maintenance', { version })).maintenance;
+    if (command !== null) {
+      await receiveMaintenance(command);
+      if (command.action === 'remove') return { status: 'no-settings' };
+    }
   }
   if (dataPublicKey !== undefined) {
     if (transport !== 'tunnel') throw new Error('Cell data key requires AWG control');

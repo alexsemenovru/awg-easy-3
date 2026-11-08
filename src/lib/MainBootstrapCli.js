@@ -144,6 +144,7 @@ async function runMainBootstrapCli({ args, env, input, output,
         catch (error) { if (!transientPath(error)) throw error; }
       }
       const reconcile = () => reconciliation = reconciliation.catch(() => {}).then(async () => {
+        if (host.resumeMaintenance) await host.resumeMaintenance();
         const cells = await host.cells();
         for (const cell of cells) {
           if (cell.status === 'consumed' && cell.phase !== 'closed') {
@@ -207,7 +208,7 @@ async function runMainBootstrapCli({ args, env, input, output,
       }
       if (config.invitationSocket) {
         invitationListener = await listenInvitationSocket(config.invitationSocket, () => host.issueAuto(),
-          { createBackup: () => host.createBackup() });
+          { createBackup: () => host.createBackup(), removeCell: id => host.removeCell(id) });
       }
       discovery = await startDiscovery({ role: 'main', config, host });
       output.write(`${JSON.stringify({ status: 'serving',

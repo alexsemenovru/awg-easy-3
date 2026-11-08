@@ -15,11 +15,21 @@ async function main() {
   let bridge;
   let openingBridge = false;
   let bridgeTarget;
+  const receipts = new Map();
+  let receiptPeers = new Set();
     const relayAttempts = new Map();
   parentPort.on('message', async message => {
+    if (message?.type === 'receipt-result') {
+      const pending = receipts.get(message.id);
+      if (pending) { receipts.delete(message.id); clearTimeout(pending.timer);
+        if (message.error) pending.reject(new Error('Receipt rejected')); else pending.resolve(message.ack); }
+      return;
+    }
     if (message?.type === 'stop' && !closing) {
       closing = true;
       clearInterval(timer);
+      for (const pending of receipts.values()) { clearTimeout(pending.timer); pending.reject(new Error('Stopping')); }
+      receipts.clear();
       await starting.catch(() => {});
       if (bridge) await bridge.close();
       if (relay) await relay.close();
@@ -27,7 +37,11 @@ async function main() {
       parentPort.close();
     } else if (message?.type === 'peers' && !closing) {
       try {
+        const retired = message.receiptPeers ?? [];
+        if (!Array.isArray(retired) || retired.length > 1024 || new Set(retired).size !== retired.length
+          || retired.some(key => typeof key !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(key))) throw new Error('Invalid receipt peer inventory');
         service.setPeers(message.peers);
+        receiptPeers = new Set(retired);
           for (const key of relayAttempts.keys()) if (!service.peers.some(peer => peer.publicKey === key)) relayAttempts.delete(key);
         if (relay) await relay.refreshPeers();
         if (bridge && !service.peers.some(peer => peer.publicKey === bridgeTarget)) {
@@ -90,7 +104,15 @@ async function main() {
     try {
       relay = new AwgTechnicalRelay({ identity: workerData.identity, kind: workerData.kind,
         controlPort: workerData.controlPort ?? null,
+        onReceipt: receipt => new Promise((resolve, reject) => {
+          if (closing || receipts.size >= 4) { reject(new Error('Receipt budget exhausted')); return; }
+          const id = require('node:crypto').randomBytes(16).toString('hex');
+          const timer = setTimeout(() => { receipts.delete(id); reject(new Error('Receipt timed out')); }, 15000);
+          receipts.set(id, { timer, resolve, reject });
+          parentPort.postMessage({ type: 'maintenance-receipt', id, receipt });
+        }),
         allowedPeer: key => service.peers.some(peer => peer.publicKey === key),
+        allowedReceiptPeer: key => receiptPeers.has(key) || service.peers.some(peer => peer.publicKey === key),
         lookup: (key, kind) => service.lookupRelayTarget(key, kind) });
       await relay.start(workerData.port, workerData.bindAddress || '0.0.0.0');
       service.enableRelayDiscovery();

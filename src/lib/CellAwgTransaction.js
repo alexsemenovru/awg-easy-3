@@ -160,14 +160,15 @@ class CellAwgTransaction {
     });
   }
 
-  retire() {
+  retire({ terminal = false } = {}) {
+    if (typeof terminal !== 'boolean') throw new TypeError('Explicit terminal retirement flag required');
     return this.exclusive(async () => {
       const saved = await this.load();
       if (saved.committed === null) {
         if (saved.pending !== null) throw new Error('Invalid AWG retirement journal');
         return { retired: true, guarded: true };
       }
-      if (saved.pending) throw new Error('Interrupted AWG update requires recovery before retirement');
+      if (saved.pending && !terminal) throw new Error('Interrupted AWG update requires recovery before retirement');
       const name = saved.committed.interfaceName;
       await this.activateGuard([name]);
       let links;

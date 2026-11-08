@@ -51,6 +51,36 @@ test('receiver rejects an unregistered origin even through an otherwise valid re
   assert.equal(data.delivered(), 0);
 });
 
+test('final maintenance receipt uses its own authenticated purpose, directly and through one relay', async t => {
+  const data = await fixture(t);
+  let delivered = 0;
+  data.main.onReceipt = async receipt => {
+    assert.equal(receipt.cellKey, data.sender.publicKey); delivered++;
+    return { accepted: true, commandId: receipt.commandId };
+  };
+  data.main.controlPort = null; // no surviving AWG tunnel is needed for the final receipt
+  data.main.allowedPeer = () => false;
+  data.main.allowedReceiptPeer = key => key === data.sender.publicKey;
+  for (const [server, key] of [[data.main, data.destination], [data.relay, data.relayIdentity]]) {
+    const connection = await connectTechnicalRelay({ host: '127.0.0.1', port: server.address().port,
+      serverKey: key.publicKey, identity: data.sender, target: data.destination.publicKey,
+      kind: 'main', purpose: 'receipt' });
+    try {
+      await connection.json({ cellKey: data.sender.publicKey, commandId: 'a'.repeat(32) });
+      assert.deepEqual(await connection.readJson(), { accepted: true, commandId: 'a'.repeat(32) });
+    } finally { connection.close(); }
+  }
+  assert.equal(delivered, 2); assert.equal(data.delivered(), 0);
+  const spoof = await connectTechnicalRelay({ host: '127.0.0.1', port: data.main.address().port,
+    serverKey: data.destination.publicKey, identity: data.sender,
+    target: data.destination.publicKey, kind: 'main', purpose: 'receipt' });
+  try {
+    await spoof.json({ cellKey: identity().publicKey });
+    await assert.rejects(spoof.readJson());
+  } finally { spoof.close(); }
+  assert.equal(delivered, 2);
+});
+
 test('a pinned recovery locator can find a restored Main through one relay without changing final peer identity', async t => {
   const data = await fixture(t);
   const locator = identity().publicKey;

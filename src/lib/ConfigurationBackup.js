@@ -16,13 +16,16 @@ async function snapshotInventory(mainDirectory, cellKeys = null) {
   // Never recurse into logs, kernel journals, caches or previously saved archives.
   for (const name of ['identity.json', 'config.json', 'bootstrap.json',
     'permanent/plan.json', 'permanent/revision.json']) {
+    // With no enrolled Cells there is no permanent peer identity to restore.
+    // Do not revive the historical base after its last peer was revoked.
+    if (cellKeys?.length === 0 && name.startsWith('permanent/')) continue;
     try {
       const info = await fs.lstat(path.join(mainDirectory, name));
       if (!info.isFile() || info.isSymbolicLink()) throw new Error('Unsafe Main backup metadata');
       files.push({ area: 'main', name });
     } catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
-  for (const area of ['cell-settings', 'cell-descriptors', 'cell-data-keys', 'cell-data-offers', 'cell-routing', 'data-links']) {
+  for (const area of ['cell-settings', 'cell-descriptors', 'cell-data-keys', 'cell-data-offers', 'cell-routing', 'cell-maintenance', 'data-links']) {
     const directory = path.join(mainDirectory, area);
     let entries;
     try { await privateDirectory(directory); entries = await fs.readdir(directory, { withFileTypes: true }); }
@@ -31,7 +34,7 @@ async function snapshotInventory(mainDirectory, cellKeys = null) {
     for (const entry of entries) {
       const name = area === 'data-links' ? `${area}/${entry.name}/plan.json` : `${area}/${entry.name}`;
       if (!allowedSnapshotFile('main', name)) continue;
-      if (cellHashes && !cellHashes.has(entry.name.split('.')[0])) continue;
+      if (area !== 'cell-maintenance' && cellHashes && !cellHashes.has(entry.name.split('.')[0])) continue;
       if (entry.isSymbolicLink() || (area === 'data-links' ? !entry.isDirectory() : !entry.isFile())) {
         throw new Error('Unsafe Main backup inventory');
       }
