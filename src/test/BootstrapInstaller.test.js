@@ -106,8 +106,8 @@ test('automatically creates a NAT66 ULA plan when VPS IPv6 works', async () => {
   assert.equal(result.state.server.wanInterface, 'ens3');
   assert.equal(result.state.server.endpointHost, '203.0.113.50');
   assert.equal(result.state.server.ipv6Mode, 'nat66');
-  assert.equal(result.state.server.ipv6Subnet, 'fd13:1313:1313::/64');
-  assert.equal(result.state.clients[0].address6, 'fd13:1313:1313::2');
+  assert.equal(result.state.server.ipv6Subnet, 'fd08:8::/64');
+  assert.equal(result.state.clients[0].address6, 'fd08:8::2');
 });
 
 test('refuses to overwrite an existing installation before generating secrets', async () => {

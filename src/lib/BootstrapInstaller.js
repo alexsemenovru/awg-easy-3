@@ -85,7 +85,7 @@ class BootstrapInstaller {
     const resolvedEndpointHost = endpointHost ?? network.endpointCandidate;
     const resolvedWanInterface = wanInterface ?? network.wanInterface;
     const ipv6Plan = ipv6 === undefined && network.ipv6.available
-      ? createNat66Plan({ randomBytes: this.randomBytes })
+      ? createNat66Plan()
       : ipv6;
 
     const serverKeys = await this.keyManager.generateKeyPair();
