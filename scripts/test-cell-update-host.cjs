@@ -87,4 +87,4 @@ docker() {
     console.log('PASS real Root/Compose Cell image replacement, injected interruption, forward retry, exact image intent and idempotence (unpublished registry boundary fixture)');
   } finally { try { compose(['down']); } catch {} }
 }
-main().catch(error => { console.error(String(error.message).split('\n')[0].replace(/[A-Za-z0-9+/_-]{40,}={0,2}/g, '[redacted]').slice(0, 160)); process.exitCode = 1; });
+main().catch(error => { console.error((String(error.stderr || error.message).split('\n').find(line=>line.trim()) || 'Update test failed').replace(/[A-Za-z0-9+/_-]{40,}={0,2}/g, '[redacted]').slice(0, 160)); process.exitCode = 1; });

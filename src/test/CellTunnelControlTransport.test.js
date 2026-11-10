@@ -226,7 +226,7 @@ test('tunnel listener checks the real lifecycle journal and AWG readback before 
         ifname: 'cell0', addr_info: [{ family: 'inet', local: '127.0.0.1', prefixlen: 32 }],
       }]) };
       if (file === 'awg' && args[0] === 'showconf') return { stdout: config };
-      if (file === 'sysctl' && args[0] === '-n') return { stdout: '2' };
+      if (file === 'sysctl' && args[0] === '-n') return { stdout: args[1].endsWith('/src_valid_mark') ? '1' : '2' };
       throw new Error('Unexpected AWG mutation');
     } });
   await lifecycle.save({ version: 1, phase: 'ready', spec, blankHash: null });
