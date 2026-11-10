@@ -131,6 +131,7 @@ class CellAwgLifecycle {
     if (!allowIncomplete && (await this.run('sysctl', ['-n', `net/ipv4/conf/${spec.owner.interfaceName}/rp_filter`])).stdout.trim() !== '2') {
       throw new Error('Unexpected owned AWG reverse-path setting');
     }
+    if (!allowIncomplete && (await this.run('sysctl', ['-n', `net/ipv4/conf/${spec.owner.interfaceName}/src_valid_mark`])).stdout.trim() !== '1') throw new Error('Unexpected owned AWG mark validation setting');
     return state;
   }
   async configure(spec) {
@@ -179,6 +180,8 @@ class CellAwgLifecycle {
     // installer explicitly configures it.
     const rpFilter = (await this.run('sysctl', ['-n', `net/ipv4/conf/${name}/rp_filter`])).stdout.trim();
     if (rpFilter !== '2') await this.run('sysctl', ['-w', `net/ipv4/conf/${name}/rp_filter=2`]);
+    const validMark = (await this.run('sysctl', ['-n', `net/ipv4/conf/${name}/src_valid_mark`])).stdout.trim();
+    if (validMark !== '1') await this.run('sysctl', ['-w', `net/ipv4/conf/${name}/src_valid_mark=1`]);
     const actual = await this.addresses(spec);
     for (const cidr of spec.addresses.filter(a => !actual.includes(a))) {
       await this.run('ip', ['address', 'add', cidr, 'dev', name]);

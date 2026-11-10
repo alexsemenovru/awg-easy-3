@@ -47,10 +47,11 @@ function parseCommand(command) {
     if (!Number.isInteger(metric) || metric < 0 || metric > 32767) fail('invalid metric');
     record = { kind: 'route', family, table, dst, type, dev: fields.dev || null, metric, protocol: 186 };
   } else {
-    if (Object.keys(fields).sort().join(',') !== 'from,iif,lookup,pref') fail('unsupported rule fields');
+    if (Object.keys(fields).sort().join(',') !== (fields.fwmark === undefined ? 'from,iif,lookup,pref' : 'from,fwmark,iif,lookup,pref')) fail('unsupported rule fields');
     const priority = Number(fields.pref), table = tableNumber(fields.lookup), src = destination(fields.from, family);
     if (!reservedPriority(priority) || !reservedTable(table) || src === 'default' || !iface(fields.iif)) fail('unsafe rule');
-    record = { kind: 'rule', family, priority, table, src, iif: fields.iif };
+    if (fields.fwmark !== undefined && !['0x0/0x4000000', '0x4000000/0x4000000'].includes(fields.fwmark)) fail('unsafe routing mark');
+    record = { kind: 'rule', family, priority, table, src, iif: fields.iif, ...(fields.fwmark !== undefined ? { mark: Number(fields.fwmark.split('/')[0]), mask: 67108864 } : {}) };
   }
   return { record, command: { file: 'ip', args: [...a] } };
 }
@@ -79,13 +80,15 @@ function normalizeRoute(row, family) {
     protocol: row.protocol === 'bgp' ? 186 : Number(row.protocol) };
 }
 function normalizeRule(row, family) {
-  if (!row || Object.keys(row).some(k => !['priority', 'src', 'dst', 'iif', 'iifname', 'table', 'protocol', 'flags', 'action'].includes(k))) fail('unrecognized rule attributes');
+  if (!row || Object.keys(row).some(k => !['priority', 'src', 'dst', 'iif', 'iifname', 'table', 'protocol', 'flags', 'action', 'fwmark', 'fwmask'].includes(k))) fail('unrecognized rule attributes');
   if ((row.dst !== undefined && row.dst !== 'all') || (row.action !== undefined && row.action !== 'to_tbl')
     || (row.protocol !== undefined && !['boot', 3, '3'].includes(row.protocol))
     || (row.flags !== undefined && (!Array.isArray(row.flags) || row.flags.length))
     || (row.iif && row.iifname && row.iif !== row.iifname)) fail('rule attributes');
+  if (row.fwmark !== undefined && (![0, 67108864].includes(Number(row.fwmark)) || Number(row.fwmask) !== 67108864)) fail('unexpected routing mark');
+  if (row.fwmark === undefined && row.fwmask !== undefined) fail('orphan routing mask');
   return { kind: 'rule', family, priority: Number(row.priority), table: tableNumber(row.table),
-    src: destination(row.src, family), iif: row.iifname || row.iif };
+    src: destination(row.src, family), iif: row.iifname || row.iif, ...(row.fwmark !== undefined ? { mark: Number(row.fwmark), mask: 67108864 } : {}) };
 }
 
 // Inventory: {routes4, routes6, rules4, rules6}, unmodified ip -j output.

@@ -129,3 +129,18 @@ test('generates passwords without ambiguous characters', () => {
   assert.equal(/[0O1Il]/.test(PASSWORD_ALPHABET), false);
   assert.throws(() => generatePassword({ length: 15 }), /between 16 and 128/);
 });
+
+
+test('separate outgoing IPv4 is saved only when assigned to the detected WAN', async () => {
+  const make = () => {
+    const dep = dependencies();
+    dep.options.networkDetector.detect = async () => ({ wanInterface: 'eth0', endpointCandidate: '198.51.100.10',
+      ipv4Addresses: [{ address: '198.51.100.10' }, { address: '198.51.100.20' }], ipv6: { available: false } });
+    return dep;
+  };
+  const dep = make();
+  const result = await new BootstrapInstaller(dep.options).install({ endpointHost: '198.51.100.10', egressIpv4: '198.51.100.20' });
+  assert.equal(result.state.server.endpointHost, '198.51.100.10');
+  assert.equal(result.state.server.egressIpv4, '198.51.100.20');
+  await assert.rejects(new BootstrapInstaller(make().options).install({ egressIpv4: '198.51.100.30' }), /assigned/);
+});

@@ -68,5 +68,30 @@ window.awgGeoClient = (() => {
       finally { button.disabled = false; mode.disabled = false; state(); }
     });
   };
-  return { catalog, resolve, attach };
+  const attachRoute = ({ node, client, codes, language, t, save, available, fillExits }) => {
+    const section = node.querySelector('.geo-route-settings');
+    section.classList.toggle('hidden', !available && !client.geoRoute);
+    const form = section.querySelector('form');
+    const mode = form.querySelector('.geo-route-mode');
+    const input = form.querySelector('.geo-route-countries');
+    const exit = form.querySelector('.geo-route-exit');
+    const button = form.querySelector('button'), message = form.querySelector('.geo-route-message');
+    const entries = () => catalog(codes(), language());
+    mode.value = client.geoRoute?.mode || 'off';
+    input.value = (client.geoRoute?.countries || []).map(code => entries().find(row => row.code === code)?.name || code).join(', ');
+    fillExits(exit, { ...client, exitNodeId: client.geoRoute?.exitNodeId ?? client.exitNodeId ?? client.entryCellId ?? 'main' });
+    const state = () => { input.disabled = exit.disabled = mode.value === 'off'; };
+    mode.addEventListener('change', state); state();
+    form.addEventListener('submit', async event => {
+      event.preventDefault(); if (button.disabled) return;
+      message.textContent = ''; let value = null;
+      try { if (mode.value !== 'off') value = { mode: mode.value, countries: resolve(input.value, entries()), exitNodeId: exit.value }; }
+      catch (error) { message.textContent = t(error.message); return; }
+      button.disabled = mode.disabled = input.disabled = exit.disabled = true;
+      try { await save(value); }
+      catch (error) { message.textContent = error.code === 'GEO_UNAVAILABLE' ? t('GEO_UNAVAILABLE') : error.message; }
+      finally { button.disabled = mode.disabled = false; state(); }
+    });
+  };
+  return { catalog, resolve, attach, attachRoute };
 })();

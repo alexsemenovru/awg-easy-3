@@ -21,6 +21,7 @@ function compileCellRouting({ topology, routingView, nodeId, context, geoDatabas
   const view = routingView ? validateRoutingView(routingView, nodeId) : null;
   const plan = view || planCellTopology(topology).plans.find(p => p.node.id === nodeId);
   if (!plan || !context || typeof context.nat66 !== 'boolean') throw new TypeError('Invalid routing context');
+  const outgoingIpv4 = require('./EgressIpv4').egressIpv4(context.egressIpv4);
   const client = iface(context.clientInterface), wan = iface(context.wanInterface);
   const names = new Set([client, wan]);
   if (names.size !== 2) throw new TypeError('Interfaces must be distinct');
@@ -51,7 +52,8 @@ function compileCellRouting({ topology, routingView, nodeId, context, geoDatabas
   const enabled = (r, family) => r.enabled[`ipv${family}`] && r[`address${family}`];
   const pathTo = (id, family) => id === nodeId ? client : links.get(id)?.[`ipv${family}`] ? links.get(id).interfaceName : null;
   const dataPathTo = (r, id, family) => pathTo(id, family)
-    || (r.via && r.via !== nodeId ? pathTo(r.via, family) : null);
+    || (r.via && r.via !== nodeId ? pathTo(r.via, family) : null)
+    || (r.geoRoute && nodeId !== controller && id !== nodeId ? pathTo(controller, family) : null);
   // Home traffic between spokes traverses their Main. Keep this separate from
   // exit selection: a missing direct exit must never acquire an implicit relay.
   const homePathTo = (id, family) => {
@@ -60,7 +62,7 @@ function compileCellRouting({ topology, routingView, nodeId, context, geoDatabas
     return links.get(controller)?.[`ipv${family}`] ? links.get(controller).interfaceName : null;
   };
   const home = plan.routes.filter(r => isHomeGroup(r.group));
-  const input = [], forward = [], output = [], nat = [], geoRules = [], geoSets = new Map();
+  const input = [], forward = [], output = [], nat = [], prerouting = [], geoRules = [], geoSets = new Map();
   const remoteHostDestinations = new Set();
   const geoDefinitions = new Map();
   const commands = [], rules = [], routeKeys = new Set();
@@ -128,36 +130,61 @@ function compileCellRouting({ topology, routingView, nodeId, context, geoDatabas
       if (panelAddress) forward.push(`iifname ${managed} ${ip} saddr ${elements} ${ip} daddr ${panelAddress} drop`);
     }
     for (const r of plan.routes) {
-      if (!enabled(r, family) || (r.entry !== nodeId && r.exit !== nodeId && r.via !== nodeId)) continue;
-      const source = r[`address${family}`], from = dataPathTo(r, r.entry, family);
-      const to = r.exit === nodeId ? wan : dataPathTo(r, r.exit, family);
-      if (!from || !to) continue;
-      const geo = renderGeoIpPolicy({ clients: [{ policy: r.geoPolicy, [`address${family}`]: source }],
-        database: geoDatabase, awg: from, wan: to, active4: family === 4 ? [source] : [], active6: family === 6 ? [source] : [] });
-      if (geo.sets) geoSets.set(geo.sets.match(/set (\w+)/)[1], geo.sets);
-      for (const definition of geo.setDefinitions) geoDefinitions.set(definition.name, definition);
-      if (geo.rules) geoRules.push(geo.rules);
-      // Inserted after GeoIP below, not before filtering.
-      rules.push(`iifname "${from}" oifname "${to}" ${ip} saddr ${source} accept`);
-      rules.push(`iifname "${to}" oifname "${from}" ${ip} daddr ${source} ct state established,related accept`);
-      if (r.exit === nodeId && (family === 4 || context.nat66)) {
-        nat.push(`oifname "${wan}" ${ip} saddr ${source} masquerade`);
+      if (!enabled(r, family)) continue;
+      const source = r[`address${family}`];
+      let selectedSet;
+      if (r.geoRoute) {
+        const selection = renderGeoIpPolicy({ clients: [{ policy: { mode: 'block', countries: r.geoRoute.countries }, [`address${family}`]: source }],
+          database: geoDatabase, awg: client, wan, active4: family === 4 ? [source] : [], active6: family === 6 ? [source] : [] });
+        selectedSet = selection.setDefinitions[0].name;
+        geoSets.set(selectedSet, selection.sets);
+        for (const definition of selection.setDefinitions) geoDefinitions.set(definition.name, definition);
+        // Recompute one reserved mark bit at every managed ingress. Preserve all
+        // other bits and never trust a client's mark or a previous hop's state.
+        prerouting.push(`iifname ${managed} ${ip} saddr ${source} meta mark set meta mark & 0xfbffffff`);
+        prerouting.push(`iifname ${managed} ${ip} saddr ${source} ${ip} daddr ${r.geoRoute.mode === 'exclude' ? '!= ' : ''}@${selectedSet} meta mark set meta mark | 0x04000000`);
+        prerouting.push(`${ip} daddr ${source} meta mark set meta mark & 0xfbffffff`);
+        prerouting.push(`${ip} daddr ${source} ${ip} saddr ${r.geoRoute.mode === 'exclude' ? '!= ' : ''}@${selectedSet} meta mark set meta mark | 0x04000000`);
       }
-      if ((r.entry === nodeId || r.via === nodeId) && r.exit !== nodeId) {
-        const link = links.get(r.via && r.via !== nodeId ? r.via : r.exit);
-        commands.push({ file: 'ip', args: [`-${family}`, 'rule', 'add', 'pref', String(link.priority),
-          'iif', from, 'from', `${source}/${suffix}`, 'lookup', String(link.table)] });
+      const branches = [{ exit: r.exit, selected: false }, ...(r.geoRoute ? [{ exit: r.geoRoute.exitNodeId, selected: true }] : [])];
+      for (const branch of branches) {
+        const transit = r.entry !== branch.exit && r.entry !== controller && branch.exit !== controller ? controller : undefined;
+        if (r.entry !== nodeId && branch.exit !== nodeId && transit !== nodeId) continue;
+        const branchRoute = { ...r, exit: branch.exit, via: transit };
+        const from = dataPathTo(branchRoute, r.entry, family);
+        const to = branch.exit === nodeId ? wan : dataPathTo(branchRoute, branch.exit, family);
+        if (!from || !to || branch.exit === nodeId && !plan.node[`ipv${family}`]) continue;
+        const selectedPositive = r.geoRoute?.mode === 'include';
+        const select = selectedSet ? ` ${ip} daddr ${branch.selected === selectedPositive ? '' : '!= '}@${selectedSet}` : '';
+        const reverseSelect = selectedSet ? ` ${ip} saddr ${branch.selected === selectedPositive ? '' : '!= '}@${selectedSet}` : '';
+        const geo = renderGeoIpPolicy({ clients: [{ policy: r.geoPolicy, [`address${family}`]: source }],
+          database: geoDatabase, awg: from, wan: to, active4: family === 4 ? [source] : [], active6: family === 6 ? [source] : [] });
+        if (geo.sets) geoSets.set(geo.setDefinitions[0].name, geo.sets);
+        for (const definition of geo.setDefinitions) geoDefinitions.set(definition.name, definition);
+        if (geo.rules) geoRules.push(geo.rules);
+        rules.push(`iifname "${from}" oifname "${to}" ${ip} saddr ${source}${select} accept`);
+        rules.push(`iifname "${to}" oifname "${from}" ${ip} daddr ${source}${reverseSelect} ct state established,related accept`);
+        if (branch.exit === nodeId && (family === 4 || context.nat66)) {
+          nat.push(`iifname "${from}" oifname "${wan}" ${ip} saddr ${source}${select} ${family === 4 && outgoingIpv4 ? `snat ip to ${outgoingIpv4}` : 'masquerade'}`);
+        }
+        if ((r.entry === nodeId || transit === nodeId) && branch.exit !== nodeId) {
+          const link = links.get(transit && transit !== nodeId ? transit : branch.exit);
+          if (!link?.[`ipv${family}`]) continue;
+          commands.push({ file: 'ip', args: [`-${family}`, 'rule', 'add', 'pref', String(link.priority),
+            'iif', from, 'from', `${source}/${suffix}`, ...(r.geoRoute ? ['fwmark', `${branch.selected ? '0x4000000' : '0x0'}/0x4000000`] : []),
+            'lookup', String(link.table)] });
+        }
       }
     }
   }
   const render = lines => lines.map(line => `    ${line}`).join('\n');
-  const nftSnapshot = routingPolicySnapshot({ input: [...input, `iifname ${managed} drop`],
+  const nftSnapshot = routingPolicySnapshot({ prerouting, input: [...input, `iifname ${managed} drop`],
     forward: [...forward, ...geoRules.flatMap(r => r.split('\n')), ...rules, `iifname ${managed} drop`, `oifname ${managed} drop`],
     output: [...output, ...remoteHostDestinations, `oifname ${managed} drop`], nat, sets: [...geoDefinitions.values()] });
   return { plan, commands, table: TABLE,
     nftSnapshot,
     nftables: `# Managed by AWG-Easy 3 routing prototype\ntable inet ${TABLE} {\n${[...geoSets.values()].join('\n')}
-  chain input { type filter hook input priority -15; policy accept;
+${prerouting.length ? `  chain prerouting { type filter hook prerouting priority -150; policy accept;\n${render(prerouting)}\n  }\n` : ''}  chain input { type filter hook input priority -15; policy accept;
 ${render(input)}
     iifname ${managed} drop
   }

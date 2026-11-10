@@ -8,7 +8,7 @@ const { buildCellArtifacts } = require('./CellArtifacts');
 
 const REQUIRED = ['interfaceName', 'wanInterface', 'privateKey', 'listenPort',
   'address4', 'ipv4Subnet', 'profile'];
-const OPTIONAL = ['address6', 'ipv6Subnet', 'ipv6Mode'];
+const OPTIONAL = ['address6', 'ipv6Subnet', 'ipv6Mode', 'egressIpv4'];
 
 class CellUserConfigStore {
   constructor(filePath, { interfaceName, listenPort } = {}) {

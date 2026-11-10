@@ -54,7 +54,7 @@ const buildAwgArtifacts = ({ server, clients, geoDatabase = {}, entryDescriptors
       address6: serverHasIPv6 && clientTraffic(client).ipv6Enabled ? client.address6 : undefined,
     })),
     interfaceName: server.interfaceName ?? 'awg0',
-    wanInterface: server.wanInterface ?? 'eth0',
+    egressIpv4: server.egressIpv4, wanInterface: server.wanInterface ?? 'eth0',
     ipv4Subnet: server.ipv4Subnet,
     ...(serverHasIPv6 ? { ipv6Subnet: server.ipv6Subnet } : {}),
     nat66: serverHasIPv6 && server.ipv6Mode === 'nat66',

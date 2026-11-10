@@ -65,7 +65,7 @@ function validateRoutingView(input, expectedNodeId) {
   });
   const ids = new Set(), addresses = new Set();
   const routes = input.routes.map(route => {
-    exact(route, ['id', 'entry', 'exit', 'address4', 'group', 'geoPolicy', 'enabled', 'reasons'], ['address6', 'via']);
+    exact(route, ['id', 'entry', 'exit', 'address4', 'group', 'geoPolicy', 'enabled', 'reasons'], ['address6', 'via', 'geoRoute']);
     if (route.via !== undefined && (route.via !== input.controllerId || route.via === route.entry
       || route.via === route.exit || route.entry === route.exit)) throw new TypeError('Invalid fixed route transit');
     if (!identifier(route.id) || ids.has(route.id) || !identifier(route.entry)
@@ -99,7 +99,8 @@ function validateRoutingView(input, expectedNodeId) {
       throw new TypeError('Invalid disabled GeoIP policy');
     }
     const geoPolicy = normalizeGeoPolicy(route.geoPolicy);
-    return Object.freeze({ ...route, geoPolicy,
+    const geoRoute = require('./GeoExit').normalizeGeoExit(route.geoRoute);
+    return Object.freeze({ ...route, ...(geoRoute ? { geoRoute } : {}), geoPolicy,
       enabled: Object.freeze({ ...route.enabled }), reasons: Object.freeze({ ...route.reasons }) });
   });
   return Object.freeze({ schema: 1, nodeId: input.nodeId, controllerId: input.controllerId,

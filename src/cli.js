@@ -28,6 +28,7 @@ const main = async () => {
   if (command === 'init') {
     return printBootstrap(await application.initialize({
       endpointHost: process.env.AWG_HOST || undefined,
+      egressIpv4: process.env.AWG_EGRESS_IPV4 || undefined,
       wanInterface: process.env.AWG_WAN_INTERFACE || undefined,
       firstClientName: process.env.AWG_FIRST_CLIENT_NAME || 'Home admin',
       listenPort: process.env.AWG_PORT === undefined ? 51820 : Number(process.env.AWG_PORT),

@@ -64,6 +64,7 @@ class Application {
 
   async initialize({
     endpointHost,
+    egressIpv4,
     wanInterface,
     firstClientName = 'Home admin',
     listenPort = 51820,
@@ -72,6 +73,7 @@ class Application {
   } = {}) {
     const result = await new BootstrapInstaller({ store: this.store }).install({
       endpointHost,
+      egressIpv4,
       wanInterface,
       firstClientName,
       listenPort,

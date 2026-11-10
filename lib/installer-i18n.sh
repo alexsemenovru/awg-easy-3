@@ -1171,6 +1171,38 @@ awg_installer_format() {
         zh-cn) printf '%s' '\n安装程序不会自动修改 configuration.nix。\n单任务重建适用于内存较少的 VPS。\n' ;;
         *) printf '%s' '\nThe installer intentionally does not edit configuration.nix automatically.\nThe single-job rebuild is intentional for low-memory VPS instances.\n' ;;
       esac ;;
+    'Outgoing VPN IPv4 [Enter = automatic]: ')
+      case "${AWG_LANG_VALUE:-en}" in
+        ru) printf '%s' 'Исходящий IPv4 VPN [Enter = автоматически]: ' ;;
+        fa) printf '%s' 'IPv4 خروجی VPN [Enter = خودکار]: ' ;;
+        es) printf '%s' 'IPv4 de salida VPN [Intro = automático]: ' ;;
+        zh-cn) printf '%s' 'VPN 出站 IPv4 [回车 = 自动]：' ;;
+        *) printf '%s' 'Outgoing VPN IPv4 [Enter = automatic]: ' ;;
+      esac ;;
+    '--egress-ipv4 requires a local IPv4 address')
+      case "${AWG_LANG_VALUE:-en}" in
+        ru) printf '%s' '--egress-ipv4 требует локальный IPv4-адрес' ;;
+        fa) printf '%s' '--egress-ipv4 به یک آدرس IPv4 محلی نیاز دارد' ;;
+        es) printf '%s' '--egress-ipv4 requiere una dirección IPv4 local' ;;
+        zh-cn) printf '%s' '--egress-ipv4 需要本地 IPv4 地址' ;;
+        *) printf '%s' '--egress-ipv4 requires a local IPv4 address' ;;
+      esac ;;
+    'outgoing IPv4 must be assigned to the WAN interface and have a usable route')
+      case "${AWG_LANG_VALUE:-en}" in
+        ru) printf '%s' 'Исходящий IPv4 должен быть назначен WAN-интерфейсу и иметь рабочий маршрут' ;;
+        fa) printf '%s' 'IPv4 خروجی باید به رابط WAN اختصاص یابد و مسیر معتبری داشته باشد' ;;
+        es) printf '%s' 'La IPv4 de salida debe estar asignada a la interfaz WAN y tener una ruta válida' ;;
+        zh-cn) printf '%s' '出站 IPv4 必须分配给 WAN 接口且具有有效路由' ;;
+        *) printf '%s' 'outgoing IPv4 must be assigned to the WAN interface and have a usable route' ;;
+      esac ;;
+    'Use --egress-ipv4 LOCAL_IP to select a separate outgoing VPN IPv4.\n')
+      case "${AWG_LANG_VALUE:-en}" in
+        ru) printf '%s' 'Для отдельного исходящего IPv4 VPN используйте --egress-ipv4 ЛОКАЛЬНЫЙ_IP.\n' ;;
+        fa) printf '%s' 'برای انتخاب IPv4 خروجی جداگانه از --egress-ipv4 LOCAL_IP استفاده کنید.\n' ;;
+        es) printf '%s' 'Use --egress-ipv4 LOCAL_IP para elegir una IPv4 de salida VPN independiente.\n' ;;
+        zh-cn) printf '%s' '使用 --egress-ipv4 LOCAL_IP 选择单独的 VPN 出站 IPv4。\n' ;;
+        *) printf '%s' 'Use --egress-ipv4 LOCAL_IP to select a separate outgoing VPN IPv4.\n' ;;
+      esac ;;
     *) return 1 ;;
   esac
 }

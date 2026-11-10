@@ -39,7 +39,7 @@ async function ensureCellUserBootstrap({ config, connection, wanInterface,
   const key = await keyManager.generatePrivateKey();
   await store.create({ version: 1, server: {
     interfaceName: config.resources.interfaceNames[2],
-    wanInterface, privateKey: key, listenPort: config.resources.udpPorts[0],
+    wanInterface, ...(config.egressIpv4 ? { egressIpv4: config.egressIpv4 } : {}), privateKey: key, listenPort: config.resources.udpPorts[0],
     ...cellUserSubnet(connection.controllerPath), profile: makeProfile(),
   } });
   return { created: true };

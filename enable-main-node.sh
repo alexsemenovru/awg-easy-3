@@ -172,6 +172,10 @@ for awg_reserved_name do
 done
 awg_cells_install_rp_filter main "$@" \
   || die 'cannot reserve loose rp_filter for Main-owned AWG interfaces'
+verified_user=$(docker compose exec -T awg-easy node /app/main-cell-install-info.js --verify) || die 'panel interface ownership verification failed'
+( set -- $verified_user
+  [ "$#" = 4 ] && awg_cells_install_rp_filter user "$1"
+) || die 'cannot configure the owned panel interface'
 install -d -m 0700 cell-data cell-status cell-status/uapi
 info 'Starting the Main Node service without changing the running panel'
 awg_easy_install_selinux_socket_watch || die 'cannot install the AWG UAPI SELinux permission'
@@ -212,6 +216,6 @@ bootstrap_udp=$(sed -n 's/^AWG_MAIN_BOOTSTRAP_PORT=//p' "$env_file")
 control_udp=$(sed -n 's/^AWG_MAIN_CONTROL_PORT=//p' "$env_file")
 printf 'If your provider has a cloud firewall, allow inbound UDP %s and %s for Cells.\n' \
   "$bootstrap_udp" "$control_udp"
-printf 'Stable auto-updates are held until coordinated Main/Cell updates are available.\n'
+printf 'Stable updates replace Main and panel together; Cells follow through authenticated maintenance.\n'
 printf 'Allow inbound UDP/TCP %s for discovery and technical AWG relay in the provider firewall.\n' \
   "$(sed -n 's/^AWG_MAIN_DHT_PORT=//p' "$env_file")"

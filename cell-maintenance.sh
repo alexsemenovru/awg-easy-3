@@ -68,9 +68,13 @@ operation=$(printf '%s\n' "$status" | sed -n '3p')
 target=$(printf '%s\n' "$status" | sed -n '4p')
 container_id=$(printf '%s\n' "$status" | sed -n '5p')
 owned_image=$(printf '%s\n' "$status" | sed -n '6p')
+replacement_image=$(printf '%s\n' "$status" | sed -n '7p')
+requested_id=$(printf '%s\n' "$status" | sed -n '8p')
 case "$operation:$phase" in update:queued|update:complete|remove:queued|remove:stopped|remove:resources-removed|remove:container-removed|remove:complete) ;; *) die 'invalid operation' ;; esac
 if [ "$phase" = complete ]; then
-  umask 077; printf '%s\n' "$fingerprint" > "$host_dir/completed"
+  if [ "$command_id" = "$requested_id" ]; then
+    umask 077; printf '%s\n' "$fingerprint" > "$host_dir/completed"
+  fi
   exit 0
 fi
 compose() { docker compose --project-directory "$project_dir" --env-file "$env_file" -f "$project_dir/docker-compose.cells-cell.yml" "$@"; }
@@ -80,12 +84,21 @@ if docker inspect "$container_id" >/dev/null 2>&1; then
   owned_present=true
 fi
 if [ "$operation" = update ]; then
+  if [ "$owned_present" = false ]; then
+    # The old ID may disappear only after Root durably pinned this replacement.
+    [ "$replacement_image" != - ] || die 'owned container disappeared without a replacement intent'
+    current_image=$(docker inspect -f '{{.Image}}' network-relay) || die 'replacement container unavailable'
+    [ "$current_image" = "$replacement_image" ] || die 'foreign container occupies the Cell name'
+    [ "$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/cell-data"}}{{.Source}}:{{.RW}}{{end}}{{end}}' network-relay)" = "$state_dir:true" ] || die 'replacement has a different state mount'
+    if [ "$(docker inspect -f '{{.State.Running}}:{{.State.ExitCode}}' network-relay)" = false:0 ]; then exit 0; fi
+  fi
+
   # A manually stopped Cell is not started by the automatic updater.
   if [ "$owned_present" = true ] && [ "$(docker inspect -f '{{.State.Running}}' "$container_id")" != true ]; then exit 0; fi
   installed=$(docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges:true \
     --entrypoint node "$owned_image" -p "require('/app/package.json').version")
   awg_easy_semver_is_newer "$target" "$installed" || die 'only a newer Cell version may be installed'
-  [ "$(awg_easy_latest_stable_version)" = "$target" ] || die 'Main version is not the latest stable release'
+  [ "$replacement_image" != - ] || [ "$(awg_easy_latest_stable_version)" = "$target" ] || die 'Main version is not the latest stable release'
   reference=ghcr.io/alexsemenovru/awg-easy-3:$target
   timeout 300 docker pull "$reference" >/dev/null || die 'image download failed'
   candidate=$(docker image inspect -f '{{range .RepoDigests}}{{println .}}{{end}}' "$reference" | grep '^ghcr.io/alexsemenovru/awg-easy-3@sha256:')
@@ -95,6 +108,8 @@ if [ "$operation" = update ]; then
   reported=$(docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges:true \
     --entrypoint node "$new_image" -p "require('/app/package.json').version")
   [ "$reported" = "$target" ] || die 'signed package version differs'
+  action=plan-replacement
+  helper readonly || die 'cannot persist the verified replacement image intent'
   temporary=$(mktemp "$project_dir/.env.cells-cell.XXXXXX")
   chmod 600 "$temporary"
   sed "s/^AWG_IMAGE=.*/AWG_IMAGE=$new_image/" "$env_file" > "$temporary"
@@ -130,4 +145,6 @@ else
     action=receipt; helper readonly || die 'Main acknowledgement unavailable; receipt retained for retry'
   fi
 fi
-umask 077; printf '%s\n' "$fingerprint" > "$host_dir/completed"
+if [ "$command_id" = "$requested_id" ]; then
+  umask 077; printf '%s\n' "$fingerprint" > "$host_dir/completed"
+fi

@@ -33,7 +33,9 @@ function planCellTopology(input) {
     links.set(pair(link.a, link.b), { ...link });
   }
   const assignments = input.clients.map(client => {
-    exact(client, ['entry', 'exit', 'assignment'], ['via']);
+    exact(client, ['entry', 'exit', 'assignment'], ['via', 'geoRoute']);
+    const geoRoute = require('./GeoExit').normalizeGeoExit(client.geoRoute);
+    if (geoRoute && !nodes.has(geoRoute.exitNodeId)) throw new TypeError('Unknown GeoIP exit');
     if (!nodes.has(client.entry) || !nodes.has(client.exit)) throw new TypeError('Unknown entry or exit');
     if (client.via !== undefined && (!nodes.has(client.via) || nodes.get(client.via).role !== 'controller'
       || client.via === client.entry || client.via === client.exit || client.entry === client.exit)) {
@@ -78,6 +80,7 @@ function planCellTopology(input) {
     routes: clients.map(c => ({ id: c.assignment.id, entry: c.entry, exit: c.exit,
       ...(c.via !== undefined ? { via: c.via } : {}),
       address4: c.assignment.address4, ...(c.assignment.address6 ? { address6: c.assignment.address6 } : {}),
+      ...(c.geoRoute ? { geoRoute: require('./GeoExit').normalizeGeoExit(c.geoRoute) } : {}),
       group: c.assignment.networkGroup, geoPolicy: c.assignment.geoPolicy,
       enabled: { ...c.enabled }, reasons: { ...c.reasons } })),
     links: input.links.filter(l => l.a === node.id || l.b === node.id).map(l => ({

@@ -274,6 +274,15 @@
       $('#rename-dialog').showModal();
       $('#rename-client-name').select();
     });
+    window.awgGeoClient?.attachRoute?.({ node, client, codes: () => geoCountries,
+      language: () => languageSelect.value || 'en', t, available: exitCells.length > 0, fillExits: fillExitOptions,
+      save: async geoRoute => {
+        const saved = await guarded(() => api.updateClient(client.id, { geoRoute }));
+        showNotice(t('geoApplied', { name: saved.name }));
+        clients = clients.map(item => item.id === saved.id ? saved : item);
+        clientsNode.replaceChildren(...clients.map(renderClient)); lastDiagnostics.forEach(paintDiagnostics);
+      },
+    });
     window.awgGeoClient?.attach({ node, client, codes: () => geoCountries,
       language: () => languageSelect.value || 'en', t,
       save: async geoPolicy => {

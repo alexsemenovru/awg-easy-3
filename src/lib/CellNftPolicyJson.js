@@ -63,19 +63,25 @@ function ruleExpressions(line) {
       expr.push({ match: { op: '==', left: { payload: { protocol: 'tcp', field: match[1] } }, right: port } });
     } else if ((match = rest.match(/^ct state established,related /))) {
       expr.push({ match: { op: 'in', left: { ct: { key: 'state' } }, right: ['established', 'related'] } });
+    } else if ((match = rest.match(/^meta mark set meta mark ([&|]) (0xfbffffff|0x04000000)$/))) {
+      if (match[1] === '&' && match[2] !== '0xfbffffff' || match[1] === '|' && match[2] !== '0x04000000') throw new TypeError('Invalid routing mark');
+      expr.push({ mangle: { key: { meta: { key: 'mark' } }, value: { [match[1]]: [{ meta: { key: 'mark' } }, Number(match[2])] } } });
+    } else if ((match = rest.match(/^snat ip to ([0-9.]+)$/))) {
+      if (net.isIP(match[1]) !== 4) throw new TypeError('Invalid SNAT address');
+      expr.push({ snat: { family: 'ip', addr: match[1] } });
     } else if ((match = rest.match(/^(accept|drop|masquerade)$/))) {
       expr.push({ [match[1]]: null });
     } else throw new TypeError('Unsupported routing policy JSON expression');
     rest = rest.slice(match[0].length);
   }
-  if (!expr.length || !['accept', 'drop', 'masquerade'].some(key => Object.hasOwn(expr.at(-1), key))) throw new TypeError('Missing policy verdict');
+  if (!expr.length || !['accept', 'drop', 'masquerade', 'snat', 'mangle'].some(key => Object.hasOwn(expr.at(-1), key))) throw new TypeError('Missing policy verdict');
   return { expr, ...(comment ? { comment } : {}) };
 }
-function routingPolicySnapshot({ input, forward, output, nat, sets }) {
+function routingPolicySnapshot({ prerouting = [], input, forward, output, nat, sets }) {
   const nftables = [{ table: { family: 'inet', name: TABLE } }];
-  const chains = [['input', input], ['forward', forward], ['output', output], ['postrouting', nat]];
+  const chains = [...(prerouting.length ? [['prerouting', prerouting]] : []), ['input', input], ['forward', forward], ['output', output], ['postrouting', nat]];
   for (const [name] of chains) nftables.push({ chain: { family: 'inet', table: TABLE, name,
-    type: name === 'postrouting' ? 'nat' : 'filter', hook: name, prio: name === 'postrouting' ? 100 : -15, policy: 'accept' } });
+    type: name === 'postrouting' ? 'nat' : 'filter', hook: name, prio: name === 'postrouting' ? 100 : name === 'prerouting' ? -150 : -15, policy: 'accept' } });
   for (const set of sets) {
     if (!/^geo[46]_[a-f0-9]{16}$/.test(set.name) || ![4, 6].includes(set.family)) throw new TypeError('Invalid routing GeoIP set');
     const elem = intervalElements(set.elements, set.family);

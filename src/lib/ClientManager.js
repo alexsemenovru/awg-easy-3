@@ -12,7 +12,7 @@ const { normalizeGeoPolicy, validatePrefixes } = require('./GeoIpPolicy');
 const { assignmentFromClient, assignmentFingerprint } = require('./CellAssignedSettings');
 const { validateCellUserDescriptor } = require('./CellUserDescriptor');
 
-const ALLOWED_CHANGES = new Set(['name', 'enabled', 'networkGroup', 'ipv4Enabled', 'ipv6Enabled', 'geoPolicy', 'exitNodeId']);
+const ALLOWED_CHANGES = new Set(['name', 'enabled', 'networkGroup', 'ipv4Enabled', 'ipv6Enabled', 'geoPolicy', 'exitNodeId', 'geoRoute']);
 
 class ClientManager {
   constructor({
@@ -182,6 +182,23 @@ class ClientManager {
       }
       const state = await this.requireState();
       assertActiveHomeRemains(state.clients, clientId, changes);
+      if (Object.hasOwn(changes, 'geoRoute')) {
+        const geoRoute = require('./GeoExit').normalizeGeoExit(changes.geoRoute);
+        if (geoRoute) {
+          const descriptors = await this.entryDescriptors();
+          if (geoRoute.exitNodeId !== 'main' && !Object.hasOwn(descriptors, geoRoute.exitNodeId)) throw new TypeError('Unknown GeoIP exit');
+          const totals = { 4: 0, 6: 0 };
+          for (const country of geoRoute.countries) {
+            const row = this.geoDatabase()[country];
+            if (!row) throw Object.assign(new TypeError('GeoIP country database is not available'), { code: 'GEO_UNAVAILABLE' });
+            for (const family of [4, 6]) {
+              totals[family] += validatePrefixes(row[`ipv${family}`], family).length;
+              if (totals[family] > 200000) throw new TypeError('GeoIP selection is too large');
+            }
+          }
+        }
+        changes = { ...changes, geoRoute };
+      }
       if (Object.hasOwn(changes, 'geoPolicy')) {
         const policy = normalizeGeoPolicy(changes.geoPolicy);
         if (policy.mode !== 'off') {
@@ -223,18 +240,25 @@ class ClientManager {
       const selectedExit = changes.exitNodeId ?? target.exitNodeId;
       const exit6 = !selectedExit ? true : selectedExit === 'main' ? Boolean(state.server.address6)
         : Boolean((await this.entryDescriptors())[selectedExit]?.address6);
-      if (!exit6 && changes.enabled === true) {
+      const geoRoute = Object.hasOwn(changes, 'geoRoute') ? changes.geoRoute : target.geoRoute;
+      const geoExit6 = !geoRoute ? true : geoRoute.exitNodeId === 'main' ? Boolean(state.server.address6)
+        : Boolean((await this.entryDescriptors())[geoRoute.exitNodeId]?.address6);
+      if (!geoExit6 && Object.hasOwn(changes, 'geoRoute')) {
+        changes = { ...changes, ipv6Enabled: false, ...('enabled' in changes ? { ipv4Enabled: changes.enabled } : {}) };
+        delete changes.enabled;
+      }
+      if ((!exit6 || !geoExit6) && changes.enabled === true) {
         changes = { ...changes, ipv4Enabled: true, ipv6Enabled: false }; delete changes.enabled;
       }
       const nextClient = changeClientTraffic(target, changes, {
         ipv6Available: Boolean(target.address6 && (descriptor
           ? descriptor.address6 : state.server.address6 && state.server.ipv6Subnet)),
       });
-      if (nextClient.ipv6Enabled && !exit6) throw trafficError('IPV6_UNAVAILABLE', 'IPv6 is not available on the selected exit');
+      if (nextClient.ipv6Enabled && (!exit6 || !geoExit6)) throw trafficError('IPV6_UNAVAILABLE', 'IPv6 is not available on the selected exit');
       assertCurrentPanelPathRemains(target, nextClient, remoteAddress);
       const clients = state.clients.map((client) => client.id === clientId ? nextClient : client);
       const result = await this.applyState(state, { ...state, clients,
-        version: Object.hasOwn(changes, 'exitNodeId') ? 4 : state.version });
+        version: Object.hasOwn(changes, 'exitNodeId') || Object.hasOwn(changes, 'geoRoute') ? 4 : state.version });
       const client = result.state.clients.find((item) => item.id === clientId);
       return Object.freeze({ client, export: result.artifacts.clientArtifacts[clientId] });
     });
@@ -258,7 +282,7 @@ class ClientManager {
     return this.serialize(async () => {
       const state = await this.requireState();
       const clients = state.clients.map(client => {
-        if (client.entryCellId !== cellId && client.exitNodeId !== cellId) return client;
+        if (client.entryCellId !== cellId && client.exitNodeId !== cellId && client.geoRoute?.exitNodeId !== cellId) return client;
         const disabled = { ...client, enabled: false, ipv4Enabled: false, ipv6Enabled: false };
         assertCurrentPanelPathRemains(client, disabled, remoteAddress);
         return disabled;

@@ -131,6 +131,7 @@ async function runMainBootstrapCli({ args, env, input, output,
     let registration;
     let control;
     let statusTimer;
+    let readySnapshot;
     let invitationListener;
     let reconcileTimer;
     const stagedData = new Set();
@@ -191,6 +192,7 @@ async function runMainBootstrapCli({ args, env, input, output,
       reconcileTimer.unref();
       if (config.statusFile) {
         const snapshot = newStatusSnapshot(config.statusFile);
+        readySnapshot = snapshot;
         const entrySnapshot = newEntrySnapshot(path.join(path.dirname(config.statusFile), 'entries.json'));
         const refresh = () => statusRefresh = statusRefresh.catch(() => {}).then(async () => {
           await entrySnapshot.write(await host.entryDescriptors());
@@ -211,6 +213,7 @@ async function runMainBootstrapCli({ args, env, input, output,
           { createBackup: () => host.createBackup(), removeCell: id => host.removeCell(id) });
       }
       discovery = await startDiscovery({ role: 'main', config, host });
+      await readySnapshot?.writeReady?.();
       output.write(`${JSON.stringify({ status: 'serving',
         permanentConfigured: boot.configured === true })}\n`);
       return { close: async () => {

@@ -54,6 +54,7 @@ const elementsClause = (values) => values.length === 0
 const renderNftablesPolicy = ({
   interfaceName = 'awg0',
   wanInterface = 'eth0',
+  egressIpv4,
   ipv4Subnet = '10.8.0.0/24',
   ipv6Subnet,
   nat66 = false,
@@ -69,6 +70,7 @@ const renderNftablesPolicy = ({
   headlessCell = false,
 }) => {
   if (typeof headlessCell !== 'boolean') throw new TypeError('headlessCell must be boolean');
+  const outgoingIpv4 = require('./EgressIpv4').egressIpv4(egressIpv4);
   const awg = validateInterface(interfaceName);
   const wan = validateInterface(wanInterface);
   const subnet4 = validateCidr(ipv4Subnet, 4, 'ipv4Subnet');
@@ -206,7 +208,7 @@ ${geo.rules ? `${geo.rules}\n` : ''}    iifname ${quote(awg)} oifname ${quote(wa
 
   chain postrouting {
     type nat hook postrouting priority srcnat; policy accept;
-    oifname ${quote(wan)} ip saddr ${subnet4} masquerade comment "AWG-Easy 3 IPv4 NAT"${ipv6NatRule}
+    iifname ${quote(awg)} oifname ${quote(wan)} ip saddr ${subnet4} ${outgoingIpv4 ? `snat ip to ${outgoingIpv4}` : 'masquerade'} comment "AWG-Easy 3 IPv4 NAT"${ipv6NatRule}
   }
 }
 `;

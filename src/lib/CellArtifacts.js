@@ -50,7 +50,7 @@ function buildCellArtifacts({ server, settings, geoDatabase = {} }) {
     addresses: [`${server.address4}/${v4.prefix}`, ...(v6 ? [`${server.address6}/${v6.prefix}`] : [])],
     profile: server.profile, peers: active.map(client => ({ name: client.id, publicKey: client.publicKey,
       presharedKey: client.presharedKey, allowedIps: [`${client.address4}/32`, ...(client.address6 ? [`${client.address6}/128`] : [])] })) });
-  const nftables = renderNftablesPolicy({ interfaceName: server.interfaceName, wanInterface: server.wanInterface,
+  const nftables = renderNftablesPolicy({ interfaceName: server.interfaceName, egressIpv4: server.egressIpv4, wanInterface: server.wanInterface,
     ipv4Subnet: server.ipv4Subnet, ipv6Subnet: server.ipv6Subnet, nat66: v6 ? server.ipv6Mode === 'nat66' : false,
     headlessCell: true, home4: list('home', 4), guest4: list('guest', 4),
     home6: list('home', 6), guest6: list('guest', 6),

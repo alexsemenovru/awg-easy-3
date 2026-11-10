@@ -14,7 +14,7 @@ installer_language() {
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --lang) if [ "$#" -ge 2 ]; then AWG_LANG_VALUE=${2#-}; shift 2; else shift; fi ;;
-      --host|--port|--panel-port) if [ "$#" -ge 2 ]; then shift 2; else shift; fi ;;
+      --host|--egress-ipv4|--port|--panel-port) if [ "$#" -ge 2 ]; then shift 2; else shift; fi ;;
       *) shift ;;
     esac
   done
@@ -32,6 +32,7 @@ valid_port() {
 is_interactive() { [ -t 0 ]; }
 has_command() { command -v "$1" >/dev/null 2>&1; }
 AWG_HOST_VALUE=${AWG_HOST:-}
+AWG_EGRESS_IPV4_VALUE=${AWG_EGRESS_IPV4:-}
 
 is_public_ipv4() {
   printf '%s\n' "$1" | awk -F. '
@@ -104,6 +105,7 @@ INSTALL_ACTION=install
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --host) [ "$#" -ge 2 ] || die "--host requires an IPv4 address or DNS name"; AWG_HOST_VALUE=$2; shift 2 ;;
+    --egress-ipv4) [ "$#" -ge 2 ] || die "--egress-ipv4 requires a local IPv4 address"; AWG_EGRESS_IPV4_VALUE=$2; shift 2 ;;
     --port) [ "$#" -ge 2 ] || die "--port requires a UDP port"; AWG_PORT_VALUE=$2; AWG_PORT_EXPLICIT=1; shift 2 ;;
     --panel-port) [ "$#" -ge 2 ] || die "--panel-port requires a TCP port"; AWG_PANEL_PORT_VALUE=$2; AWG_PANEL_PORT_EXPLICIT=1; shift 2 ;;
     --lang) [ "$#" -ge 2 ] || die "--lang requires en, ru, fa, es or zh-cn"; AWG_LANG_VALUE=${2#-}; shift 2 ;;
@@ -115,6 +117,7 @@ while [ "$#" -gt 0 ]; do
       message '       sudo ./install.sh --reinstall [installation options]\n'
       message '\nMissing runtime packages are installed with the system package manager.\n'
       message 'Without --port or AWG_PORT, a random free UDP port from 20000 to 60000 is chosen.\n'
+      message 'Use --egress-ipv4 LOCAL_IP to select a separate outgoing VPN IPv4.\n'
       message 'Without --host, interactive installation offers the detected public IPv4 or a custom IP/domain.\n'
       message 'When the default panel TCP port is occupied, an interactive terminal suggests a free alternative.\n'
       message 'Uninstall and reinstall permanently delete every AWG-Easy 3 client and setting.\n'
@@ -473,6 +476,8 @@ fi
 
 [ ! -e data/state.json ] || die "AWG-Easy 3 is already initialized in %s/data" "$SCRIPT_DIR"
 choose_endpoint_host
+. "$SCRIPT_DIR/lib/egress-ipv4.sh"
+awg_choose_egress_ipv4 || die "outgoing IPv4 must be assigned to the WAN interface and have a usable route"
 
 port_in_use() {
   protocol=$1
@@ -616,6 +621,7 @@ AWG_PORT_VALUE=$(choose_available_port udp "$AWG_PORT_VALUE" "$AWG_PORT_EXPLICIT
 AWG_PANEL_PORT_VALUE=$(choose_available_port tcp "$AWG_PANEL_PORT_VALUE" "$AWG_PANEL_PORT_EXPLICIT" "$(message 'Panel TCP')")
 
 export AWG_HOST="$AWG_HOST_VALUE"
+export AWG_EGRESS_IPV4="$AWG_EGRESS_IPV4_VALUE"
 export AWG_PORT="$AWG_PORT_VALUE"
 export AWG_PANEL_PORT="$AWG_PANEL_PORT_VALUE"
 export AWG_LANG="$AWG_LANG_VALUE"
@@ -659,6 +665,7 @@ awg_easy_configure_firewalld "$awg_install_wan" "$AWG_PORT_VALUE" awg0 \
   || die "unable to configure firewalld for AWG"
 docker compose run --rm --no-deps \
   -e AWG_HOST="$AWG_HOST_VALUE" \
+  -e AWG_EGRESS_IPV4="$AWG_EGRESS_IPV4_VALUE" \
   -e AWG_PORT="$AWG_PORT_VALUE" \
   -e AWG_PANEL_PORT="$AWG_PANEL_PORT_VALUE" \
   -e AWG_LANG="$AWG_LANG_VALUE" \

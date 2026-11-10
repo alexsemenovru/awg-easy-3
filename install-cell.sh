@@ -85,6 +85,8 @@ if [ ! -e "$env_file" ]; then
   [ "${#wan_interface}" -le 15 ] || die 'WAN interface name is too long'
   case "$wan_interface" in lo|awgcellb0|awgcellc0|awgcellu0) die 'WAN interface is not suitable for Cell traffic' ;; esac
   cell_endpoint=$(cell_public_endpoint)
+  . "$script_dir/lib/egress-ipv4.sh"
+  awg_validate_egress_ipv4 "${AWG_CELL_EGRESS_IPV4:-}" || die 'outgoing IPv4 must be assigned to the WAN interface and have a usable route'
   user_port=51830
   while [ "$user_port" -le 60000 ]; do
     sockets=$(ss -H -lun) || die 'cannot inspect UDP listeners'
@@ -100,6 +102,7 @@ if [ ! -e "$env_file" ]; then
     printf 'AWG_CELL_WAN_INTERFACE=%s\n' "$wan_interface"
     printf 'AWG_CELL_USER_PORT=%s\n' "$user_port"
     printf 'AWG_CELL_ENDPOINT=%s\n' "$cell_endpoint"
+    printf 'AWG_CELL_EGRESS_IPV4=%s\n' "${AWG_CELL_EGRESS_IPV4:-}"
   } > "$temporary"
   ln "$temporary" "$env_file" || die 'Cell installation record was created concurrently'
   rm -f -- "$temporary"
@@ -113,11 +116,14 @@ else
   [ -d cell-data ] || die 'Cell state directory is missing'
   if ! grep -q '^AWG_CELL_ENDPOINT=' "$env_file"; then
     cell_endpoint=$(cell_public_endpoint)
+  . "$script_dir/lib/egress-ipv4.sh"
+  awg_validate_egress_ipv4 "${AWG_CELL_EGRESS_IPV4:-}" || die 'outgoing IPv4 must be assigned to the WAN interface and have a usable route'
     temporary=$(mktemp "$script_dir/.env.cells-cell.XXXXXX") \
       || die 'cannot update Cell installation record'
     trap 'rm -f -- "$temporary"' EXIT HUP INT TERM
     cat "$env_file" > "$temporary"
-    printf 'AWG_CELL_ENDPOINT=%s\n' "$cell_endpoint" >> "$temporary"
+    printf 'AWG_CELL_ENDPOINT=%s\n' "$cell_endpoint"
+    printf 'AWG_CELL_EGRESS_IPV4=%s\n' "${AWG_CELL_EGRESS_IPV4:-}" >> "$temporary"
     mv -f -- "$temporary" "$env_file"
     trap - EXIT HUP INT TERM
   fi

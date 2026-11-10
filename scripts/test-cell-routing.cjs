@@ -21,7 +21,7 @@ const topology = { version: 1,
     assignment: { id, publicKey: key(n), address4: `10.88.0.${n}`, address6: `fd88::${n}`,
       networkGroup: 'home', ipv4Enabled: true, ipv6Enabled: true, geoPolicy: { mode: 'off', countries: [] } } })) };
 const clientDevice = name => name === 'entry' ? 'clientsE' : 'clientsX';
-const context = peer => ({ clientInterface: clientDevice(peer === 'exit' ? 'entry' : 'exit'), wanInterface: 'wan', nat66: true,
+const context = peer => ({ clientInterface: clientDevice(peer === 'exit' ? 'entry' : 'exit'), wanInterface: 'wan', nat66: true, egressIpv4: peer === 'exit' ? '172.31.1.77' : '172.31.2.77',
   links: { [peer]: { interfaceName: peer === 'exit' ? 'transitE' : 'transitX', table: 52000, priority: 20000 } },
   panel: { address4: '10.88.0.1', address6: 'fd88::1', port: 51821 } });
 const geoDatabase = { RU: { ipv4: ['198.51.100.10/32'], ipv6: ['fd99::10/128'] } };
@@ -61,6 +61,10 @@ async function main() {
   ip('exit', ['addr', 'add', '10.88.0.1/32', 'dev', 'lo']);
   ip('exit', ['-6', 'addr', 'add', 'fd88::1/128', 'dev', 'lo', 'nodad']);
   ip('internet', ['addr', 'add', '198.51.100.10/32', 'dev', 'lo']);
+  ip('internet', ['addr', 'add', '203.0.113.10/32', 'dev', 'lo']);
+  ip('internet', ['-6', 'addr', 'add', 'fd99::20/128', 'dev', 'lo', 'nodad']);
+  ip('entry', ['addr', 'add', '172.31.1.77/24', 'dev', 'wan']);
+  ip('exit', ['addr', 'add', '172.31.2.77/24', 'dev', 'wan']);
   ip('internet', ['-6', 'addr', 'add', 'fd99::10/128', 'dev', 'lo', 'nodad']);
   const profile = generateOfficialProfile();
   for (const [name, clientName, index, addressSuffix, server4, server6] of [
@@ -149,6 +153,7 @@ async function main() {
   }
   const install = async () => {
     for (const [name, peer] of [['entry', 'exit'], ['exit', 'entry']]) {
+      for (const dev of [clientDevice(name), name === 'entry' ? 'transitE' : 'transitX']) ns(name,'sysctl',['-w', `net.ipv4.conf.${dev}.src_valid_mark=1`]);
       const built = compileCellRouting({ topology, nodeId: name, context: context(peer), geoDatabase });
       await coordinators.get(name).apply({ version: 1, interfaces: [clientDevice(name), name === 'entry' ? 'transitE' : 'transitX'],
         commands: built.commands, nftSnapshot: built.nftSnapshot });
@@ -165,6 +170,32 @@ async function main() {
   const internet = allowed => { ping(4, '198.51.100.10', allowed); ping(6, 'fd99::10', allowed); };
   internet(true); ping(4, '10.88.0.3', true); ping(6, 'fd88::3', true);
   console.log('PASS AWG remote exit IPv4/IPv6 and cross-server Home');
+  const echo = spawn('ip', ['netns', 'exec', 'internet', 'node', '-e',
+    'require("http").createServer((q,s)=>s.end(q.socket.remoteAddress)).listen(51990,"::",()=>console.log("ready"))'], { stdio: ['ignore', 'pipe', 'pipe'] });
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Egress fixture timeout')), 5000);
+    echo.stdout.once('data', () => { clearTimeout(timer); resolve(); }); echo.once('error', reject);
+  });
+  const outgoing = (target, expected) => {
+    const seen = ns('phone', 'node', ['-e', `const q=require('http').get('http://${target}:51990',r=>r.pipe(process.stdout));q.setTimeout(2500,()=>q.destroy());q.on('error',()=>process.exit(1))`]);
+    assert.equal(seen.replace(/^::ffff:/, ''), expected, 'Wrong selected outgoing address');
+  };
+  topology.clients[0].exit = 'entry';
+  topology.clients[0].geoRoute = { mode: 'include', countries: ['RU'], exitNodeId: 'exit' };
+  await install();
+  outgoing('198.51.100.10', '172.31.2.77'); outgoing('203.0.113.10', '172.31.1.77');
+  outgoing('[fd99::10]', 'fd31:2::2'); outgoing('[fd99::20]', 'fd31:1::2');
+  ip('entry', ['link', 'set', 'transitE', 'down']);
+  ping(4, '198.51.100.10', false); outgoing('203.0.113.10', '172.31.1.77');
+  ip('entry', ['link', 'set', 'transitE', 'up']); await install();
+  topology.clients[0].geoRoute.mode = 'exclude'; await install();
+  outgoing('198.51.100.10', '172.31.1.77'); outgoing('203.0.113.10', '172.31.2.77');
+  outgoing('[fd99::10]', 'fd31:1::2'); outgoing('[fd99::20]', 'fd31:2::2');
+  delete topology.clients[0].geoRoute; topology.clients[0].exit = 'exit'; await install();
+  outgoing('198.51.100.10', '172.31.2.77');
+  echo.kill();
+  console.log('PASS country include/exclude exits, explicit IPv4 SNAT, IPv6, return traffic, link loss without fallback');
+
   const panel = spawn('ip', ['netns', 'exec', 'exit', 'node', '-e',
     'require("http").createServer((q,s)=>s.end("panel-ok")).listen(51821,"::",()=>console.log("ready"))'], { stdio: ['ignore', 'pipe', 'pipe'] });
   await new Promise((resolve, reject) => {

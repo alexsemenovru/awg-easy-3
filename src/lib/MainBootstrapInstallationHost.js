@@ -289,7 +289,7 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
     const storedState = await new StateStore(userStateFile).load();
     const state = storedState && validateState({ ...storedState, version: 4 });
     if (!state || state.clients.some(client => client.enabled
-      && (client.entryCellId === record.id || client.exitNodeId === record.id))) {
+      && (client.entryCellId === record.id || client.exitNodeId === record.id || client.geoRoute?.exitNodeId === record.id))) {
       throw new Error('Affected profiles must be disabled by the panel before Cell removal');
     }
     const cellKey = record.cellKey ?? record.retiredCellKey;
@@ -340,7 +340,7 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
       plannedLinks: links.map(row => ({ cellId: row.record.id, ipv4: true, ipv6: Boolean(row.offer.descriptor.cellAddress6) })) });
     const panel = { address4: state.server.address4, ...(state.server.address6 ? { address6: state.server.address6 } : {}), port: state.server.panelPort };
     const compiled = compileCellRouting({ topology, nodeId: 'main', geoDatabase: await routingGeoDatabase(),
-      context: { clientInterface: state.server.interfaceName, wanInterface: state.server.wanInterface,
+      context: { clientInterface: state.server.interfaceName, wanInterface: state.server.wanInterface, egressIpv4: state.server.egressIpv4,
         nat66: state.server.ipv6Mode === 'nat66', panel, links: Object.fromEntries(links.map(row => [row.record.id, {
           interfaceName: row.path.interfaceName, table: 52000 + row.offer.descriptor.slot,
           priority: 20000 + row.offer.descriptor.slot }])) } });
@@ -373,8 +373,8 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
     removeCell: id => locked(async () => {
       const record = await registeredRecord(id);
       const state = userStateFile ? await new StateStore(userStateFile).load() : null;
-      const affected = state?.clients.filter(client => client.entryCellId === id || client.exitNodeId === id).length ?? 0;
-      if (state?.clients.some(client => client.enabled && (client.entryCellId === id || client.exitNodeId === id))) {
+      const affected = state?.clients.filter(client => client.entryCellId === id || client.exitNodeId === id || client.geoRoute?.exitNodeId === id).length ?? 0;
+      if (state?.clients.some(client => client.enabled && (client.entryCellId === id || client.exitNodeId === id || client.geoRoute?.exitNodeId === id))) {
         throw new Error('Affected profiles must be disabled before Cell removal');
       }
       await (await maintenance(record.cellKey)).remove();
@@ -786,7 +786,7 @@ async function openMainBootstrapInstallationHost({ stateDirectory, userStateFile
         port: state.server.panelPort };
       const policy = compileCellRouting({ topology, nodeId: 'main',
         context: { clientInterface: state.server.interfaceName,
-          wanInterface: state.server.wanInterface,
+          wanInterface: state.server.wanInterface, egressIpv4: state.server.egressIpv4,
           nat66: state.server.ipv6Mode === 'nat66', panel,
           links: Object.fromEntries(links.map(link => [link.cellId, {
             interfaceName: link.path.interfaceName,

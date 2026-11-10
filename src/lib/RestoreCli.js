@@ -30,9 +30,9 @@ async function runRestoreCli({ args, output }) {
     const archive = await readPrivateFile(args[1], 12 * 1024 * 1024);
     const recoveryKey = (await readPrivateFile(args[2], 256)).toString('utf8').trim();
     const current = validateState(JSON.parse((await readPrivateFile(args[3], 4 * 1024 * 1024)).toString('utf8')));
-    const { interfaceName, wanInterface, endpointHost, listenPort, panelPort } = current.server;
+    const { interfaceName, wanInterface, endpointHost, listenPort, panelPort, egressIpv4 } = current.server;
     await prepareConfigurationRestore({ archive, recoveryKey, directory: args[4],
-      target: { interfaceName, wanInterface, endpointHost, listenPort, panelPort } });
+      target: { interfaceName, wanInterface, endpointHost, listenPort, panelPort, ...(egressIpv4 ? { egressIpv4 } : {}) } });
     result = await inspectPreparedRestore(args[4]);
   }
   // No archive key, profiles or private identities ever enter stdout/stderr.

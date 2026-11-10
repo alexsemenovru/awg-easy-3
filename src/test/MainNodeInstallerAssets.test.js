@@ -39,7 +39,8 @@ test('Main installer is opt-in, preserves the existing panel and pins its runnin
   assert.match(overlay, /AWG_MAIN_INVITATION_SOCKET: \/cell-status\/control\.sock/);
   assert.match(overlay, /container_name: awg-easy-3-main-cell/);
   assert.doesNotMatch(overlay, /privileged: true/);
-  assert.match(updater, /Main Node is enabled; coordinated Main\/Cell updates are not ready/);
+  assert.match(updater, /awg_easy_main_update_prepare/);
+  assert.match(updater, /awg_easy_main_update_resume/);
   assert.match(manager, /enable-main-node\) exec "\$project_dir\/enable-main-node\.sh"/);
   assert.match(manager, /issue-cell\)[\s\S]*compose exec -T main-cell node \/app\/main-cell-cli\.js issue-auto/);
   assert.match(manager, /--env-file "\$project_dir\/\.env\.cells-main"/);

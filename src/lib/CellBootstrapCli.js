@@ -23,6 +23,7 @@ function configFromEnvironment(env) {
   const userInterface = env.AWG_CELL_USER_INTERFACE;
   const wanInterface = env.AWG_CELL_WAN_INTERFACE;
   const endpointHost = env.AWG_CELL_ENDPOINT;
+  const egressIpv4 = require('./EgressIpv4').egressIpv4(env.AWG_CELL_EGRESS_IPV4 || undefined);
   const portText = env.AWG_CELL_USER_PORT;
   const userPort = PORT.test(portText || '') ? Number(portText) : NaN;
   const dhtText = env.AWG_CELL_DHT_PORT || '49033';
@@ -39,7 +40,7 @@ function configFromEnvironment(env) {
     || !Number.isInteger(dhtPort) || dhtPort < 1 || dhtPort > 65535 || dhtPort === userPort) {
     throw new Error('Explicit Cell state path, three distinct interfaces and user UDP port required');
   }
-  return { stateDirectory, invitationFile, wanInterface, endpointHost, dhtPort,
+  return { stateDirectory, invitationFile, wanInterface, endpointHost, egressIpv4, dhtPort,
     interfaceName, runtimeDirectory: env.AWG_CELL_RUNTIME_DIR, resources: {
     interfaceNames: [interfaceName, controlInterface, userInterface],
     udpPorts: [userPort], nftTables: [

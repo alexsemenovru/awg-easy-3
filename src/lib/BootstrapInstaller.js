@@ -66,6 +66,7 @@ class BootstrapInstaller {
 
   async install({
     endpointHost,
+    egressIpv4,
     wanInterface,
     interfaceName = 'awg0',
     listenPort = 51820,
@@ -88,6 +89,11 @@ class BootstrapInstaller {
       ? createNat66Plan()
       : ipv6;
 
+    const outgoingIpv4 = require('./EgressIpv4').egressIpv4(egressIpv4);
+    if (outgoingIpv4 && (resolvedWanInterface !== network.wanInterface
+      || !network.ipv4Addresses.some(row => row.address === outgoingIpv4))) {
+      throw new Error('Outgoing IPv4 must be assigned to the detected WAN interface');
+    }
     const serverKeys = await this.keyManager.generateKeyPair();
     const clientKeys = await this.keyManager.generatePeerKeys();
     const bootstrapPassword = this.passwordGenerator();
@@ -104,6 +110,7 @@ class BootstrapInstaller {
       panelPort,
       uiLanguage,
       endpointHost: resolvedEndpointHost,
+      ...(outgoingIpv4 ? { egressIpv4: outgoingIpv4 } : {}),
       profile: this.profileGenerator(),
     };
     const client = {

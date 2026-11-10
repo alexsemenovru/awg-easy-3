@@ -61,7 +61,9 @@ const validateState = (input) => {
     throw new TypeError('clients must be a non-empty array');
   }
 
+  const outgoingIpv4 = require('./EgressIpv4').egressIpv4(input.server.egressIpv4);
   const server = {
+    ...(outgoingIpv4 ? { egressIpv4: outgoingIpv4 } : {}),
     ...input.server,
     interfaceName: requiredString(input.server.interfaceName, 'server.interfaceName'),
     wanInterface: requiredString(input.server.wanInterface, 'server.wanInterface'),
@@ -75,6 +77,7 @@ const validateState = (input) => {
     profile: validateProfile(input.server.profile),
   };
 
+  if (input.server.egressIpv4 !== undefined) server.egressIpv4 = outgoingIpv4;
   const listenPort = Number(input.server.listenPort);
   const panelPort = Number(input.server.panelPort);
   if (!Number.isInteger(listenPort) || listenPort < 1 || listenPort > 65_535) {
@@ -134,6 +137,9 @@ const validateState = (input) => {
     }
     const policy = normalizeClientPolicy(inputClient);
     const entryCellId = inputClient.entryCellId;
+    const geoRoute = require('./GeoExit').normalizeGeoExit(inputClient.geoRoute);
+    if (geoRoute && (input.version !== CELL_STATE_VERSION
+      || geoRoute.exitNodeId !== 'main' && !/^[a-f0-9]{32}$/.test(geoRoute.exitNodeId))) throw new TypeError('Invalid GeoIP exit');
     const exitNodeId = inputClient.exitNodeId;
     if (exitNodeId !== undefined && (input.version !== CELL_STATE_VERSION
       || typeof exitNodeId !== 'string' || !(exitNodeId === 'main' || /^[a-f0-9]{32}$/.test(exitNodeId)))) {
@@ -148,6 +154,7 @@ const validateState = (input) => {
     }
     return {
       ...inputClient,
+      ...(geoRoute ? { geoRoute } : {}),
       ...(inputClient.geoPolicy === undefined ? {} : { geoPolicy: normalizeGeoPolicy(inputClient.geoPolicy) }),
       ...policy,
       ...(entryCellId ? { entryCellId } : {}),
@@ -172,7 +179,7 @@ const validateState = (input) => {
 
   // Keep the format upgrade sticky: older panels ignore geoPolicy but reject v2.
   // Merely updating without enabling GeoIP retains the legacy format.
-  const version = input.version === CELL_STATE_VERSION ? CELL_STATE_VERSION
+  const version = input.version === CELL_STATE_VERSION || server.egressIpv4 ? CELL_STATE_VERSION
     : input.version === AUTH_STATE_VERSION ? AUTH_STATE_VERSION : input.version === GEO_STATE_VERSION
     || clients.some(client => client.geoPolicy && client.geoPolicy.mode !== 'off')
     ? GEO_STATE_VERSION : STATE_VERSION;

@@ -142,7 +142,7 @@ async function openCellServiceHost({ config, bootstrapHost, controlPath,
       });
       const policy = compileRouting({ routingView: view, nodeId: connection.invitationId,
         context: { clientInterface: user.server.interfaceName,
-          wanInterface: user.server.wanInterface,
+          wanInterface: user.server.wanInterface, egressIpv4: user.server.egressIpv4,
           nat66: user.server.ipv6Mode === 'nat66',
           links: { main: { interfaceName: dataPath.interfaceName,
             table: 52000, priority: 20000 } }, panel: view.panel },

@@ -123,7 +123,8 @@ function decodeConfiguration(archive, recoveryKey) {
 
 function prepareRestoredPanelState(snapshot, target) {
   validateSnapshot(snapshot);
-  if (!exact(target, ['interfaceName', 'wanInterface', 'endpointHost', 'listenPort', 'panelPort'])
+  if (!exact(target, ['interfaceName', 'wanInterface', 'endpointHost', 'listenPort', 'panelPort',
+      ...(Object.hasOwn(target, 'egressIpv4') ? ['egressIpv4'] : [])])
     || ![target.interfaceName, target.wanInterface].every(name => /^[A-Za-z0-9_.-]{1,15}$/.test(name))
     || target.interfaceName === target.wanInterface || !validEndpointHost(target.endpointHost)
     || ![target.listenPort, target.panelPort].every(port => Number.isInteger(port) && port > 0 && port <= 65535)) {
@@ -134,7 +135,7 @@ function prepareRestoredPanelState(snapshot, target) {
   const { pendingTotp: _pending, ...auth } = original.auth;
   // Old browser cookies must not survive a restore. Keep password/active TOTP,
   // user keys, ULA prefix and policies; use the NEW machine's explicit bindings.
-  return validateState({ ...original, server: { ...original.server, ...target },
+  return validateState({ ...original, server: { ...original.server, ...target, egressIpv4: target.egressIpv4 },
     auth: { ...auth, sessionSecret: crypto.randomBytes(32).toString('hex') } });
 }
 

@@ -28,7 +28,8 @@ const publicClient = (client, entryDetails = {}, server = {}) => Object.freeze({
   id: client.id,
   name: client.name,
   ...clientTraffic(client),
-  ipv6Available: Boolean(client.address6 && (!client.exitNodeId || (client.exitNodeId === 'main'
+  ipv6Available: Boolean(client.address6 && (!client.geoRoute || (client.geoRoute.exitNodeId === 'main'
+    ? server.address6 : entryDetails[client.geoRoute.exitNodeId]?.descriptor?.address6)) && (!client.exitNodeId || (client.exitNodeId === 'main'
     ? server.address6 : entryDetails[client.exitNodeId]?.descriptor?.address6))),
   networkGroup: client.networkGroup,
   ...(client.entryCellId ? { entryCellId: client.entryCellId,
@@ -36,6 +37,7 @@ const publicClient = (client, entryDetails = {}, server = {}) => Object.freeze({
       && entryDetails[client.entryCellId]?.confirmed?.[client.id]
       === assignmentFingerprint(assignmentFromClient(client)) } : {}),
   address4: client.address4,
+  ...(client.geoRoute ? { geoRoute: client.geoRoute } : {}),
   ...(client.geoPolicy ? { geoPolicy: client.geoPolicy } : {}),
   ...(client.exitNodeId ? { exitNodeId: client.exitNodeId } : {}),
   ...(client.address6 ? { address6: client.address6 } : {}),
@@ -222,7 +224,7 @@ class ApiService {
       cells: snapshot.state === 'ready' ? snapshot.cells.map(cell => ({
         id: cell.id, status: cell.status, phase: cell.phase,
         createdAt: cell.createdAt,
-        affectedClients: clients.filter(client => client.enabled && (client.entryCellId === cell.id || client.exitNodeId === cell.id)).length,
+        affectedClients: clients.filter(client => client.enabled && (client.entryCellId === cell.id || client.exitNodeId === cell.id || client.geoRoute?.exitNodeId === cell.id)).length,
         entryReady: cell.status === 'consumed' && cell.phase === 'closed'
           && Boolean(entryDetails[cell.id]?.descriptor)
           && entryDetails[cell.id]?.routeApplied === true,

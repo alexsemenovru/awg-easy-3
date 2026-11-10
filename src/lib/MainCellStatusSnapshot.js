@@ -105,6 +105,17 @@ class MainCellStatusSnapshot {
     return snapshot;
   }
 
+  async writeReady() {
+    const file = path.join(path.dirname(this.filePath), 'main-ready.json');
+    const temporary = `${file}.${crypto.randomUUID()}.tmp`;
+    const handle = await fs.open(temporary, 'wx', 0o600);
+    try {
+      await handle.writeFile(JSON.stringify({ version: require('../package.json').version, pid: process.pid }));
+      await handle.sync();
+    } finally { await handle.close(); }
+    await fs.rename(temporary, file);
+  }
+
   async read({ now = Date.now(), maxAgeMs = 120000 } = {}) {
     if (!Number.isSafeInteger(now) || now < 0
       || !Number.isSafeInteger(maxAgeMs) || maxAgeMs < 1000) {

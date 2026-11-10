@@ -329,10 +329,10 @@ awg_easy_update_on_exit() {
 
 awg_easy_run_stable_update() {
   update_mode=${1:-manual}
-  # Until the Main/Cell coordinated updater is integrated, never advance only
-  # the panel image while its live sidecar remains on the previous protocol.
+  AWG_EASY_UPDATE_MAIN=false
   if [ -e "$project_dir/.env.cells-main" ] || [ -L "$project_dir/.env.cells-main" ]; then
-    die "Main Node is enabled; coordinated Main/Cell updates are not ready, so this update was not started"
+    AWG_EASY_UPDATE_MAIN=true
+    . "$project_dir/lib/main-update.sh"
   fi
   command -v git >/dev/null 2>&1 || die "git is required for updates"
   command -v tar >/dev/null 2>&1 || die "tar is required for updates"
@@ -348,6 +348,10 @@ awg_easy_run_stable_update() {
   AWG_EASY_UPDATE_ROLLBACK_COMMIT=
   trap awg_easy_update_on_exit 0
   trap 'exit 1' HUP INT TERM
+  if [ "$AWG_EASY_UPDATE_MAIN" = true ] && { [ -e "$project_dir/.update/intent" ] || [ -L "$project_dir/.update/intent" ]; }; then
+    awg_easy_main_update_resume
+    return
+  fi
   current_version=$(sed -n '1p' "$project_dir/VERSION")
   printf '%s\n' "$current_version" | awk '/^[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*(-rc\.[1-9][0-9]*)?$/ { ok = 1 } END { exit !ok }' \
     || die "installed release version is invalid"
@@ -437,6 +441,12 @@ awg_easy_run_stable_update() {
     || die "unable to inspect project files before replacement"
   [ -z "$tracked_changes" ] && [ "$(git -C "$project_dir" rev-parse HEAD)" = "$current_commit" ] \
     || die "the checkout changed while downloading; the installation was left unchanged"
+
+  if [ "$AWG_EASY_UPDATE_MAIN" = true ]; then
+    awg_easy_main_update_prepare || die "cannot prepare coordinated Main update; current installation was left unchanged"
+    awg_easy_main_update_resume
+    return
+  fi
 
   printf 'Installing stable AWG-Easy 3 v%s...\n' "$latest_version"
   AWG_EASY_UPDATE_ROLLBACK_COMMIT=$current_commit

@@ -11,7 +11,7 @@ async function fixture(t, userspaceCommand = 'amneziawg-go') {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'cell-life-'));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   const spec = { version: 1, owner: createAwgOwnership({ interfaceName: 'cell0', config }), addresses: ['10.88.0.1/24', 'fd88::1/64'] };
-  const kernel = { link: null, config: '', addresses: [], rpFilter: 0, guard: false, calls: [], fail: null, blankReads: 0 };
+  const kernel = { link: null, config: '', addresses: [], rpFilter: 0, validMark: 0, guard: false, calls: [], fail: null, blankReads: 0 };
   const opts = { journalPath: path.join(dir, 'lifecycle.json'), userspaceCommand, activateGuard: async names => {
     assert.deepEqual(names, ['cell0']); kernel.guard = true;
   }, runner: async (file, args) => {
@@ -26,7 +26,7 @@ async function fixture(t, userspaceCommand = 'amneziawg-go') {
       }
       return { stdout: kernel.config };
     }
-    if (file === 'sysctl' && args[0] === '-n') return { stdout: String(kernel.rpFilter) };
+    if (file === 'sysctl' && args[0] === '-n') return { stdout: String(args[1].endsWith('/src_valid_mark') ? kernel.validMark : kernel.rpFilter) };
     assert.equal(kernel.guard, true); kernel.calls.push([file, ...args]);
     const state = JSON.parse(await fs.readFile(opts.journalPath, 'utf8'));
     assert.ok(['creating', 'removing', 'ready'].includes(state.phase));
@@ -35,7 +35,8 @@ async function fixture(t, userspaceCommand = 'amneziawg-go') {
       kernel.link = { ifname: 'cell0', mtu: 1420, flags: [], linkinfo: { info_kind: 'tun', info_data: { type: 'tun' } } };
       kernel.config = '[Interface]\n'; kernel.addresses = [];
       if (kernel.fail === 'after-create') throw new Error('process lost before tagging');
-    } else if (file === 'sysctl') { assert.deepEqual(args, ['-w', 'net/ipv4/conf/cell0/rp_filter=2']); kernel.rpFilter = 2;
+    } else if (file === 'sysctl') { if (args[1].endsWith('/src_valid_mark=1')) kernel.validMark = 1;
+      else { assert.deepEqual(args, ['-w', 'net/ipv4/conf/cell0/rp_filter=2']); kernel.rpFilter = 2; }
     } else if (file === 'awg') {
       const text = await fs.readFile(args[2], 'utf8');
       kernel.config = kernel.fail === 'partial-config' ? text.replace('Jc = 3', 'Jc = 27') : text;
@@ -75,7 +76,7 @@ test('asynchronous ephemeral binding cannot strand creation; other blank mutatio
 });
 test('already inherited loose rp_filter needs no write in a read-only sidecar', async t => {
   const { life, spec, kernel } = await fixture(t);
-  kernel.rpFilter = 2;
+  kernel.rpFilter = 2; kernel.validMark = 1;
   await life.create(spec);
   assert.ok(!kernel.calls.some(([file]) => file === 'sysctl'));
   assert.equal((await life.load()).phase, 'ready');

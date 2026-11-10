@@ -23,20 +23,23 @@ async function main(action) {
     await host.initialize({ identity, connection, containerId: process.env.MAINTENANCE_CONTAINER_ID,
       imageId: process.env.MAINTENANCE_IMAGE_ID }); return;
   }
+  let requestedId = '-';
   if (action === 'check') {
     const anchor = await host.anchor.read();
     const request = await new BackupJournal(path.join(root, 'maintenance/request.json'),
       value => verifyHostRequest(value, anchor), 8192).read();
     if (!request) return;
+    requestedId = request.command.id;
     await host.prepare(request);
   }
   const state = await host.read();
   if (action === 'check' || action === 'status') {
     process.stdout.write([state.phase, state.command.id, state.command.action,
-      state.command.targetVersion ?? '-', state.containerId, state.imageId].join('\n') + '\n'); return;
+      state.command.targetVersion ?? '-', state.containerId, state.imageId, state.replacementImageId ?? '-', requestedId].join('\n') + '\n'); return;
   }
   if (action === 'stopped') { await host.advance('stopped'); return; }
   if (action === 'removed') { await host.advance('container-removed'); return; }
+  if (action === 'plan-replacement') { await host.planReplacement(process.env.MAINTENANCE_IMAGE_ID); return; }
   if (action === 'replace') {
     if (require('./package.json').version !== state.command.targetVersion) throw new Error('Replacement version differs');
     await host.replace({ containerId: process.env.MAINTENANCE_CONTAINER_ID, imageId: process.env.MAINTENANCE_IMAGE_ID }); return;

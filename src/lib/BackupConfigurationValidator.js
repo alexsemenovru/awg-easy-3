@@ -66,7 +66,7 @@ async function validateBackupConfiguration(input) {
     validateKey(client.presharedKey, 'backupClientPresharedKey');
   }
   if (![...files.keys()].some(name => name.startsWith('main/'))) {
-    if (state.clients.some(client => client.entryCellId || client.exitNodeId && client.exitNodeId !== 'main')) fail();
+    if (state.clients.some(client => client.entryCellId || client.exitNodeId && client.exitNodeId !== 'main' || client.geoRoute?.exitNodeId && client.geoRoute.exitNodeId !== 'main')) fail();
     return { main: false, cells: 0, clients: state.clients.length };
   }
   const identity = validateControlIdentity(files.get('main/identity.json'));
@@ -83,6 +83,8 @@ async function validateBackupConfiguration(input) {
   }
   const byHash = new Map(records.map(record => [crypto.createHash('sha256').update(record.cellKey).digest('hex'), record]));
   if (state.clients.some(client => client.enabled && client.entryCellId && !records.some(record => record.id === client.entryCellId))) fail();
+  if (state.clients.some(client => client.enabled && client.geoRoute && client.geoRoute.exitNodeId !== 'main'
+    && !records.some(record => record.id === client.geoRoute.exitNodeId))) fail();
   if (state.clients.some(client => client.enabled && client.exitNodeId && client.exitNodeId !== 'main'
     && !records.some(record => record.id === client.exitNodeId))) fail();
   const baseValue = files.get('main/permanent/plan.json');

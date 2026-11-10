@@ -50,7 +50,8 @@ function productCellTopology({ state: input, cells, readyLinks = [], exits = {} 
   }
   const clients = state.clients.filter(client => client.enabled
     || ((!client.entryCellId || descriptors.has(client.entryCellId))
-      && (!client.exitNodeId || client.exitNodeId === 'main' || descriptors.has(client.exitNodeId)))).map(client => {
+      && (!client.exitNodeId || client.exitNodeId === 'main' || descriptors.has(client.exitNodeId))
+      && (!client.geoRoute || client.geoRoute.exitNodeId === 'main' || descriptors.has(client.geoRoute.exitNodeId)))).map(client => {
     const entry = client.entryCellId || 'main';
     if (entry !== 'main' && !descriptors.has(entry)) {
       throw new TypeError('Client entry Cell has no descriptor');
@@ -59,7 +60,7 @@ function productCellTopology({ state: input, cells, readyLinks = [], exits = {} 
     if (exit !== 'main' && !descriptors.has(exit)) {
       throw new TypeError('Client exit Cell has no descriptor');
     }
-    return { entry, exit, ...(entry !== exit && entry !== 'main' && exit !== 'main' ? { via: 'main' } : {}),
+    return { entry, exit, ...(client.geoRoute ? { geoRoute: client.geoRoute } : {}), ...(entry !== exit && entry !== 'main' && exit !== 'main' ? { via: 'main' } : {}),
       assignment: assignmentFromClient(client) };
   });
   const topology = { version: 1, nodes, links, clients };

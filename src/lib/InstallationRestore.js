@@ -145,6 +145,7 @@ async function openInstallationRestore(projectDirectory, { runner = runProcess,
     const registrationPort = await freePort('tcp', 53082, tcp);
     const dhtPort = await freePort('udp', 49033, udp);
     const values = { AWG_IMAGE: image, AWG_HOST: state.server.endpointHost,
+      AWG_EGRESS_IPV4: state.server.egressIpv4 || '',
       AWG_PORT: state.server.listenPort, AWG_PANEL_PORT: state.server.panelPort,
       AWG_MAIN_USER_INTERFACE: state.server.interfaceName, AWG_MAIN_USER_PORT: state.server.listenPort,
       AWG_MAIN_BOOTSTRAP_INTERFACE: 'awgmainb0', AWG_MAIN_CONTROL_INTERFACE: controlInterface,
@@ -177,9 +178,9 @@ async function openInstallationRestore(projectDirectory, { runner = runProcess,
       const id = crypto.randomUUID(), directory = path.join(root, id);
       await fs.mkdir(directory, { mode: 0o700 });
       const prepared = path.join(directory, 'prepared');
-      const { interfaceName, wanInterface, endpointHost, listenPort, panelPort } = current.server;
+      const { interfaceName, wanInterface, endpointHost, listenPort, panelPort, egressIpv4 } = current.server;
       const summary = await prepareConfigurationRestore({ archive, recoveryKey, directory: prepared,
-        target: { interfaceName, wanInterface, endpointHost, listenPort, panelPort } });
+        target: { interfaceName, wanInterface, endpointHost, listenPort, panelPort, ...(egressIpv4 ? { egressIpv4 } : {}) } });
       const bindings = await hostBindings(prepared, current, image);
       const incoming = path.join(directory, 'incoming');
       await fs.mkdir(incoming, { mode: 0o700 });

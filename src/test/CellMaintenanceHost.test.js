@@ -42,8 +42,23 @@ test('host rejects a different Cell and protects a pending removal from replacem
 test('verified host replacement survives a crash between anchor and completion writes', async t => {
   const f = await fixture(t), command = await f.main.poll('1.2.2');
   await f.host.prepare(f.request(command));
+  await f.host.planReplacement(`sha256:${'d'.repeat(64)}`);
   const anchor = await f.host.anchor.read();
   await f.host.anchor.write({ ...anchor, containerId: 'c'.repeat(64), imageId: `sha256:${'d'.repeat(64)}` });
   const resumed = await new CellMaintenanceHost(f.directory).read();
   assert.equal(resumed.phase, 'complete'); assert.equal(resumed.containerId, 'c'.repeat(64));
+});
+
+
+test('Root pins the replacement before promotion and will not adopt a different image', async t => {
+  const f = await fixture(t), command = await f.main.poll('1.2.2');
+  await f.host.prepare(f.request(command));
+  await assert.rejects(f.host.replace({ containerId: 'c'.repeat(64), imageId: `sha256:${'d'.repeat(64)}` }), /verified replacement/);
+  await f.host.planReplacement(`sha256:${'d'.repeat(64)}`);
+  await assert.rejects(f.host.planReplacement(`sha256:${'e'.repeat(64)}`), /intent changed/);
+  await assert.rejects(f.host.replace({ containerId: 'c'.repeat(64), imageId: `sha256:${'e'.repeat(64)}` }), /verified replacement/);
+  const next = await f.main.command('update');
+  assert.equal((await f.host.prepare(f.request(next))).command.id, command.id);
+  await f.host.replace({ containerId: 'c'.repeat(64), imageId: `sha256:${'d'.repeat(64)}` });
+  assert.equal((await f.host.prepare(f.request(next))).command.id, next.id);
 });

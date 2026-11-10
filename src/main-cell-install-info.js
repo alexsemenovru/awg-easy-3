@@ -17,6 +17,7 @@ function installationInfo(state) {
 
 async function main() {
   const state = await new StateStore('/data/state.json').load();
+  if (process.argv.includes('--verify') && !await require('./lib/MainUserTunnelVerifier').verifyMainUserTunnel(state)) throw new Error('Unverified panel interface');
   process.stdout.write(installationInfo(state));
 }
 
