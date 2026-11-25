@@ -2,6 +2,7 @@
 
 const net = require('node:net');
 const { renderGeoIpPolicy } = require('./GeoIpPolicy');
+const { discoveryServices } = require('./DiscoveryRelay');
 
 const TABLE_NAME = 'awg_easy_3';
 
@@ -65,6 +66,7 @@ const renderNftablesPolicy = ({
   homeGroups6 = {},
   guest6 = [],
   panelPort = 51821,
+  listenPort,
   geoClients = [],
   geoDatabase = {},
   headlessCell = false,
@@ -123,6 +125,12 @@ const renderNftablesPolicy = ({
     .map(set => `    iifname ${quote(awg)} ${ip} saddr @${set} tcp dport ${port} accept comment "home peers may access the panel"`).join('\n');
   const homeForward = (groups, family, ip) => homeSets(groups, family)
     .map(set => `    iifname ${quote(awg)} oifname ${quote(awg)} ${ip} saddr @${set} ${ip} daddr @${set} accept comment "home peer traffic"`).join('\n');
+  const discoveryPorts = discoveryServices(listenPort).map(service => service.port).join(', ');
+  const discoveryInput = headlessCell ? '' : `
+${homeSets(extra4, 4).map(set => `    iifname ${quote(awg)} ip saddr @${set} udp dport { ${discoveryPorts} } accept`).join('\n')}
+    udp dport { ${discoveryPorts} } drop comment "Discovery is restricted to IPv4 Home peers on AWG"`;
+  const discoveryOutput = headlessCell ? '' : `
+    oifname != ${quote(awg)} ip saddr ${subnet4} udp sport { ${discoveryPorts} } drop comment "Discovery cannot leave through a non-AWG interface"`;
 
   const ipv6Sets = subnet6 ? `
   set active6 {
@@ -186,7 +194,7 @@ ${ipv6Sets}${geo.sets}
 
   chain input {
     type filter hook input priority -10; policy accept;
-    jump client_permissions
+    jump client_permissions${discoveryInput}
     iifname ${quote(awg)} ip saddr @guest4 ip daddr ${subnet4} drop comment "guest peers cannot access AWG-Easy 3 services"
 ${headlessCell ? `    iifname ${quote(awg)} drop comment "headless cell has no client-facing services"` : `${homeInput(extra4, 4, 'ip')}${ipv6InputRules}`}
   }
@@ -203,7 +211,7 @@ ${geo.rules ? `${geo.rules}\n` : ''}    iifname ${quote(awg)} oifname ${quote(wa
 
   chain output {
     type filter hook output priority -10; policy accept;
-    jump client_permissions
+    jump client_permissions${discoveryOutput}
   }
 
   chain postrouting {

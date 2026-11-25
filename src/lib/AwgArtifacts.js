@@ -59,6 +59,7 @@ const buildAwgArtifacts = ({ server, clients, geoDatabase = {}, entryDescriptors
     ...(serverHasIPv6 ? { ipv6Subnet: server.ipv6Subnet } : {}),
     nat66: serverHasIPv6 && server.ipv6Mode === 'nat66',
     panelPort: server.panelPort ?? 51821,
+    listenPort: server.listenPort,
     home4: activeHomes.filter((client) => client.networkGroup === 'home'
       && clientTraffic(client).ipv4Enabled).map((client) => client.address4),
     homeGroups4: Object.fromEntries(Array.from({ length: 9 }, (_, index) => {

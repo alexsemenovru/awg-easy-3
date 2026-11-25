@@ -86,18 +86,18 @@ test('leaves SSDP searches and mDNS-compatible binary payloads unchanged', () =>
 });
 
 test('closes a bound socket when multicast membership fails', async () => {
-  let closed = false;
-  const socket = {
+  let closed = 0;
+  const socketFactory = () => ({
     on: () => {},
     once: () => {},
     off: () => {},
     bind: (_port, _host, callback) => callback(),
     addMembership: () => { throw new Error('membership failed'); },
-    close: (callback) => { closed = true; callback(); },
-  };
-  const relay = new DiscoveryRelay({ socketFactory: () => socket });
+    close: (callback) => { closed++; callback(); },
+  });
+  const relay = new DiscoveryRelay({ socketFactory });
 
   await assert.rejects(relay.start(state()), /membership failed/);
-  assert.equal(closed, true);
+  assert.equal(closed, 2);
   assert.equal(relay.sockets.length, 0);
 });

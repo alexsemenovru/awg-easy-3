@@ -9,6 +9,10 @@ const SERVICES = Object.freeze([
   Object.freeze({ name: 'ssdp4', family: 'udp4', group: '239.255.255.250', port: 1900 }),
 ]);
 
+// A legacy installation may use one of these ports for its AWG transport.
+// In that case don't start the conflicting discovery service or filter AWG.
+const discoveryServices = (listenPort) => SERVICES.filter((service) => service.port !== listenPort);
+
 const normalizedAddress = (value) => String(value).toLowerCase().replace(/^::ffff:/, '');
 
 const rewriteSsdpLocation = (message, sourceAddress) => {
@@ -91,38 +95,47 @@ class DiscoveryRelay {
     return [...new Map(targets.map((target) => [`${target.address}:${target.port}`, target])).values()];
   }
 
-  async startService(service, interfaceValue) {
+  newSocket(service, onMessage) {
     const socket = this.socketFactory({ type: service.family, reuseAddr: true });
     this.sockets.push(socket);
-    socket.on('message', (message, rinfo) => {
+    socket.on('message', onMessage);
+    return socket;
+  }
+
+  async bind(socket, port, address) {
+    await new Promise((resolve, reject) => {
+      socket.once('error', reject);
+      socket.bind(port, address, () => {
+        socket.off('error', reject);
+        resolve();
+      });
+    });
+  }
+
+  async startService(service, address4) {
+    const onMessage = (message, rinfo) => {
       if (message.length > 65_507) return;
       const payload = service.name === 'ssdp4'
         ? rewriteSsdpLocation(message, normalizedAddress(rinfo.address))
         : message;
       for (const target of this.targets(service, rinfo)) {
-        socket.send(payload, target.port, target.address, () => {});
+        unicast.send(payload, target.port, target.address, () => {});
       }
-    });
-    await new Promise((resolve, reject) => {
-      socket.once('error', reject);
-      socket.bind(service.port, service.family === 'udp4' ? '0.0.0.0' : '::', () => {
-        socket.off('error', reject);
-        try {
-          socket.addMembership(service.group, interfaceValue);
-          resolve();
-        } catch (error) {
-          reject(error);
-        }
-      });
-    });
+    };
+    // A unicast bind cannot receive multicast on Linux. Receive each on its
+    // own destination and always send from the VPN address.
+    const unicast = this.newSocket(service, onMessage);
+    await this.bind(unicast, service.port, address4);
+    const multicast = this.newSocket(service, onMessage);
+    await this.bind(multicast, service.port, service.group);
+    multicast.addMembership(service.group, address4);
   }
 
   async start(state) {
     this.refresh(state);
     try {
-      for (const service of SERVICES) {
-        const interfaceValue = service.family === 'udp4' ? state.server.address4 : state.server.interfaceName;
-        await this.startService(service, interfaceValue);
+      for (const service of discoveryServices(state.server.listenPort)) {
+        await this.startService(service, state.server.address4);
       }
     } catch (error) {
       await this.stop();
@@ -143,4 +156,4 @@ class DiscoveryRelay {
   }
 }
 
-module.exports = { DiscoveryRelay, SERVICES, normalizedAddress, rewriteSsdpLocation };
+module.exports = { DiscoveryRelay, SERVICES, discoveryServices, normalizedAddress, rewriteSsdpLocation };

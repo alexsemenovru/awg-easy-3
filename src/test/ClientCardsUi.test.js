@@ -287,6 +287,9 @@ test('GeoIP save confirms success only after the API accepts the policy', async 
   const f = await setup();
   await f.card().saveGeo({ mode: 'block', countries: ['RU'] });
   assert.equal(f.document.querySelector('#notice').textContent, 'geoApplied');
+  await f.card().saveGeo({ mode: 'off', countries: [] });
+  assert.equal(f.document.querySelector('#notice').textContent, 'geoApplied');
+  assert.equal(f.document.querySelector('#notice').className, 'notice success');
   f.fail('GEO_UNAVAILABLE');
   await assert.rejects(f.card().saveGeo({ mode: 'allow', countries: ['RU'] }));
   assert.equal(f.document.querySelector('#notice').className, 'notice error');

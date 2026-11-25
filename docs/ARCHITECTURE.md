@@ -177,6 +177,11 @@ per-peer fan-out for:
 
 Dual-stack Home clients use their internal IPv4 addresses for discovery; this
 avoids relying on IPv6 multicast membership support on userspace TUN devices.
+Each relay uses separate sockets for the multicast group and the server's VPN
+IPv4 address. The panel's nftables policy accepts discovery only from IPv4 Home
+peers on the client AWG interface and keeps relay replies on that interface.
+If a legacy installation uses either port for AWG transport, its corresponding
+discovery service stays disabled and the tunnel port remains available.
 
 A two-peer field capture validated server-side packet fan-out and SSDP
 `LOCATION` rewriting to the advertising peer's VPN address. Client applications

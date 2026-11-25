@@ -10,6 +10,7 @@ Example (from repo root on Linux):
 import fcntl
 import json
 import os
+from pathlib import Path
 import select
 import socket
 import struct
@@ -82,6 +83,69 @@ def received(fd, payload, expected, label):
     return found
 
 
+def verify_discovery():
+    policy('both')
+    relay_path = Path(__file__).resolve().parents[2] / 'lib' / 'DiscoveryRelay.js'
+    relay = subprocess.Popen(['node', '-e', """
+const { DiscoveryRelay } = require(process.argv[1]);
+const relay = new DiscoveryRelay();
+relay.start({
+  server: { address4: '10.8.0.1', interfaceName: 'awg0', listenPort: 51820 },
+  clients: [
+    { networkGroup: 'home', address4: '10.8.0.2' },
+    { networkGroup: 'home', address4: '10.8.0.3' },
+    { networkGroup: 'guest', address4: '10.8.0.4' },
+  ],
+}).then(() => console.log('ready')).catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
+""", str(relay_path)], stdout=subprocess.PIPE)
+    try:
+        assert select.select([relay.stdout], [], [], 5)[0], 'Discovery startup timeout'
+        assert relay.stdout.readline() == b'ready\n', 'Discovery failed to start'
+        listeners = run('ss', '-H', '-4', '-lun')
+        for port, group in [(5353, '224.0.0.251'), (1900, '239.255.255.250')]:
+            endpoints = [line.split()[3] for line in listeners.splitlines()
+                         if line.split()[3].endswith(f':{port}')]
+            assert set(endpoints) == {f'10.8.0.1:{port}', f'{group}:{port}'}, endpoints
+            for destination in [group, '10.8.0.1']:
+                marker = f'home-{destination}-{port}'.encode()
+                os.write(awg, packet('10.8.0.2', destination, marker, dport=port))
+                forwarded = received(awg, marker, True, 'Home discovery should be relayed')
+                assert socket.inet_ntoa(forwarded[12:16]) == '10.8.0.1'
+                assert socket.inet_ntoa(forwarded[16:20]) == '10.8.0.3'
+            marker = f'guest-{port}'.encode()
+            os.write(awg, packet('10.8.0.4', group, marker, dport=port))
+            received(awg, marker, False, 'Guest discovery should not be relayed')
+            # A socket listening on every address still must not receive WAN
+            # input. This tests the filter independently of the relay's binds.
+            for family, remote, public in [
+                (socket.AF_INET, '198.51.100.2', '198.51.100.1'),
+                (socket.AF_INET6, 'fd42:9::2', 'fd42:9::1'),
+            ]:
+                with socket.socket(family, socket.SOCK_DGRAM) as witness:
+                    witness.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    if family == socket.AF_INET6:
+                        witness.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+                    witness.bind(('0.0.0.0' if family == socket.AF_INET else '::', port))
+                    os.write(wan, packet(remote, public, b'public-discovery', dport=port))
+                    assert not select.select([witness], [], [], 0.15)[0], 'Public discovery reached a socket'
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sender:
+                sender.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                sender.bind(('10.8.0.1', port))
+                marker = f'private-output-{port}'.encode()
+                try:
+                    sender.sendto(marker, ('198.51.100.2', 55555))
+                except PermissionError:
+                    pass
+                received(wan, marker, False, 'Discovery may not use the WAN route')
+    finally:
+        relay.terminate()
+        relay.wait(timeout=5)
+    print('PASS mDNS/SSDP: private binds, Home unicast/multicast, Guest and WAN isolation', flush=True)
+
+
 run('ip', 'link', 'set', 'lo', 'up')
 run('sysctl', '-qw', 'net.ipv4.ip_forward=1', 'net.ipv6.conf.all.forwarding=1')
 awg = tun('awg0', ['10.8.0.1/24', 'fd42:8::1/64'])
@@ -104,6 +168,7 @@ def policy(name):
 
 
 checks = 0
+verify_discovery()
 for name, flags in [('both', (True, True)), ('v4', (True, False)), ('v6', (False, True)), ('off', (False, False)), ('both', (True, True))]:
     policy(name)
     for version, permitted in zip([4, 6], flags):
