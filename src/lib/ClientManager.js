@@ -297,15 +297,16 @@ class ClientManager {
     const state = await this.requireState();
     const client = state.clients.find((item) => item.id === clientId);
     if (!client) throw new TypeError(`Unknown client: ${clientId}`);
+    const descriptors = await this.entryDescriptors();
     if (client.entryCellId) {
       const detail = (await this.entryDetails())[client.entryCellId];
-      if (detail?.routeApplied !== true || detail?.confirmed?.[client.id]
+      if (!descriptors[client.entryCellId] || detail?.routeApplied !== true || detail?.confirmed?.[client.id]
         !== assignmentFingerprint(assignmentFromClient(client))) {
         throw Object.assign(new Error('Cell has not yet applied this client profile'),
           { code: 'CELL_PENDING' });
       }
     }
-    return this.build(state, await this.entryDescriptors()).clientArtifacts[clientId];
+    return this.build(state, descriptors).clientArtifacts[clientId];
   }
 }
 

@@ -102,7 +102,10 @@ test('Cell entry is absent from Main peers and firewall but exports its Cell end
   assert.match(artifacts.clientArtifacts.guest.nativeConfig, /Endpoint = cell\.example\.com:51830/);
   assert.match(artifacts.clientArtifacts.guest.nativeConfig,
     new RegExp(`PublicKey = ${descriptor.serverPublicKey.replace(/[+]/g, '\\+')}`));
-  assert.throws(() => buildAwgArtifacts(input), /Cell user descriptor/);
+  const offline = buildAwgArtifacts(input);
+  assert.equal(offline.serverConfig, artifacts.serverConfig);
+  assert.equal(offline.nftables, artifacts.nftables);
+  assert.deepEqual(Object.keys(offline.clientArtifacts), ['admin']);
   assert.throws(() => buildAwgArtifacts({ ...input, entryDescriptors: {
     [cellId]: { ...descriptor, address4: '10.65.0.1', ipv4Subnet: '10.65.0.0/24' },
   } }), /does not belong/);

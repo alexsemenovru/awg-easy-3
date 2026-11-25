@@ -83,8 +83,11 @@ const buildAwgArtifacts = ({ server, clients, geoDatabase = {}, entryDescriptors
       : [],
   });
 
+  // Cell descriptors arrive after the Main panel starts on a clean restore.
+  // These profiles stay in state and get no export or local fallback while
+  // their assigned Cell is unavailable.
   const clientArtifacts = Object.fromEntries(clients.filter(client => !client.entryCellId
-    || entryDescriptors[client.entryCellId] || client.enabled).map((client) => {
+    || entryDescriptors[client.entryCellId]).map((client) => {
     const entry = client.entryCellId
       ? validateCellUserDescriptor(entryDescriptors[client.entryCellId]) : null;
     if (entry && (!addressInSubnet(client.address4, entry.ipv4Subnet)

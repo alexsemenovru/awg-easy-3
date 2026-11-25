@@ -218,9 +218,10 @@ class Application {
     const client = state.clients.find((item) => item.id === query
       || item.name.trim().toLocaleLowerCase() === folded);
     if (!client) throw new Error(`Unknown client: ${query}`);
+    const descriptors = await this.entryDescriptors();
     if (client.entryCellId) {
       const detail = (await this.entryDetails())[client.entryCellId];
-      if (detail?.confirmed?.[client.id]
+      if (!descriptors[client.entryCellId] || detail?.confirmed?.[client.id]
         !== assignmentFingerprint(assignmentFromClient(client))) {
         throw new Error('Cell has not yet applied this client profile');
       }
@@ -228,7 +229,7 @@ class Application {
     // Exporting keys/routes does not need a country database or firewall build.
     const artifacts = buildAwgArtifacts({ server: state.server,
       clients: state.clients.map(client => ({ ...client, geoPolicy: undefined })),
-      entryDescriptors: await this.entryDescriptors() });
+      entryDescriptors: descriptors });
     return Object.freeze({ clientName: client.name, vpnLink: artifacts.clientArtifacts[client.id].vpnLink });
   }
 

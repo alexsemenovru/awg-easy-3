@@ -227,7 +227,22 @@ async function main() {
     console.log('PASS actual cold host restore with two live Cells: acknowledged backup generation, old Main stopped, new authority, preserved client keys and Home panel access');
   } catch (error) {
     console.error(`Live restore failed at ${stage}; synthetic private artifacts: ${root}`);
-    // No invitations, keys, client profiles or raw docker output in the report.
+    for (const directory of [old, destination]) {
+      try {
+        const entries = Object.values(await new MainCellEntrySnapshot(path.join(directory, 'cell-status/entries.json')).readDetails());
+        if (entries.length) console.error(`${path.basename(directory)} Cell status:`, JSON.stringify(entries.map(row => ({
+          announced: Boolean(row.descriptor), confirmedClients: Object.keys(row.confirmed).length, routeApplied: row.routeApplied,
+        }))));
+      } catch { /* A snapshot may not exist if startup failed. */ }
+    }
+    // Emit only fixed startup and recovery diagnostics, with no state or keys.
+    for (const name of ['awg-easy-3-main-cell', ...cellNames]) {
+      try {
+        const messages = docker('logs', '--tail', '12', name).split('\n').filter(line =>
+          /^(?:Main Cell reconciliation needs attention|Cell bootstrap command failed; check local diagnostics without sharing the invitation|Cell settings service stopped unexpectedly)$/.test(line));
+        if (messages.length) console.error(name, [...new Set(messages)].join('; '));
+      } catch { /* A container may never have started. */ }
+    }
     for (const line of String(error.stderr ?? '').split('\n')) {
       if (/^(?:Error: (?:restore|restored|cannot|another)|awg-quick: )/.test(line)) {
         console.error(line.replace(/[A-Za-z0-9+/_-]{40,}={0,2}/g, '[redacted]').slice(0, 180));

@@ -101,7 +101,7 @@ test('GeoIP restart uses cached database without network and keeps exported prof
   await application.stop();
 });
 
-test('a Cell-entry profile remains exportable after Main restart without installing its peer locally', async () => {
+test('Main starts with a retained Cell-entry profile before the Cell rejoins after restore', async () => {
   const { application } = fixture();
   const id = 'a'.repeat(32);
   const original = stateFixture();
@@ -112,13 +112,15 @@ test('a Cell-entry profile remains exportable after Main restart without install
   const descriptor = { version: 1, endpointHost: 'cell.example.test', endpointPort: 51830,
     serverPublicKey: Buffer.alloc(32, 4).toString('base64'),
     address4: '10.64.0.1', ipv4Subnet: '10.64.0.0/24', profile: generateOfficialProfile() };
-  application.entryDescriptors = async () => ({ [id]: descriptor });
   const remote = (await application.store.load()).clients[1];
-  application.entryDetails = async () => ({ [id]: { descriptor,
-    confirmed: { remote: assignmentFingerprint(assignmentFromClient(remote)) } } });
   const applied = [];
   application.applier.apply = async value => applied.push(value);
   await application.start();
+  assert.match((await application.exportClient('home-admin')).vpnLink, /^vpn:\/\//);
+  await assert.rejects(application.exportClient('remote'), /Cell has not yet applied/);
+  application.entryDescriptors = async () => ({ [id]: descriptor });
+  application.entryDetails = async () => ({ [id]: { descriptor,
+    confirmed: { remote: assignmentFingerprint(assignmentFromClient(remote)) } } });
   const first = await application.exportClient('remote');
   assert.match(first.vpnLink, /^vpn:\/\//);
   await application.stop();
