@@ -59,11 +59,11 @@ async function main() {
 awg_easy_latest_stable_version() { printf '%s\\n' '${next}'; }
 awg_easy_verify_candidate_image() { [ "$1:$3" = '${next}:${digest}' ]; }
 timeout() {
-  if [ "$1:$2:$3:$4" = '300:docker:pull:${official}' ]; then return 0; fi
+  if [ "$1:${2:-}:${3:-}:${4:-}" = '300:docker:pull:${official}' ]; then return 0; fi
   command timeout "$@"
 }
 docker() {
-  if [ "$1:$2" = image:inspect ]; then
+  if [ "$1:${2:-}" = image:inspect ]; then
     case "$*" in
       *'{{range .RepoDigests}}'*) printf '%s\\n' '${digest}'; return 0 ;;
       *'{{index .Config.Labels'*) printf '%s\\n' '${'b'.repeat(40)}'; return 0 ;;
@@ -113,7 +113,7 @@ docker() {
       .write(sign({ version: 1, command }, cell.privateKey, 'network-maintenance-host/v1'));
     const supervisor = path.join(directory, 'cell-maintenance.sh');
     const initialized = await shell(supervisor, '--init');
-    assert.equal(initialized.code, 0, initialized.output);
+    assert.equal(initialized.code, 0, `Initial supervisor setup: ${initialized.output}`);
     assert.equal((await new CellMaintenanceHost(host).anchor.read()).containerId, previous);
     await fs.writeFile(path.join(directory, 'inject-once'), '', { mode: 0o600 });
     process.env.AWG_TEST_PREVIOUS = previous;
@@ -123,7 +123,8 @@ docker() {
     assert.throws(() => run('inspect', previous));
     assert.throws(() => run('inspect', 'network-relay'));
     assert.equal((await new CellMaintenanceHost(host).read()).replacementImageId, candidate);
-    const resumed = await shell(supervisor); assert.equal(resumed.code, 0, resumed.output);
+    const resumed = await shell(supervisor);
+    assert.equal(resumed.code, 0, `Resumed supervisor: ${resumed.output}`);
     const replacement = run('inspect', '-f', '{{.Id}}', 'network-relay'); assert.notEqual(replacement, previous);
     assert.equal(run('exec', replacement, 'node', '-p', "require('/app/package.json').version"), next);
     const state = await new CellMaintenanceHost(host).read(); assert.equal(state.phase, 'complete'); assert.equal(state.containerId, replacement);
@@ -139,7 +140,7 @@ docker() {
   }
 }
 main().catch(error => {
-  console.error([error.message?.split('\n')[0], String(error.stderr ?? '').trim()]
+  console.error([error.message, String(error.stderr ?? '').trim(), error.stack?.split('\n').find(line => line.includes('test-cell-update-host.cjs:'))]
     .filter(Boolean).join('\n').split('\n').slice(-8).join('\n')
     .replace(/[A-Za-z0-9+/_-]{40,}={0,2}/g, '[redacted]').slice(0, 900));
   process.exitCode = 1;

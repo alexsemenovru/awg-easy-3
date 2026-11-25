@@ -100,7 +100,7 @@ async function main() {
     stage = 'register-two-live-cells';
     for (const [index, name] of cellNames.entries()) {
       const directory = path.join(root, `cell${index + 1}`); await fs.mkdir(directory, { mode: 0o700 });
-      const code = await requestInvitation(socket);
+      const code = await until(() => requestInvitation(socket), `issue invitation for Cell ${index + 1}`, 8);
       await fs.writeFile(path.join(directory, 'invitation'), code, { mode: 0o600 });
       await container(name, `172.31.250.${index + 2}`, directory, [
         '-e', 'AWG_PRIVATE_STATE=1', '-e', 'AWG_CELL_STATE_DIR=/cell-data', '-e', 'AWG_CELL_INVITATION_FILE=/cell-data/invitation',
@@ -118,6 +118,7 @@ async function main() {
     }
     const details = await new MainCellEntrySnapshot(path.join(old, 'cell-status/entries.json')).readDetails();
     const ids = Object.keys(details);
+    console.log('Two running Cells registered over the real bootstrap and control interfaces');
     stage = 'configure-test-profiles';
     compose(old, ['stop', 'main-cell', 'awg-easy']);
     for (let index = 0; index < 2; index++) {
@@ -150,7 +151,8 @@ async function main() {
       return new CellAwgConnectionStore(path.join(directory, 'connection.json'),
         new ControlIdentityStore(path.join(directory, 'identity.json')));
     });
-    const oldAuthority = await new ControlIdentityStore(path.join(old, 'cell-data/authority.json')).load('controller');
+    const oldEpochs = await Promise.all(cellConnections.map(store => epochFor(store)));
+    console.log('Both original client profiles reached the panel before backup');
     stage = 'backup-and-confirm-generation';
     const backup = await requestBackup(socket);
     await fs.writeFile(path.join(root, 'backup.awgbackup'), Buffer.from(backup.archive, 'base64'), { mode: 0o600 });
@@ -160,6 +162,7 @@ async function main() {
         .filter(row => row.status === 'consumed');
       return rows.length === 2 && rows.every(row => row.backup.confirmed && row.backup.generation === backup.generation);
     }, 'backup generation acknowledged');
+    console.log('Both Cells acknowledged the archive generation');
     stage = 'destroy-old-main-namespace';
     compose(old, ['stop']); compose(old, ['rm', '-f']); docker('rm', '-f', 'awglab-old');
     run('ip', ['addr', 'add', `${endpoint}/24`, 'dev', bridge]);
@@ -190,7 +193,7 @@ async function main() {
     }
     assert.equal(restored.server.wanInterface, bridge);
     const newAuthority = await new ControlIdentityStore(path.join(destination, 'cell-data/authority.json')).load('controller');
-    assert.ok(newAuthority.publicKey !== oldAuthority.publicKey, 'Restore reused the old live authority');
+    assert.ok(oldEpochs.every(epoch => newAuthority.publicKey !== epoch.key), 'Restore reused the old live authority');
     await until(async () => {
       const epochs = await Promise.all(cellConnections.map(store => epochFor(store)));
       return epochs.every(epoch => epoch.key === newAuthority.publicKey && epoch.generation === backup.generation);
@@ -204,6 +207,11 @@ async function main() {
   } catch (error) {
     console.error(`Live restore failed at ${stage}; synthetic private artifacts: ${root}`);
     // No invitations, keys, client profiles or raw docker output in the report.
+    for (const line of String(error.stderr ?? '').split('\n')) {
+      if (/^(?:Error: (?:restore|restored|cannot|another)|awg-quick: )/.test(line)) {
+        console.error(line.replace(/[A-Za-z0-9+/_-]{40,}={0,2}/g, '[redacted]').slice(0, 180));
+      }
+    }
     throw new Error(String(error.message).split('\n')[0].replace(/[A-Za-z0-9+/_-]{40,}={0,2}/g, '[redacted]').slice(0, 140));
   } finally {
     if (success || process.env.AWG_KEEP_FAILED_LAB !== '1') {
