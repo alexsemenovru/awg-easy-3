@@ -5,16 +5,15 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const assert = require('node:assert/strict');
-const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const { fixture } = require('../src/test/helpers/BackupFixture');
 const { StateStore } = require('../src/lib/StateStore');
+const { PasswordManager } = require('../src/lib/PasswordManager');
 const { requestInvitation, requestBackup } = require('../src/lib/MainCellInvitationSocket');
 const { MainCellEntrySnapshot } = require('../src/lib/MainCellEntrySnapshot');
-const { CellAwgConnectionStore, deriveAwgPublicKey } = require('../src/lib/CellAwgConnectionStore');
+const { CellAwgConnectionStore } = require('../src/lib/CellAwgConnectionStore');
 const { ControlIdentityStore } = require('../src/lib/ControlIdentityStore');
 const { epochFor } = require('../src/lib/CellControlAuthority');
-const { buildAwgArtifacts } = require('../src/lib/AwgArtifacts');
 const source = path.resolve(__dirname, '..');
 const run = (file, args, options = {}) => execFileSync(file, args, { encoding: 'utf8', timeout: 180000,
   stdio: ['pipe', 'pipe', 'pipe'], ...options }).trim();
@@ -24,14 +23,13 @@ async function until(check, label, count = 90) {
   for (let i = 0; i < count; i++) { try { const value = await check(); if (value) return value; } catch {} await pause(1000); }
   throw new Error(`Timed out: ${label}`);
 }
-const pair = () => { const bytes = crypto.randomBytes(32); bytes[0] &= 248; bytes[31] &= 127; bytes[31] |= 64;
-  const privateKey = bytes.toString('base64'); return { privateKey, publicKey: deriveAwgPublicKey(privateKey) }; };
 async function main() {
   if (process.platform !== 'linux' || process.getuid() !== 0 || process.env.AWG_DISPOSABLE_HOST_TEST !== '1') throw new Error('Disposable root VM opt-in required');
   await fs.access('/var/tmp/ALLOW_AWG_LIVE_RESTORE_TEST');
   const cellNames = ['awglab-c1', 'awglab-c2'];
+  const cellNetworks = ['awglab-n1', 'awglab-n2'];
   const deviceNames = ['awglab-device1', 'awglab-device2'];
-  const ownedNames = ['awg-easy-3-main-cell', 'awg-easy-3', ...deviceNames, ...cellNames, 'awglab-old'];
+  const ownedNames = ['awg-easy-3-main-cell', 'awg-easy-3', ...deviceNames, ...cellNames, ...cellNetworks, 'awglab-old'];
   for (const name of ownedNames) {
     let exists = false; try { docker('inspect', name); exists = true; } catch { docker('info'); }
     if (exists) throw new Error('Existing lab or product container: refusing test');
@@ -81,9 +79,11 @@ async function main() {
     run('ip', ['addr', 'add', '172.31.250.1/24', 'dev', bridge]); run('ip', ['link', 'set', bridge, 'up']);
     await container('awglab-old', endpoint);
     await assets(old, true);
-    const state = await stateFromFixture();
-    Object.assign(state.server, { interfaceName: 'awglabu0', wanInterface: 'eth0', endpointHost: endpoint, listenPort: 55000 });
-    await new StateStore(path.join(old, 'data/state.json')).save(state);
+    const initial = await stateFromFixture();
+    Object.assign(initial.server, { interfaceName: 'awglabu0', wanInterface: 'eth0', endpointHost: endpoint, listenPort: 55000 });
+    const oldStore = new StateStore(path.join(old, 'data/state.json'));
+    await oldStore.save(initial);
+    const password = await new PasswordManager({ store: oldStore }).resetPassword();
     compose(old, ['up', '-d'], false);
     await until(() => docker('inspect', '-f', '{{.State.Health.Status}}', 'awg-easy-3') === 'healthy', 'old panel');
     await fs.mkdir(path.join(old, 'cell-data'), { mode: 0o700 });
@@ -102,15 +102,16 @@ async function main() {
       const directory = path.join(root, `cell${index + 1}`); await fs.mkdir(directory, { mode: 0o700 });
       const code = await until(() => requestInvitation(socket), `issue invitation for Cell ${index + 1}`, 8);
       await fs.writeFile(path.join(directory, 'invitation'), code, { mode: 0o600 });
-      await container(name, `172.31.250.${index + 2}`, directory, [
+      const network = cellNetworks[index], address = `172.31.250.${index + 2}`;
+      await container(network, address);
+      docker('run', '-d', '--name', name, '--network', `container:${network}`, '--privileged',
+        '--no-healthcheck', '--restart', 'on-failure:3', '-v', `${directory}:/cell-data:Z`,
         '-e', 'AWG_PRIVATE_STATE=1', '-e', 'AWG_CELL_STATE_DIR=/cell-data', '-e', 'AWG_CELL_INVITATION_FILE=/cell-data/invitation',
         '-e', 'AWG_CELL_RUNTIME_DIR=/cell-data/runtime', '-e', 'WG_QUICK_USERSPACE_IMPLEMENTATION=net-forward',
         '-e', 'AWG_CELL_BOOTSTRAP_INTERFACE=awgcellb0',
         '-e', 'AWG_CELL_CONTROL_INTERFACE=awgcellc0', '-e', 'AWG_CELL_USER_INTERFACE=awgcellu0',
-        '-e', 'AWG_CELL_USER_PORT=51830', '-e', 'AWG_CELL_WAN_INTERFACE=eth0', '-e', `AWG_CELL_ENDPOINT=172.31.250.${index + 2}`,
-      ]);
-      docker('exec', '-d', name, 'sh', '-c',
-        'while ! node /app/link-agent.js serve >> /cell-data/lab-service.log 2>&1; do sleep 2; done');
+        '-e', 'AWG_CELL_USER_PORT=51830', '-e', 'AWG_CELL_WAN_INTERFACE=eth0', '-e', `AWG_CELL_ENDPOINT=${address}`,
+        '--entrypoint', '/usr/bin/dumb-init', image, '--', 'node', '/app/link-agent.js', 'serve');
       await until(async () => {
         const rows = Object.values(await new MainCellEntrySnapshot(path.join(old, 'cell-status/entries.json')).readDetails());
         return rows.length === index + 1 && rows.every(row => row.descriptor);
@@ -120,28 +121,48 @@ async function main() {
     const ids = Object.keys(details);
     console.log('Two running Cells registered over the real bootstrap and control interfaces');
     stage = 'configure-test-profiles';
-    compose(old, ['stop', 'main-cell', 'awg-easy']);
+    const request = (route, method, body, cookie) => JSON.parse(run('nsenter', [
+      '-t', namespace('awglab-old'), '-n', process.execPath, '-e', `
+        const input = JSON.parse(require('node:fs').readFileSync(0, 'utf8'));
+        fetch('http://10.8.0.1:51821/api/v1' + input.route, {
+          method: input.method, signal: AbortSignal.timeout(20000),
+          headers: { 'Content-Type': 'application/json', ...(input.cookie ? { Cookie: input.cookie } : {}) },
+          body: JSON.stringify(input.body),
+        }).then(async r => {
+          process.stdout.write(JSON.stringify({ status: r.status, cookie: r.headers.get('set-cookie')?.split(';')[0], body: await r.text() }));
+        }).catch(() => { process.exitCode = 1; });
+      `,
+    ], { input: JSON.stringify({ route, method, body, cookie }) }));
+    const login = request('/session', 'POST', { password });
+    assert.equal(login.status, 200, 'Main login failed in restore fixture');
+    assert.ok(login.cookie, 'Main did not issue a session');
     for (let index = 0; index < 2; index++) {
-      const descriptor = details[ids[index]].descriptor;
-      state.clients.push({ id: `test-cell-${index}`, name: `Lab ${index}`, ...pair(), presharedKey: crypto.randomBytes(32).toString('base64'),
-        networkGroup: 'home', enabled: true, entryCellId: ids[index], exitNodeId: ids[index],
-        address4: descriptor.address4.replace(/\.1$/, '.2') });
+      const created = request('/clients', 'POST', { name: `Lab ${index}`, networkGroup: 'home', entryCellId: ids[index] }, login.cookie);
+      assert.equal(created.status, 201, 'Main failed to create a Cell entry profile');
+      const { id } = JSON.parse(created.body).client;
+      const updated = request(`/clients/${id}`, 'PATCH', { exitNodeId: ids[index] }, login.cookie);
+      assert.equal(updated.status, 200, 'Main failed to set the Cell exit');
     }
-    await new StateStore(path.join(old, 'data/state.json')).save(state);
-    compose(old, ['up', '-d']);
     await until(async () => {
       const rows = Object.values(await new MainCellEntrySnapshot(path.join(old, 'cell-status/entries.json')).readDetails());
       return rows.length === 2 && rows.every(row => row.routeApplied && Object.keys(row.confirmed).length === 1);
     }, 'two applied profiles');
-    const users = state.clients.filter(client => client.entryCellId);
-    const descriptors = Object.fromEntries(Object.entries(details).map(([id, row]) => [id, row.descriptor]));
-    const { clientArtifacts } = buildAwgArtifacts({ server: state.server, clients: state.clients, entryDescriptors: descriptors });
+    const state = await oldStore.load();
+    const users = ids.map(id => state.clients.find(client => client.entryCellId === id));
     for (const [index, name] of deviceNames.entries()) {
       const directory = path.join(root, `device${index + 1}`);
       await fs.mkdir(directory, { mode: 0o700 });
-      await fs.writeFile(path.join(directory, 'phone.conf'), clientArtifacts[users[index].id].nativeConfig, { mode: 0o600 });
+      const exported = request(`/clients/${users[index].id}/export?format=native-config`, 'GET', undefined, login.cookie);
+      assert.equal(exported.status, 200, 'Main failed to export the applied Cell profile');
+      await fs.writeFile(path.join(directory, 'phone.conf'), exported.body, { mode: 0o600 });
       await container(name, `172.31.250.${101 + index}`, directory);
-      docker('exec', name, 'sh', '-c', 'awg-quick up /cell-data/phone.conf > /cell-data/start.log 2>&1');
+      // The production image has no desktop resolver manager. The probes
+      // use literal addresses, keeping the downloaded profile intact.
+      docker('exec', name, 'sh', '-ec', [
+        'printf "#!/bin/sh\\ncat >/dev/null\\n" > /tmp/resolvconf',
+        'chmod 700 /tmp/resolvconf',
+        'PATH=/tmp:$PATH awg-quick up /cell-data/phone.conf',
+      ].join('; '));
     }
     const panel = name => docker('exec', name, 'node', '-e', `const q=require('http').get('http://10.8.0.1:51821',r=>{r.resume();r.on('end',()=>process.exit(r.statusCode===200?0:1))});q.setTimeout(2000,()=>q.destroy());q.on('error',()=>process.exit(1))`) === '';
     for (const name of deviceNames) await until(() => panel(name), `Home panel before restore from ${name}`);
