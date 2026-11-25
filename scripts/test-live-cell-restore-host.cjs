@@ -11,9 +11,10 @@ const { fixture } = require('../src/test/helpers/BackupFixture');
 const { StateStore } = require('../src/lib/StateStore');
 const { requestInvitation, requestBackup } = require('../src/lib/MainCellInvitationSocket');
 const { MainCellEntrySnapshot } = require('../src/lib/MainCellEntrySnapshot');
-const { deriveAwgPublicKey } = require('../src/lib/CellAwgConnectionStore');
+const { CellAwgConnectionStore, deriveAwgPublicKey } = require('../src/lib/CellAwgConnectionStore');
+const { ControlIdentityStore } = require('../src/lib/ControlIdentityStore');
+const { epochFor } = require('../src/lib/CellControlAuthority');
 const { buildAwgArtifacts } = require('../src/lib/AwgArtifacts');
-const { parseStateText, encodeStateText } = require('../src/lib/PrivateStateText');
 const source = path.resolve(__dirname, '..');
 const run = (file, args, options = {}) => execFileSync(file, args, { encoding: 'utf8', timeout: 180000,
   stdio: ['pipe', 'pipe', 'pipe'], ...options }).trim();
@@ -144,6 +145,12 @@ async function main() {
     const panel = name => docker('exec', name, 'node', '-e', `const q=require('http').get('http://10.8.0.1:51821',r=>{r.resume();r.on('end',()=>process.exit(r.statusCode===200?0:1))});q.setTimeout(2000,()=>q.destroy());q.on('error',()=>process.exit(1))`) === '';
     for (const name of deviceNames) await until(() => panel(name), `Home panel before restore from ${name}`);
     const runningCells = new Map(cellNames.map(name => [name, namespace(name)]));
+    const cellConnections = cellNames.map((_, index) => {
+      const directory = path.join(root, `cell${index + 1}`);
+      return new CellAwgConnectionStore(path.join(directory, 'connection.json'),
+        new ControlIdentityStore(path.join(directory, 'identity.json')));
+    });
+    const oldAuthority = await new ControlIdentityStore(path.join(old, 'cell-data/authority.json')).load('controller');
     stage = 'backup-and-confirm-generation';
     const backup = await requestBackup(socket);
     await fs.writeFile(path.join(root, 'backup.awgbackup'), Buffer.from(backup.archive, 'base64'), { mode: 0o600 });
@@ -151,7 +158,7 @@ async function main() {
     await until(async () => {
       const rows = JSON.parse(await fs.readFile(path.join(old, 'cell-status/cells.json'), 'utf8')).cells
         .filter(row => row.status === 'consumed');
-      return rows.length === 2 && rows.every(row => row.backup.confirmed);
+      return rows.length === 2 && rows.every(row => row.backup.confirmed && row.backup.generation === backup.generation);
     }, 'backup generation acknowledged');
     stage = 'destroy-old-main-namespace';
     compose(old, ['stop']); compose(old, ['rm', '-f']); docker('rm', '-f', 'awglab-old');
@@ -182,6 +189,12 @@ async function main() {
       assert.equal(client.exitNodeId, user.exitNodeId);
     }
     assert.equal(restored.server.wanInterface, bridge);
+    const newAuthority = await new ControlIdentityStore(path.join(destination, 'cell-data/authority.json')).load('controller');
+    assert.ok(newAuthority.publicKey !== oldAuthority.publicKey, 'Restore reused the old live authority');
+    await until(async () => {
+      const epochs = await Promise.all(cellConnections.map(store => epochFor(store)));
+      return epochs.every(epoch => epoch.key === newAuthority.publicKey && epoch.generation === backup.generation);
+    }, 'both live Cells accepted the restored authority', 120);
     for (const name of deviceNames) await until(() => panel(name), `Home panel after restore from ${name}`, 120);
     await until(async () => Object.values(await new MainCellEntrySnapshot(path.join(destination, 'cell-status/entries.json')).readDetails())
       .filter(row => row.routeApplied).length === 2, 'both live Cells recovered', 120);

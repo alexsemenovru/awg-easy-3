@@ -9,6 +9,8 @@ const { execFileSync, spawn } = require('node:child_process');
 const { ControlIdentityStore } = require('../src/lib/ControlIdentityStore');
 const { MainCellMaintenance, sign, verifyHostRequest } = require('../src/lib/CellMaintenance');
 const { CellMaintenanceHost } = require('../src/lib/CellMaintenanceHost');
+const { CellControlService } = require('../src/lib/CellControlService');
+const { verifyControlReply } = require('../src/lib/CellControlProtocol');
 const { BackupJournal } = require('../src/lib/BackupJournal');
 const root = path.resolve(__dirname, '..');
 const run = (...args) => execFileSync('docker', args, { encoding: 'utf8', timeout: 120000, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -26,7 +28,10 @@ async function main() {
   const fixture = path.resolve(process.argv[3]);
   if (!fixture.startsWith('/var/tmp/awg-maintenance-fixture-') || (await fs.readFile(path.join(fixture, '.allow-export'), 'utf8')).trim() !== 'synthetic-cell-only') throw new Error('Synthetic fixture required');
   const image = run('image', 'inspect', '-f', '{{.Id}}', process.argv[2]); assert.match(image, /^sha256:[a-f0-9]{64}$/);
-  const version = require('../src/package.json').version.split('.').map(Number); version[2]++; const next = version.join('.');
+  const manifest = require('../src/package.json');
+  const version = manifest.version.split('.').map(Number);
+  version[2]++;
+  const next = version.join('.');
   const directory = await fs.mkdtemp('/var/tmp/awg-update-host-'); await fs.chmod(directory, 0o700);
   await fs.copyFile(path.join(root, 'cell-maintenance.sh'), path.join(directory, 'cell-maintenance.sh'));
   await fs.cp(path.join(root, 'lib'), path.join(directory, 'lib'), { recursive: true });
@@ -38,10 +43,14 @@ async function main() {
   const environment = path.join(directory, '.env.cells-cell');
   await fs.writeFile(environment, `AWG_IMAGE=${image}\nAWG_CELL_BOOTSTRAP_INTERFACE=awgcell8\nAWG_CELL_CONTROL_INTERFACE=awgcellp8\nAWG_CELL_USER_INTERFACE=awgcellu8\nAWG_CELL_USER_PORT=51830\n`, { mode: 0o600 });
   const compose = args => run('compose', '--project-directory', directory, '--env-file', environment, '-f', composeFile, ...args);
-  const dockerfile = path.join(directory, 'Dockerfile.fixture');
-  await fs.writeFile(dockerfile, `FROM ${image}\nRUN node -e 'const f=require("fs");const p=require("/app/package.json");p.version="${next}";f.writeFileSync("/app/package.json",JSON.stringify(p))'\n`);
+  const nextManifest = path.join(directory, 'package.json');
+  await fs.writeFile(nextManifest, JSON.stringify({ ...manifest, version: next }));
   const tag = `awg-easy-3:synthetic-update-${Date.now()}`;
-  run('build', '--network', 'none', '-t', tag, '-f', dockerfile, directory);
+  const template = run('create', '--network', 'none', image);
+  try {
+    run('cp', nextManifest, `${template}:/app/package.json`);
+    run('commit', template, tag);
+  } finally { run('rm', '-v', template); }
   const candidate = run('image', 'inspect', '-f', '{{.Id}}', tag);
   const official = `ghcr.io/alexsemenovru/awg-easy-3:${next}`;
   const digest = `ghcr.io/alexsemenovru/awg-easy-3@sha256:${'a'.repeat(64)}`;
@@ -77,7 +86,28 @@ docker() {
     const cell = await new ControlIdentityStore(path.join(directory, 'cell-data/identity.json')).load('cell');
     const controller = JSON.parse(await fs.readFile(path.join(fixture, 'main-identity.json'), 'utf8'));
     const main = new MainCellMaintenance(path.join(directory, 'synthetic-main.json'), { controller, cellKey: cell.publicKey, endpointHost: 'localhost', version: next });
-    const command = await main.poll(require('../src/package.json').version);
+    const mainControl = new CellControlService({
+      identityStore: { load: async () => controller },
+      enrollmentStore: { read: async () => ({ invitations: [{ status: 'consumed', cellKey: cell.publicKey }] }) },
+      maintenanceForCell: () => main,
+    });
+    const reportVersion = async containerId => {
+      const bytes = Buffer.from(run('exec', containerId, 'node', '-e', `
+        const { ControlIdentityStore } = require('/app/lib/ControlIdentityStore');
+        const { signControl } = require('/app/lib/CellControlProtocol');
+        const version = require('/app/package.json').version;
+        new ControlIdentityStore('/cell-data/identity.json').load('cell').then(identity => {
+          process.stdout.write(JSON.stringify(signControl({
+            controllerKey: process.argv[1], action: 'maintenance', payload: { version },
+          }, identity.privateKey)));
+        }).catch(() => { process.exitCode = 1; });
+      `, controller.publicKey));
+      const reply = await mainControl.handle(bytes);
+      assert.equal(reply.ok, true, 'Main rejected the version report');
+      return verifyControlReply(reply, controller.publicKey, JSON.parse(bytes).requestId).maintenance;
+    };
+    const command = await reportVersion(previous);
+    assert.equal(command.targetVersion, next);
     await new BackupJournal(path.join(directory, 'cell-data/maintenance/request.json'),
       value => verifyHostRequest(value, { controllerKey: controller.publicKey, cellKey: cell.publicKey }), 8192)
       .write(sign({ version: 1, command }, cell.privateKey, 'network-maintenance-host/v1'));
@@ -97,10 +127,16 @@ docker() {
     const replacement = run('inspect', '-f', '{{.Id}}', 'network-relay'); assert.notEqual(replacement, previous);
     assert.equal(run('exec', replacement, 'node', '-p', "require('/app/package.json').version"), next);
     const state = await new CellMaintenanceHost(host).read(); assert.equal(state.phase, 'complete'); assert.equal(state.containerId, replacement);
+    assert.equal((await main.status()).matchesMain, false);
+    assert.equal(await reportVersion(replacement), null);
+    assert.deepEqual(await main.status(), { version: next, action: null, targetVersion: null, completed: false, matchesMain: true });
     assert.equal((await shell(supervisor)).code, 0);
     assert.equal(run('inspect', '-f', '{{.Id}}', 'network-relay'), replacement);
-    console.log('PASS real Root/Compose Cell image replacement, injected interruption, forward retry, exact image intent and idempotence (unpublished registry boundary fixture)');
-  } finally { try { compose(['down']); } catch {} }
+    console.log('PASS real Compose replacement, forward retry and authenticated version confirmation from the new container (local registry fixture)');
+  } finally {
+    try { compose(['down']); } catch {}
+    run('image', 'rm', tag);
+  }
 }
 main().catch(error => {
   console.error([error.message?.split('\n')[0], String(error.stderr ?? '').trim()]
