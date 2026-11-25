@@ -59,11 +59,11 @@ async function main() {
 awg_easy_latest_stable_version() { printf '%s\\n' '${next}'; }
 awg_easy_verify_candidate_image() { [ "$1:$3" = '${next}:${digest}' ]; }
 timeout() {
-  if [ "$1:${2:-}:${3:-}:${4:-}" = '300:docker:pull:${official}' ]; then return 0; fi
+  if [ "$#" -eq 4 ] && [ "$1:$2:$3:$4" = '300:docker:pull:${official}' ]; then return 0; fi
   command timeout "$@"
 }
 docker() {
-  if [ "$1:${2:-}" = image:inspect ]; then
+  if [ "$#" -ge 2 ] && [ "$1:$2" = image:inspect ]; then
     case "$*" in
       *'{{range .RepoDigests}}'*) printf '%s\\n' '${digest}'; return 0 ;;
       *'{{index .Config.Labels'*) printf '%s\\n' '${'b'.repeat(40)}'; return 0 ;;
