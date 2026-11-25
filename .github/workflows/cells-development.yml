@@ -112,3 +112,9 @@ jobs:
           sudo install -m 0600 /dev/null /var/tmp/ALLOW_AWG_RESTORE_TEST
           sudo env AWG_DISPOSABLE_HOST_TEST=1 "$(command -v node)" \
             scripts/test-installation-restore-host.cjs awg-easy-3:cells-ci
+      - name: Resume a real Cell container replacement after interruption
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo env AWG_DISPOSABLE_HOST_TEST=1 "$(command -v node)" \
+            scripts/test-cell-update-host.cjs awg-easy-3:cells-ci /var/tmp/awg-maintenance-fixture-ci

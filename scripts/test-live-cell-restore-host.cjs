@@ -28,7 +28,10 @@ const pair = () => { const bytes = crypto.randomBytes(32); bytes[0] &= 248; byte
 async function main() {
   if (process.platform !== 'linux' || process.getuid() !== 0 || process.env.AWG_DISPOSABLE_HOST_TEST !== '1') throw new Error('Disposable root VM opt-in required');
   await fs.access('/var/tmp/ALLOW_AWG_LIVE_RESTORE_TEST');
-  for (const name of ['awg-easy-3', 'awg-easy-3-main-cell', 'awglab-old', 'awglab-c1', 'awglab-c2', 'awglab-device']) {
+  const cellNames = ['awglab-c1', 'awglab-c2'];
+  const deviceNames = ['awglab-device1', 'awglab-device2'];
+  const ownedNames = ['awg-easy-3-main-cell', 'awg-easy-3', ...deviceNames, ...cellNames, 'awglab-old'];
+  for (const name of ownedNames) {
     let exists = false; try { docker('inspect', name); exists = true; } catch { docker('info'); }
     if (exists) throw new Error('Existing lab or product container: refusing test');
   }
@@ -94,19 +97,23 @@ async function main() {
     await until(() => fs.access(path.join(old, 'cell-status/control.sock')).then(()=>true), 'old Main IPC');
     const socket = path.join(old, 'cell-status/control.sock');
     stage = 'register-two-live-cells';
-    for (let index = 1; index <= 2; index++) {
-      const directory = path.join(root, `cell${index}`); await fs.mkdir(directory, { mode: 0o700 });
+    for (const [index, name] of cellNames.entries()) {
+      const directory = path.join(root, `cell${index + 1}`); await fs.mkdir(directory, { mode: 0o700 });
       const code = await requestInvitation(socket);
       await fs.writeFile(path.join(directory, 'invitation'), code, { mode: 0o600 });
-      await container(`awglab-c${index}`, `172.31.250.${index + 1}`, directory, [
+      await container(name, `172.31.250.${index + 2}`, directory, [
         '-e', 'AWG_PRIVATE_STATE=1', '-e', 'AWG_CELL_STATE_DIR=/cell-data', '-e', 'AWG_CELL_INVITATION_FILE=/cell-data/invitation',
-        '-e', 'AWG_CELL_RUNTIME_DIR=/run/cell-user', '-e', 'AWG_CELL_BOOTSTRAP_INTERFACE=awgcellb0',
+        '-e', 'AWG_CELL_RUNTIME_DIR=/cell-data/runtime', '-e', 'WG_QUICK_USERSPACE_IMPLEMENTATION=net-forward',
+        '-e', 'AWG_CELL_BOOTSTRAP_INTERFACE=awgcellb0',
         '-e', 'AWG_CELL_CONTROL_INTERFACE=awgcellc0', '-e', 'AWG_CELL_USER_INTERFACE=awgcellu0',
-        '-e', 'AWG_CELL_USER_PORT=51830', '-e', 'AWG_CELL_WAN_INTERFACE=eth0', '-e', `AWG_CELL_ENDPOINT=172.31.250.${index + 1}`,
+        '-e', 'AWG_CELL_USER_PORT=51830', '-e', 'AWG_CELL_WAN_INTERFACE=eth0', '-e', `AWG_CELL_ENDPOINT=172.31.250.${index + 2}`,
       ]);
-      docker('exec', '-d', `awglab-c${index}`, 'sh', '-c', 'node /app/link-agent.js serve > /cell-data/lab-service.log 2>&1');
-      await until(async () => (await (async()=>{ const rows=Object.values(await new MainCellEntrySnapshot(path.join(old, 'cell-status/entries.json')).readDetails()); return rows.length === index && rows.every(row=>row.descriptor); })()),
-        `Cell ${index} registration`);
+      docker('exec', '-d', name, 'sh', '-c',
+        'while ! node /app/link-agent.js serve >> /cell-data/lab-service.log 2>&1; do sleep 2; done');
+      await until(async () => {
+        const rows = Object.values(await new MainCellEntrySnapshot(path.join(old, 'cell-status/entries.json')).readDetails());
+        return rows.length === index + 1 && rows.every(row => row.descriptor);
+      }, `Cell ${index + 1} registration`);
     }
     const details = await new MainCellEntrySnapshot(path.join(old, 'cell-status/entries.json')).readDetails();
     const ids = Object.keys(details);
@@ -120,23 +127,32 @@ async function main() {
     }
     await new StateStore(path.join(old, 'data/state.json')).save(state);
     compose(old, ['up', '-d']);
-    await until(async () => Object.values(await new MainCellEntrySnapshot(path.join(old, 'cell-status/entries.json')).readDetails())
-      .every(row => row.routeApplied && Object.keys(row.confirmed).length === 1), 'two applied profiles');
-    const user = state.clients[1];
+    await until(async () => {
+      const rows = Object.values(await new MainCellEntrySnapshot(path.join(old, 'cell-status/entries.json')).readDetails());
+      return rows.length === 2 && rows.every(row => row.routeApplied && Object.keys(row.confirmed).length === 1);
+    }, 'two applied profiles');
+    const users = state.clients.filter(client => client.entryCellId);
     const descriptors = Object.fromEntries(Object.entries(details).map(([id, row]) => [id, row.descriptor]));
-    const config = buildAwgArtifacts({ server: state.server, clients: state.clients, entryDescriptors: descriptors }).clientArtifacts[user.id].nativeConfig;
-    const deviceDirectory = path.join(root, 'device'); await fs.mkdir(deviceDirectory, { mode: 0o700 });
-    await fs.writeFile(path.join(deviceDirectory, 'phone.conf'), config, { mode: 0o600 });
-    await container('awglab-device', '172.31.250.101', deviceDirectory);
-    docker('exec', 'awglab-device', 'sh', '-c', 'awg-quick up /cell-data/phone.conf > /cell-data/start.log 2>&1');
-    const panel = () => docker('exec', 'awglab-device', 'node', '-e', `const q=require('http').get('http://10.8.0.1:51821',r=>{r.resume();r.on('end',()=>process.exit(r.statusCode===200?0:1))});q.setTimeout(2000,()=>q.destroy());q.on('error',()=>process.exit(1))`) === '';
-    await until(panel, 'Home panel through Cell');
+    const { clientArtifacts } = buildAwgArtifacts({ server: state.server, clients: state.clients, entryDescriptors: descriptors });
+    for (const [index, name] of deviceNames.entries()) {
+      const directory = path.join(root, `device${index + 1}`);
+      await fs.mkdir(directory, { mode: 0o700 });
+      await fs.writeFile(path.join(directory, 'phone.conf'), clientArtifacts[users[index].id].nativeConfig, { mode: 0o600 });
+      await container(name, `172.31.250.${101 + index}`, directory);
+      docker('exec', name, 'sh', '-c', 'awg-quick up /cell-data/phone.conf > /cell-data/start.log 2>&1');
+    }
+    const panel = name => docker('exec', name, 'node', '-e', `const q=require('http').get('http://10.8.0.1:51821',r=>{r.resume();r.on('end',()=>process.exit(r.statusCode===200?0:1))});q.setTimeout(2000,()=>q.destroy());q.on('error',()=>process.exit(1))`) === '';
+    for (const name of deviceNames) await until(() => panel(name), `Home panel before restore from ${name}`);
+    const runningCells = new Map(cellNames.map(name => [name, namespace(name)]));
     stage = 'backup-and-confirm-generation';
     const backup = await requestBackup(socket);
     await fs.writeFile(path.join(root, 'backup.awgbackup'), Buffer.from(backup.archive, 'base64'), { mode: 0o600 });
     await fs.writeFile(path.join(root, 'backup.key'), backup.recoveryKey, { mode: 0o600 });
-    await until(async () => JSON.parse(await fs.readFile(path.join(old, 'cell-status/cells.json'), 'utf8')).cells
-      .filter(row => row.status === 'consumed').every(row => row.backup.confirmed), 'backup generation acknowledged');
+    await until(async () => {
+      const rows = JSON.parse(await fs.readFile(path.join(old, 'cell-status/cells.json'), 'utf8')).cells
+        .filter(row => row.status === 'consumed');
+      return rows.length === 2 && rows.every(row => row.backup.confirmed);
+    }, 'backup generation acknowledged');
     stage = 'destroy-old-main-namespace';
     compose(old, ['stop']); compose(old, ['rm', '-f']); docker('rm', '-f', 'awglab-old');
     run('ip', ['addr', 'add', `${endpoint}/24`, 'dev', bridge]);
@@ -158,13 +174,18 @@ async function main() {
     const output = run('sh', [path.join(destination, 'restore.sh'), path.join(root, 'backup.awgbackup'), path.join(root, 'backup.key')]);
     assert.match(output, /Restore complete/);
     const restored = await new StateStore(path.join(destination, 'data/state.json')).load();
-    assert.equal(restored.server.privateKey, state.server.privateKey);
-    assert.equal(restored.clients[1].privateKey, user.privateKey);
+    assert.ok(restored.server.privateKey === state.server.privateKey, 'Main AWG identity changed');
+    for (const user of users) {
+      const client = restored.clients.find(row => row.id === user.id);
+      assert.ok(client?.privateKey === user.privateKey, 'Restored client identity changed');
+      assert.equal(client.entryCellId, user.entryCellId);
+      assert.equal(client.exitNodeId, user.exitNodeId);
+    }
     assert.equal(restored.server.wanInterface, bridge);
-    await until(panel, 'Home panel after cold restore', 120);
+    for (const name of deviceNames) await until(() => panel(name), `Home panel after restore from ${name}`, 120);
     await until(async () => Object.values(await new MainCellEntrySnapshot(path.join(destination, 'cell-status/entries.json')).readDetails())
       .filter(row => row.routeApplied).length === 2, 'both live Cells recovered', 120);
-    for (const name of ['awglab-c1', 'awglab-c2']) assert.equal(docker('inspect', '-f', '{{.State.Running}}', name), 'true');
+    for (const [name, pid] of runningCells) assert.equal(namespace(name), pid);
     success = true;
     console.log('PASS actual cold host restore with two live Cells: acknowledged backup generation, old Main stopped, new authority, preserved client keys and Home panel access');
   } catch (error) {
@@ -173,7 +194,7 @@ async function main() {
     throw new Error(String(error.message).split('\n')[0].replace(/[A-Za-z0-9+/_-]{40,}={0,2}/g, '[redacted]').slice(0, 140));
   } finally {
     if (success || process.env.AWG_KEEP_FAILED_LAB !== '1') {
-    for (const name of ['awg-easy-3-main-cell', 'awg-easy-3', 'awglab-device', 'awglab-c2', 'awglab-c1', 'awglab-old']) {
+    for (const name of ownedNames) {
       try { docker('stop', '-t', '10', name); } catch {} try { docker('rm', name); } catch {}
     }
     for (const item of preservedSysctls) { await fs.unlink(item.file).catch(()=>{}); if (item.saved) await fs.rename(item.saved, item.file); }

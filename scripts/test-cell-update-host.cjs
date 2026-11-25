@@ -12,8 +12,8 @@ const { CellMaintenanceHost } = require('../src/lib/CellMaintenanceHost');
 const { BackupJournal } = require('../src/lib/BackupJournal');
 const root = path.resolve(__dirname, '..');
 const run = (...args) => execFileSync('docker', args, { encoding: 'utf8', timeout: 120000, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
-const shell = file => new Promise((resolve, reject) => {
-  const child = spawn('sh', [file], { stdio: ['ignore', 'pipe', 'pipe'] }); let output = '';
+const shell = (file, ...args) => new Promise((resolve, reject) => {
+  const child = spawn('sh', [file, ...args], { stdio: ['ignore', 'pipe', 'pipe'] }); let output = '';
   child.stdout.on('data', b => { output = (output + b).slice(-2048); }); child.stderr.on('data', b => { output = (output + b).slice(-2048); });
   const timer = setTimeout(() => { child.kill('SIGTERM'); reject(new Error('Root update test timeout')); }, 120000);
   child.once('exit', code => { clearTimeout(timer); resolve({ code, output }); }); child.once('error', reject);
@@ -49,8 +49,11 @@ async function main() {
   await fs.appendFile(path.join(directory, 'lib/auto-update.sh'), `
 awg_easy_latest_stable_version() { printf '%s\\n' '${next}'; }
 awg_easy_verify_candidate_image() { [ "$1:$3" = '${next}:${digest}' ]; }
+timeout() {
+  if [ "$1:$2:$3:$4" = '300:docker:pull:${official}' ]; then return 0; fi
+  command timeout "$@"
+}
 docker() {
-  if [ "$1" = pull ] && [ "$2" = '${official}' ]; then return 0; fi
   if [ "$1:$2" = image:inspect ]; then
     case "$*" in
       *'{{range .RepoDigests}}'*) printf '%s\\n' '${digest}'; return 0 ;;
@@ -59,7 +62,12 @@ docker() {
     esac
   fi
   if [ "$1" = compose ] && [ -f '${directory}/inject-once' ]; then
-    case "$*" in *'up -d --pull never cell'*) rm '${directory}/inject-once'; return 1 ;; esac
+    case "$*" in
+      *'up -d --pull never cell'*)
+        command docker rm -f "$AWG_TEST_PREVIOUS" >/dev/null || return 1
+        rm '${directory}/inject-once'
+        return 1 ;;
+    esac
   fi
   command docker "$@"
 }
@@ -73,18 +81,30 @@ docker() {
     await new BackupJournal(path.join(directory, 'cell-data/maintenance/request.json'),
       value => verifyHostRequest(value, { controllerKey: controller.publicKey, cellKey: cell.publicKey }), 8192)
       .write(sign({ version: 1, command }, cell.privateKey, 'network-maintenance-host/v1'));
-    execFileSync('sh', [path.join(directory, 'cell-maintenance.sh'), '--init'], { timeout: 30000, stdio: 'pipe' });
+    const supervisor = path.join(directory, 'cell-maintenance.sh');
+    const initialized = await shell(supervisor, '--init');
+    assert.equal(initialized.code, 0, initialized.output);
+    assert.equal((await new CellMaintenanceHost(host).anchor.read()).containerId, previous);
     await fs.writeFile(path.join(directory, 'inject-once'), '', { mode: 0o600 });
-    assert.notEqual((await shell(path.join(directory, 'cell-maintenance.sh'))).code, 0);
-    assert.equal(run('inspect', '-f', '{{.State.Running}}', previous), 'true');
+    process.env.AWG_TEST_PREVIOUS = previous;
+    const interrupted = await shell(supervisor);
+    assert.notEqual(interrupted.code, 0);
+    assert.match(interrupted.output, /replacement startup failed/);
+    assert.throws(() => run('inspect', previous));
+    assert.throws(() => run('inspect', 'network-relay'));
     assert.equal((await new CellMaintenanceHost(host).read()).replacementImageId, candidate);
-    const resumed = await shell(path.join(directory, 'cell-maintenance.sh')); assert.equal(resumed.code, 0, resumed.output);
+    const resumed = await shell(supervisor); assert.equal(resumed.code, 0, resumed.output);
     const replacement = run('inspect', '-f', '{{.Id}}', 'network-relay'); assert.notEqual(replacement, previous);
     assert.equal(run('exec', replacement, 'node', '-p', "require('/app/package.json').version"), next);
     const state = await new CellMaintenanceHost(host).read(); assert.equal(state.phase, 'complete'); assert.equal(state.containerId, replacement);
-    assert.equal((await shell(path.join(directory, 'cell-maintenance.sh'))).code, 0);
+    assert.equal((await shell(supervisor)).code, 0);
     assert.equal(run('inspect', '-f', '{{.Id}}', 'network-relay'), replacement);
     console.log('PASS real Root/Compose Cell image replacement, injected interruption, forward retry, exact image intent and idempotence (unpublished registry boundary fixture)');
   } finally { try { compose(['down']); } catch {} }
 }
-main().catch(error => { console.error((String(error.stderr || error.message).split('\n').find(line=>line.trim()) || 'Update test failed').replace(/[A-Za-z0-9+/_-]{40,}={0,2}/g, '[redacted]').slice(0, 160)); process.exitCode = 1; });
+main().catch(error => {
+  console.error([error.message?.split('\n')[0], String(error.stderr ?? '').trim()]
+    .filter(Boolean).join('\n').split('\n').slice(-8).join('\n')
+    .replace(/[A-Za-z0-9+/_-]{40,}={0,2}/g, '[redacted]').slice(0, 900));
+  process.exitCode = 1;
+});

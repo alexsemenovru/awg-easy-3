@@ -85,31 +85,38 @@ if docker inspect "$container_id" >/dev/null 2>&1; then
 fi
 if [ "$operation" = update ]; then
   if [ "$owned_present" = false ]; then
-    # The old ID may disappear only after Root durably pinned this replacement.
+    # Compose can be interrupted after removing the old container, before it
+    # creates the new one. Resume from the exact image Root already verified.
     [ "$replacement_image" != - ] || die 'owned container disappeared without a replacement intent'
-    current_image=$(docker inspect -f '{{.Image}}' network-relay) || die 'replacement container unavailable'
-    [ "$current_image" = "$replacement_image" ] || die 'foreign container occupies the Cell name'
-    [ "$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/cell-data"}}{{.Source}}:{{.RW}}{{end}}{{end}}' network-relay)" = "$state_dir:true" ] || die 'replacement has a different state mount'
-    if [ "$(docker inspect -f '{{.State.Running}}:{{.State.ExitCode}}' network-relay)" = false:0 ]; then exit 0; fi
+    if current_image=$(docker inspect -f '{{.Image}}' network-relay 2>/dev/null); then
+      [ "$current_image" = "$replacement_image" ] || die 'foreign container occupies the Cell name'
+      [ "$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/cell-data"}}{{.Source}}:{{.RW}}{{end}}{{end}}' network-relay)" = "$state_dir:true" ] || die 'replacement has a different state mount'
+      if [ "$(docker inspect -f '{{.State.Status}}:{{.State.ExitCode}}' network-relay)" = exited:0 ]; then exit 0; fi
+    fi
   fi
 
   # A manually stopped Cell is not started by the automatic updater.
   if [ "$owned_present" = true ] && [ "$(docker inspect -f '{{.State.Running}}' "$container_id")" != true ]; then exit 0; fi
-  installed=$(docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges:true \
-    --entrypoint node "$owned_image" -p "require('/app/package.json').version")
-  awg_easy_semver_is_newer "$target" "$installed" || die 'only a newer Cell version may be installed'
-  [ "$replacement_image" != - ] || [ "$(awg_easy_latest_stable_version)" = "$target" ] || die 'Main version is not the latest stable release'
-  reference=ghcr.io/alexsemenovru/awg-easy-3:$target
-  timeout 300 docker pull "$reference" >/dev/null || die 'image download failed'
-  candidate=$(docker image inspect -f '{{range .RepoDigests}}{{println .}}{{end}}' "$reference" | grep '^ghcr.io/alexsemenovru/awg-easy-3@sha256:')
-  revision=$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$reference")
-  awg_easy_verify_candidate_image "$target" "$revision" "$candidate" || die 'image signature rejected'
-  new_image=$(docker image inspect -f '{{.Id}}' "$candidate")
+  new_image=$replacement_image
+  if [ "$new_image" = - ]; then
+    installed=$(docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges:true \
+      --entrypoint node "$owned_image" -p "require('/app/package.json').version")
+    awg_easy_semver_is_newer "$target" "$installed" || die 'only a newer Cell version may be installed'
+    [ "$(awg_easy_latest_stable_version)" = "$target" ] || die 'Main version is not the latest stable release'
+    reference=ghcr.io/alexsemenovru/awg-easy-3:$target
+    timeout 300 docker pull "$reference" >/dev/null || die 'image download failed'
+    candidate=$(docker image inspect -f '{{range .RepoDigests}}{{println .}}{{end}}' "$reference" | grep '^ghcr.io/alexsemenovru/awg-easy-3@sha256:')
+    revision=$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$reference")
+    awg_easy_verify_candidate_image "$target" "$revision" "$candidate" || die 'image signature rejected'
+    new_image=$(docker image inspect -f '{{.Id}}' "$candidate")
+  fi
   reported=$(docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges:true \
     --entrypoint node "$new_image" -p "require('/app/package.json').version")
   [ "$reported" = "$target" ] || die 'signed package version differs'
-  action=plan-replacement
-  helper readonly || die 'cannot persist the verified replacement image intent'
+  if [ "$replacement_image" = - ]; then
+    action=plan-replacement
+    helper readonly || die 'cannot persist the verified replacement image intent'
+  fi
   temporary=$(mktemp "$project_dir/.env.cells-cell.XXXXXX")
   chmod 600 "$temporary"
   sed "s/^AWG_IMAGE=.*/AWG_IMAGE=$new_image/" "$env_file" > "$temporary"
